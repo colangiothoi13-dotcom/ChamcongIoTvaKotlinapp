@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    // Ban Spark/prototype: moi tai khoan Email/Password deu la quan tri vien.
+    function isAdmin() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function isDevice() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    match /employees/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+    match /attendance/{id} {
+      allow read: if signedIn();
+      // Chế độ Spark/prototype: thiết bị anonymous chỉ được tạo bản ghi mới.
+      allow create: if isDevice()
+        && request.resource.data.deviceId is string
+        && request.resource.data.templateId is int
+        && request.resource.data.verified == true;
+      allow update, delete: if false;
+    }
+    match /devices/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /deviceCommands/{id} {
+      allow read: if isAdmin() || isDevice();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isDevice()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'message', 'completedAt']));
+    }
+    match /fingerprintMappings/{id} {
+      allow read: if isAdmin() || isDevice();
+      allow write: if isAdmin();
+    }
+    match /system/{id} { allow read, write: if isAdmin(); }
+    match /payroll/{id} {
+      allow read, create: if isAdmin();
+      // Phieu luong da luu la anh chup lich su, khong ghi de/xoa.
+      allow update, delete: if false;
+    }
+    match /performanceReviews/{id} { allow read, write: if isAdmin(); }
+    match /notifications/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /syncReceipts/{id} { allow read, write: if signedIn(); }
+  }
+}

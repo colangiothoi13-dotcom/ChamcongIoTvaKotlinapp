@@ -1,0 +1,76 @@
+vn.chamcong.iot.app-ui-graphics-release-0 C:\Users\Dell\.gradle\caches\8.9\transforms\0259df9ce9a59796466511a3397a6ab9\transformed\ui-graphics-release\res
+vn.chamcong.iot.app-lifecycle-runtime-compose-release-1 C:\Users\Dell\.gradle\caches\8.9\transforms\039c3531ec9668b18661e2f73f069ebd\transformed\lifecycle-runtime-compose-release\res
+vn.chamcong.iot.app-navigation-common-2.8.5-2 C:\Users\Dell\.gradle\caches\8.9\transforms\03c1f07c675fd2c93abd58d1a31ba13b\transformed\navigation-common-2.8.5\res
+vn.chamcong.iot.app-material3-release-3 C:\Users\Dell\.gradle\caches\8.9\transforms\087c1dc8231b29638dca6ad5513de8bc\transformed\material3-release\res
+vn.chamcong.iot.app-tracing-1.2.0-4 C:\Users\Dell\.gradle\caches\8.9\transforms\0af962bcaef4e382c3e5fd67ef951f59\transformed\tracing-1.2.0\res
+vn.chamcong.iot.app-play-services-basement-18.4.0-5 C:\Users\Dell\.gradle\caches\8.9\transforms\10578642f0779b1a1191345e510f0ee5\transformed\play-services-basement-18.4.0\res
+vn.chamcong.iot.app-sqlite-2.4.0-6 C:\Users\Dell\.gradle\caches\8.9\transforms\123983fec4291e99f0a32cca4e93f2fc\transformed\sqlite-2.4.0\res
+vn.chamcong.iot.app-lifecycle-service-2.8.7-7 C:\Users\Dell\.gradle\caches\8.9\transforms\1a8227ece9a5c0fe9d2a7e2543554158\transformed\lifecycle-service-2.8.7\res
+vn.chamcong.iot.app-animation-release-8 C:\Users\Dell\.gradle\caches\8.9\transforms\1e1f30ade5e11e8dccb5a743d273a421\transformed\animation-release\res
+vn.chamcong.iot.app-annotation-experimental-1.4.1-9 C:\Users\Dell\.gradle\caches\8.9\transforms\20854c5cf48f1798efec9496a531f53c\transformed\annotation-experimental-1.4.1\res
+vn.chamcong.iot.app-customview-poolingcontainer-1.0.0-10 C:\Users\Dell\.gradle\caches\8.9\transforms\259f46d0eaabf9da6aca3cb9389dc4ac\transformed\customview-poolingcontainer-1.0.0\res
+vn.chamcong.iot.app-startup-runtime-1.1.1-11 C:\Users\Dell\.gradle\caches\8.9\transforms\288564f0d710d5e6471a3a9d1631faf3\transformed\startup-runtime-1.1.1\res
+vn.chamcong.iot.app-lifecycle-livedata-core-2.8.7-12 C:\Users\Dell\.gradle\caches\8.9\transforms\2a86844fd9294f3d4c7ec6a73ee7f096\transformed\lifecycle-livedata-core-2.8.7\res
+vn.chamcong.iot.app-ui-geometry-release-13 C:\Users\Dell\.gradle\caches\8.9\transforms\3081f0b800bcea3811dbacc7bb4f399d\transformed\ui-geometry-release\res
+vn.chamcong.iot.app-foundation-release-14 C:\Users\Dell\.gradle\caches\8.9\transforms\34ef6c88061360075d7aa39646dd6d3f\transformed\foundation-release\res
+vn.chamcong.iot.app-ui-tooling-release-15 C:\Users\Dell\.gradle\caches\8.9\transforms\3680de5be3569411cdf9c34e3c1e934b\transformed\ui-tooling-release\res
+vn.chamcong.iot.app-savedstate-1.2.1-16 C:\Users\Dell\.gradle\caches\8.9\transforms\3b2b8080dad7a1d51ff1e8d4bde68633\transformed\savedstate-1.2.1\res
+vn.chamcong.iot.app-material-icons-core-release-17 C:\Users\Dell\.gradle\caches\8.9\transforms\3cacaf6fc5c1a8bf6943e61d54aa6cdf\transformed\material-icons-core-release\res
+vn.chamcong.iot.app-ui-release-18 C:\Users\Dell\.gradle\caches\8.9\transforms\3deae45465815890b5d5caf3d8216ab6\transformed\ui-release\res
+vn.chamcong.iot.app-room-runtime-2.6.1-19 C:\Users\Dell\.gradle\caches\8.9\transforms\41e8402a400ceca0246be91d17bb0ecb\transformed\room-runtime-2.6.1\res
+vn.chamcong.iot.app-play-services-auth-20.7.0-20 C:\Users\Dell\.gradle\caches\8.9\transforms\44cef0c3a38b02a227d08d4a34ec5698\transformed\play-services-auth-20.7.0\res
+vn.chamcong.iot.app-sqlite-framework-2.4.0-21 C:\Users\Dell\.gradle\caches\8.9\transforms\4859bb4aa048c11b6d679dbe9d96db25\transformed\sqlite-framework-2.4.0\res
+vn.chamcong.iot.app-credentials-1.2.0-rc01-22 C:\Users\Dell\.gradle\caches\8.9\transforms\48af526329cf26622194c6f377f5c81c\transformed\credentials-1.2.0-rc01\res
+vn.chamcong.iot.app-foundation-layout-release-23 C:\Users\Dell\.gradle\caches\8.9\transforms\4a2f55e3081bd3ce9360b6738e7e1461\transformed\foundation-layout-release\res
+vn.chamcong.iot.app-lifecycle-viewmodel-release-24 C:\Users\Dell\.gradle\caches\8.9\transforms\4d7d238c9c1b48e24520f120d473ec02\transformed\lifecycle-viewmodel-release\res
+vn.chamcong.iot.app-navigation-runtime-2.8.5-25 C:\Users\Dell\.gradle\caches\8.9\transforms\506aa21d4ba868e37470ca09dd70179c\transformed\navigation-runtime-2.8.5\res
+vn.chamcong.iot.app-ui-util-release-26 C:\Users\Dell\.gradle\caches\8.9\transforms\52f23d658edb19d8ba9cb6da79f251e2\transformed\ui-util-release\res
+vn.chamcong.iot.app-material-ripple-release-27 C:\Users\Dell\.gradle\caches\8.9\transforms\55c280b24c4d34826024ff3ebe26be17\transformed\material-ripple-release\res
+vn.chamcong.iot.app-lifecycle-viewmodel-savedstate-2.8.7-28 C:\Users\Dell\.gradle\caches\8.9\transforms\57ce7d8d0e34dbe75187b88bba180d6a\transformed\lifecycle-viewmodel-savedstate-2.8.7\res
+vn.chamcong.iot.app-material-release-29 C:\Users\Dell\.gradle\caches\8.9\transforms\5e4145ab57f6f6ba6048bd25400f4951\transformed\material-release\res
+vn.chamcong.iot.app-activity-1.10.0-30 C:\Users\Dell\.gradle\caches\8.9\transforms\5fc9b3e79ed1842b4b2f900281b5f87e\transformed\activity-1.10.0\res
+vn.chamcong.iot.app-savedstate-ktx-1.2.1-31 C:\Users\Dell\.gradle\caches\8.9\transforms\6190e36f2c16fa631903025f48046acd\transformed\savedstate-ktx-1.2.1\res
+vn.chamcong.iot.app-activity-compose-1.10.0-32 C:\Users\Dell\.gradle\caches\8.9\transforms\635b935b572aac1351f65f6d4ef1562d\transformed\activity-compose-1.10.0\res
+vn.chamcong.iot.app-firebase-common-21.0.0-33 C:\Users\Dell\.gradle\caches\8.9\transforms\6efe6771db818267efe8e9403e1b4841\transformed\firebase-common-21.0.0\res
+vn.chamcong.iot.app-lifecycle-livedata-core-ktx-2.8.7-34 C:\Users\Dell\.gradle\caches\8.9\transforms\79728300d66aaef80ebd486eeedbecae\transformed\lifecycle-livedata-core-ktx-2.8.7\res
+vn.chamcong.iot.app-core-1.15.0-35 C:\Users\Dell\.gradle\caches\8.9\transforms\79e810a92abe4c28cc5680881c1973bd\transformed\core-1.15.0\res
+vn.chamcong.iot.app-lifecycle-runtime-release-36 C:\Users\Dell\.gradle\caches\8.9\transforms\7a2118609377a28dd4c132b8b74be63f\transformed\lifecycle-runtime-release\res
+vn.chamcong.iot.app-core-runtime-2.2.0-37 C:\Users\Dell\.gradle\caches\8.9\transforms\7cf361ae2db55cf72a70651819f5136d\transformed\core-runtime-2.2.0\res
+vn.chamcong.iot.app-tracing-ktx-1.2.0-38 C:\Users\Dell\.gradle\caches\8.9\transforms\81f24887649f3b14058021176f9f4d62\transformed\tracing-ktx-1.2.0\res
+vn.chamcong.iot.app-lifecycle-livedata-2.8.7-39 C:\Users\Dell\.gradle\caches\8.9\transforms\8673519d0096dae006c36ab209e8aa49\transformed\lifecycle-livedata-2.8.7\res
+vn.chamcong.iot.app-activity-ktx-1.10.0-40 C:\Users\Dell\.gradle\caches\8.9\transforms\88046fd09cb604d36b24435382442fbf\transformed\activity-ktx-1.10.0\res
+vn.chamcong.iot.app-work-runtime-2.10.0-41 C:\Users\Dell\.gradle\caches\8.9\transforms\9a236d50928f61653c547424a3fad6ae\transformed\work-runtime-2.10.0\res
+vn.chamcong.iot.app-credentials-play-services-auth-1.2.0-rc01-42 C:\Users\Dell\.gradle\caches\8.9\transforms\9e041064325cbb0965fb4f98e3501f18\transformed\credentials-play-services-auth-1.2.0-rc01\res
+vn.chamcong.iot.app-runtime-release-43 C:\Users\Dell\.gradle\caches\8.9\transforms\a3ce2663246799bff0e4b99a74aa5939\transformed\runtime-release\res
+vn.chamcong.iot.app-room-ktx-2.6.1-44 C:\Users\Dell\.gradle\caches\8.9\transforms\a59c4d39a0153c6b2db006eb6b731455\transformed\room-ktx-2.6.1\res
+vn.chamcong.iot.app-lifecycle-runtime-ktx-release-45 C:\Users\Dell\.gradle\caches\8.9\transforms\a5e00d0959b1366751b6c99618ae8029\transformed\lifecycle-runtime-ktx-release\res
+vn.chamcong.iot.app-lifecycle-process-2.8.7-46 C:\Users\Dell\.gradle\caches\8.9\transforms\a80a74c7d85cef7b654955a4942439e6\transformed\lifecycle-process-2.8.7\res
+vn.chamcong.iot.app-ui-unit-release-47 C:\Users\Dell\.gradle\caches\8.9\transforms\abd6bc4888c2ae3cfc0f7779988a5288\transformed\ui-unit-release\res
+vn.chamcong.iot.app-ui-tooling-data-release-48 C:\Users\Dell\.gradle\caches\8.9\transforms\b2d9a53296ab10d9c0888a7562e8cac3\transformed\ui-tooling-data-release\res
+vn.chamcong.iot.app-navigation-common-ktx-2.8.5-49 C:\Users\Dell\.gradle\caches\8.9\transforms\b6a542036669360742a6f04d995af2e7\transformed\navigation-common-ktx-2.8.5\res
+vn.chamcong.iot.app-graphics-path-1.0.1-50 C:\Users\Dell\.gradle\caches\8.9\transforms\bc551e93157294ed30002af65834d7cc\transformed\graphics-path-1.0.1\res
+vn.chamcong.iot.app-firebase-messaging-24.1.0-51 C:\Users\Dell\.gradle\caches\8.9\transforms\be455af05c7da03368905827d0b35b96\transformed\firebase-messaging-24.1.0\res
+vn.chamcong.iot.app-play-services-base-18.0.1-52 C:\Users\Dell\.gradle\caches\8.9\transforms\ccb9f7443d872c80e2c87b99a6b36b6d\transformed\play-services-base-18.0.1\res
+vn.chamcong.iot.app-lifecycle-viewmodel-ktx-2.8.7-53 C:\Users\Dell\.gradle\caches\8.9\transforms\cd694ff99167d960b00c40fa61cf4d66\transformed\lifecycle-viewmodel-ktx-2.8.7\res
+vn.chamcong.iot.app-ui-tooling-preview-release-54 C:\Users\Dell\.gradle\caches\8.9\transforms\d1c334c841ffee611873760b14e80bd3\transformed\ui-tooling-preview-release\res
+vn.chamcong.iot.app-browser-1.4.0-55 C:\Users\Dell\.gradle\caches\8.9\transforms\d5e636812063810831317e82e346855a\transformed\browser-1.4.0\res
+vn.chamcong.iot.app-core-common-2.0.3-56 C:\Users\Dell\.gradle\caches\8.9\transforms\d768cc76a73a1927e18052826fbc8d27\transformed\core-common-2.0.3\res
+vn.chamcong.iot.app-runtime-saveable-release-57 C:\Users\Dell\.gradle\caches\8.9\transforms\d7b7b13ff2fc7098955864939bf85953\transformed\runtime-saveable-release\res
+vn.chamcong.iot.app-material-icons-extended-release-58 C:\Users\Dell\.gradle\caches\8.9\transforms\da99cade8e53b7c4e414c83d514c304f\transformed\material-icons-extended-release\res
+vn.chamcong.iot.app-ui-text-release-59 C:\Users\Dell\.gradle\caches\8.9\transforms\db1f8d984393ba37fd4fcd40026134b7\transformed\ui-text-release\res
+vn.chamcong.iot.app-core-ktx-1.15.0-60 C:\Users\Dell\.gradle\caches\8.9\transforms\df10b99ff22d65c1a1a05f7d258c1e2e\transformed\core-ktx-1.15.0\res
+vn.chamcong.iot.app-work-runtime-ktx-2.10.0-61 C:\Users\Dell\.gradle\caches\8.9\transforms\e574d9caa6cae539f71950e0e947c167\transformed\work-runtime-ktx-2.10.0\res
+vn.chamcong.iot.app-navigation-runtime-ktx-2.8.5-62 C:\Users\Dell\.gradle\caches\8.9\transforms\eddb02dc180fe89dafa22362846a79eb\transformed\navigation-runtime-ktx-2.8.5\res
+vn.chamcong.iot.app-emoji2-1.3.0-63 C:\Users\Dell\.gradle\caches\8.9\transforms\f2292cc4105eaaae5385ada22005e8c5\transformed\emoji2-1.3.0\res
+vn.chamcong.iot.app-profileinstaller-1.4.0-64 C:\Users\Dell\.gradle\caches\8.9\transforms\fab7d0e74565d09102ad15ae3689ca8e\transformed\profileinstaller-1.4.0\res
+vn.chamcong.iot.app-navigation-compose-2.8.5-65 C:\Users\Dell\.gradle\caches\8.9\transforms\fe0ee87a46f748f1c786a5dca19f3fc0\transformed\navigation-compose-2.8.5\res
+vn.chamcong.iot.app-lifecycle-viewmodel-compose-release-66 C:\Users\Dell\.gradle\caches\8.9\transforms\fe114dce57f04871d956e8039113c96e\transformed\lifecycle-viewmodel-compose-release\res
+vn.chamcong.iot.app-animation-core-release-67 C:\Users\Dell\.gradle\caches\8.9\transforms\ff7fbe52e95bf6c8d81b3b8a52aff90c\transformed\animation-core-release\res
+vn.chamcong.iot.app-pngs-68 D:\codex note\ud_ql_nhansu\ChamCongIoT\app\build\generated\res\pngs\debug
+vn.chamcong.iot.app-res-69 D:\codex note\ud_ql_nhansu\ChamCongIoT\app\build\generated\res\processDebugGoogleServices
+vn.chamcong.iot.app-resValues-70 D:\codex note\ud_ql_nhansu\ChamCongIoT\app\build\generated\res\resValues\debug
+vn.chamcong.iot.app-packageDebugResources-71 D:\codex note\ud_ql_nhansu\ChamCongIoT\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+vn.chamcong.iot.app-packageDebugResources-72 D:\codex note\ud_ql_nhansu\ChamCongIoT\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+vn.chamcong.iot.app-debug-73 D:\codex note\ud_ql_nhansu\ChamCongIoT\app\build\intermediates\merged_res\debug\mergeDebugResources
+vn.chamcong.iot.app-debug-74 D:\codex note\ud_ql_nhansu\ChamCongIoT\app\src\debug\res
+vn.chamcong.iot.app-main-75 D:\codex note\ud_ql_nhansu\ChamCongIoT\app\src\main\res

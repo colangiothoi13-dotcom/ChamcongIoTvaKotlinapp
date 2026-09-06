@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="vn.chamcong.iot.model.PersonnelRulesTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-05T07:23:03" hostname="DESKTOP-IDCSU6P" time="0.043">
+  <properties/>
+  <testcase name="negativeBonus" classname="vn.chamcong.iot.model.PersonnelRulesTest" time="0.013"/>
+  <testcase name="invalidMonth" classname="vn.chamcong.iot.model.PersonnelRulesTest" time="0.0"/>
+  <testcase name="snapshotSurvivesChanges" classname="vn.chamcong.iot.model.PersonnelRulesTest" time="0.001"/>
+  <testcase name="neverReusesRetiredSequence" classname="vn.chamcong.iot.model.PersonnelRulesTest" time="0.012"/>
+  <testcase name="skipsExistingCodes" classname="vn.chamcong.iot.model.PersonnelRulesTest" time="0.016"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
