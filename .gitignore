@@ -1,0 +1,19 @@
+# Android/Kotlin
+*.apk
+*.aab
+*.dex
+*.class
+*.jar
+build/
+app/build/
+.gradle/
+local.properties
+
+# ESP8266/IoT
+firmware/build/
+*.bin
+*.elf
+*.map
+
+# Logs
+*.log

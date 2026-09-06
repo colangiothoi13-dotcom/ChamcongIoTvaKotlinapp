@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="gcm_defaultSenderId" translatable="false">903207252658</string>
-    <string name="google_api_key" translatable="false">AIzaSyDX6BVVu7iKV-L4eukCQy0-BRehWs-NZYw</string>
-    <string name="google_app_id" translatable="false">1:903207252658:android:40aaca122ef0c6184f0fab</string>
-    <string name="google_crash_reporting_api_key" translatable="false">AIzaSyDX6BVVu7iKV-L4eukCQy0-BRehWs-NZYw</string>
-    <string name="google_storage_bucket" translatable="false">chamcongiot-56ae5.firebasestorage.app</string>
-    <string name="project_id" translatable="false">chamcongiot-56ae5</string>
-</resources>
