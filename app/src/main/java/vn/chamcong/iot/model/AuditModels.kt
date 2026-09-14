@@ -4,6 +4,7 @@ import com.google.firebase.Timestamp
 
 enum class AuditAction {
     LOGIN,
+    ACCOUNT_CREATE,
     EMPLOYEE_CREATE,
     EMPLOYEE_UPDATE,
     FINGERPRINT_DELETE,

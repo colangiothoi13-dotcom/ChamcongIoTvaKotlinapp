@@ -16,6 +16,25 @@ data class DeviceSnapshot(
     val capabilities: Set<String> = emptySet()
 )
 
+/**
+ * Converts Firestore's untyped device fields without assuming that old or
+ * manually-created documents are perfectly shaped.
+ */
+fun deviceSnapshotFromFields(id: String, fields: Map<String, Any?>): DeviceSnapshot = DeviceSnapshot(
+    id = id,
+    name = fields["name"] as? String ?: "",
+    location = fields["location"] as? String ?: "",
+    status = fields["status"] as? String ?: "UNKNOWN",
+    lastHeartbeat = fields["lastHeartbeat"] as? Timestamp,
+    firmwareVersion = fields["firmwareVersion"] as? String ?: "",
+    fingerprintCount = (fields["fingerprintCount"] as? Number)?.toInt(),
+    capacity = (fields["capacity"] as? Number)?.toInt(),
+    capabilities = (fields["capabilities"] as? List<*>)
+        .orEmpty()
+        .filterIsInstance<String>()
+        .toSet()
+)
+
 fun DeviceSnapshot.isOnline(
     now: Instant,
     timeout: Duration = Duration.ofMinutes(2)

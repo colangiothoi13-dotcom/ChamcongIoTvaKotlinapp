@@ -19,6 +19,154 @@ ESP8266 --Anonymous Auth/HTTPS--> Firestore <--realtime--> Android
 
 Không lưu ảnh hay đặc trưng vân tay trên Firestore. Module cảm biến giữ template; Firestore chỉ giữ số `fingerprintTemplateId` gắn với nhân viên. Bản production cần xin đồng ý xử lý dữ liệu sinh trắc học, phân quyền, nhật ký truy cập và chính sách xóa dữ liệu.
 
+## Bản mô tả luồng hoạt động hệ thống
+
+Dự án này là một hệ thống chấm công thông minh kết hợp giữa ứng dụng Android, Firebase và thiết bị ESP8266 cảm biến vân tay. Mục tiêu là thay thế hình thức chấm công thủ công bằng một mô hình tự động, có thể theo dõi thời gian làm việc, quản lý nhân viên, thiết bị chấm công và báo cáo doanh nghiệp theo thời gian thực.
+
+### 1. Tổng quan luồng nghiệp vụ
+
+Hệ thống hoạt động theo chu trình sau:
+
+1. Quản trị viên đăng nhập vào ứng dụng Android bằng tài khoản quản trị.
+2. Quản trị viên tạo hoặc cập nhật hồ sơ nhân viên, gồm thông tin cá nhân, phòng ban, trạng thái làm việc và thông tin liên kết vân tay.
+3. Thiết bị ESP8266 được gắn tại cổng hoặc vị trí làm việc, tự động kết nối Wi-Fi và Firebase.
+4. Khi nhân viên đưa ngón tay lên cảm biến, thiết bị AS608/R307 so khớp mẫu vân tay cục bộ.
+5. Nếu khớp, thiết bị gửi sự kiện chấm công lên Firebase với thông tin nhân viên, thiết bị, thời gian và trạng thái.
+6. Ứng dụng Android nhận dữ liệu realtime từ Firestore, tính toán số giờ, trạng thái đi trễ, về sớm, nghỉ phép và các chỉ số tổng quan.
+7. Quản trị viên theo dõi dashboard, xây dựng báo cáo, kiểm tra thiết bị, xử lý đơn từ và lập phiếu lương.
+
+### 2. Luồng đăng nhập và phân quyền
+
+- Tài khoản quản trị sử dụng phương thức Email/Password để truy cập app.
+- Tài khoản thiết bị dùng đăng nhập ẩn danh (Anonymous) để giao tiếp với hệ thống mà không cần người dùng thao tác trực tiếp.
+- Firestore và Firestore Rules phân quyền theo vai trò:
+  - Admin: quản lý nhân viên, thiết bị, ca làm, lương, báo cáo, audit log.
+  - Employee: xem thông tin cá nhân, lịch làm, chấm công của mình, gửi đơn từ.
+  - Device: chỉ có quyền ghi dữ liệu định danh cần thiết như trạng thái heartbeat, snapshot và sự kiện chấm công theo document thiết bị của mình.
+- Khi người dùng đăng nhập, hệ thống kiểm tra `role`, `active`, `employeeId` để xác định quyền truy cập từng màn hình.
+
+### 3. Luồng quản lý nhân viên
+
+- Admin mở màn hình Nhân viên trong ứng dụng.
+- Hệ thống hiển thị danh sách nhân viên với các thông tin: mã nhân viên, tên, phòng ban, email, trạng thái làm việc, vân tay đã liên kết hay chưa.
+- Khi thêm nhân viên mới:
+  - Hệ thống cấp mã nhân viên tự động theo quy tắc định dạng như NV0001, NV0002...
+  - Thông tin nhân viên được lưu vào collection `employees`.
+  - Nếu admin chọn đăng ký vân tay, app gửi lệnh đến thiết bị qua collection `deviceCommands/{deviceId}`.
+  - Thiết bị nhận lệnh, quét vân tay, lưu mẫu trên cảm biến AS608 và gửi lại template ID về Firestore.
+- Khi xóa nhân viên:
+  - Hồ sơ không bị xóa vật lý mà chuyển sang trạng thái `active = false`.
+  - Dữ liệu chấm công, phiếu lương và lịch sử hoạt động vẫn được giữ nguyên để đảm bảo tính minh bạch, đúng quy định và audit.
+  - Vân tay liên kết cũng được vô hiệu hóa để tránh chấm công sai khi nhân viên chưa còn làm việc.
+
+### 4. Luồng đăng ký vân tay
+
+- Admin chọn nhân viên và bấm chức năng “Lưu & đăng ký vân tay”.
+- App tạo một lệnh đăng ký trên thiết bị tương ứng.
+- ESP8266 nhận lệnh, bật LED, phát tiếng bíp và yêu cầu khách hàng đưa ngón tay lên cảm biến.
+- Sensor AS608 lấy mẫu vân tay và thực hiện xác thực đủ 2 lần quét để đảm bảo độ chính xác.
+- Sau khi thành công, thiết bị lưu template vân tay trong bộ nhớ cảm biến và trả về `fingerprintTemplateId` hoặc trạng thái hoàn tất.
+- App cập nhật lại thông tin nhân viên trong Firestore với mối liên kết giữa nhân viên và vị trí vân tay.
+- Nếu quá thời gian hoặc quét không khớp, LED đỏ báo lỗi và hệ thống giữ trạng thái thất bại để admin có thể thử lại.
+
+### 5. Luồng chấm công bằng vân tay
+
+- Nhân viên đưa ngón tay lên cảm biến tại thiết bị chấm công.
+- Sensor đọc mẫu vân tay và đối chiếu với template đã lưu trên AS608.
+- Nếu khớp:
+  - Thiết bị kiểm tra mapping trên Firestore xem nhân viên có đang active và có quyền chấm công hay không.
+  - Nếu hợp lệ, thiết bị ghi sự kiện chấm công với thời gian hiện tại.
+  - App Android theo dõi realtime collection `attendance` để cập nhật trạng thái chấm công ngay trên dashboard và màn hình chấm công.
+- Nếu không khớp hoặc mapping đã bị vô hiệu hóa:
+  - Hệ thống từ chối xác thực.
+  - Không ghi sự kiện attendance, tránh vi phạm/ghi nhầm người khác.
+
+### 6. Luồng xử lý thiết bị ESP8266
+
+- ESP8266 khởi động và tự động kết nối Wi-Fi.
+- Thiết bị cần xác thực với Firebase hoặc sử dụng Anonymous Auth nếu được cấu hình cho môi trường prototype.
+- Thiết bị gửi `heartbeat` định kỳ cho Firestore, cho biết trạng thái online/offline, firmware đang chạy, số lượng mẫu vân tay và capability của thiết bị.
+- Nếu có lệnh từ hệ thống, ví dụ: đăng ký vân tay, xóa vân tay, cập nhật cấu hình, thiết bị thực hiện theo hàng đợi.
+- Nếu mất mạng, thiết bị lưu outbox và tự retry khi có kết nối trở lại.
+- Dashboard và màn hình Thiết bị trên Android nhận snapshot heartbeat để hiển thị trạng thái đầu vào, thời gian online, firmware version và tình trạng hoạt động.
+
+#### Chế độ offline của thiết bị
+
+Khi ESP8266 mất kết nối mạng hoặc Firebase không phản hồi, thiết bị không bỏ qua dữ liệu chấm công. Thay vào đó, thiết bị lưu các sự kiện chưa gửi vào bộ nhớ cục bộ dưới dạng hàng đợi offline, thường được triển khai trên filesystem như `LittleFS` với đường dẫn `/attendance.outbox`.
+
+Mỗi bản ghi trong hàng đợi offline chứa thông tin như:
+
+- `eventId`: mã duy nhất của sự kiện chấm công
+- `deviceId`: mã thiết bị
+- `employeeId` hoặc thông tin nhân viên được xác định
+- `timestamp`: thời gian quét vân tay
+- `type`: loại sự kiện (check-in/check-out, sync, update, delete...)
+- `status`: trạng thái chờ gửi / đang gửi / đã gửi
+
+Khi mạng trở lại, ESP8266 tự động đọc lại hàng đợi, gửi từng sự kiện theo thứ tự và dùng cùng `eventId` để tránh trùng lặp dữ liệu. Những request gửi thành công với mã HTTP 2xx hoặc 409 sẽ được đánh dấu là đã xử lý; các lỗi mạng hoặc lỗi xác thực tạm thời sẽ được giữ lại để retry ở lần gửi tiếp theo. Cách làm này giúp hệ thống duy trì tính toàn vẹn dữ liệu và giảm nguy cơ mất lượt chấm công trong điều kiện mạng yếu.
+
+### 7. Luồng dashboard và giám sát realtime
+
+- Mỗi khi dữ liệu chấm công, nhân viên, thiết bị hoặc đơn từ thay đổi, ViewModel sẽ nhận dữ liệu từ Firebase và hiển thị trên giao diện.
+- Dashboard tổng hợp các chỉ số chính:
+  - Tổng số nhân viên
+  - Số nhân viên đang làm
+  - Số người đến muộn
+  - Số người chưa chấm ra
+  - Số ca làm trong tuần
+  - Tình trạng thiết bị online/offline
+- Dữ liệu được tính theo logic nghiệp vụ trong domain layer, không tính trực tiếp trong UI.
+- Biểu đồ hiển thị theo tuần và theo trạng thái công việc để quản lý dễ dàng hơn.
+
+### 8. Luồng lịch làm, ca, đơn từ và có mặt
+
+- Admin có thể tạo ca làm, lịch làm theo tuần, phân ca cho từng nhân viên hoặc phòng ban.
+- Hệ thống hỗ trợ các loại ca như sáng, tối, bổ sung.
+- Nếu có thay đổi lịch làm hoặc nhân viên vắng mặt, admin có thể gửi yêu cầu từ nhân viên/điều chỉnh bằng đơn từ.
+- Hệ thống phân loại trạng thái:
+  - Đã vào công ty
+  - Chưa đến
+  - Đang nghỉ phép
+  - Đã ra về
+  - Chưa chấm ra
+  - Có mặt bất thường
+- Đơn từ được xử lý theo quy trình `PENDING` → `APPROVED/REJECTED`, có lý do từ chối bắt buộc nếu từ chối.
+
+### 9. Luồng lương và báo cáo
+
+- Admin chọn tháng, nhân viên và nhập đơn giá theo giờ.
+- Hệ thống tự tính số giờ làm dựa trên các cặp chấm công vào/ra, có thể chỉnh sửa thủ công nếu cần.
+- Công thức lương thường là:
+  - Lương cơ bản = Đơn giá/giờ × Số giờ làm
+  - Thực lĩnh = Lương cơ bản + Thưởng − Khấu trừ
+- Mỗi nhân viên có một phiếu lương theo tháng; dữ liệu này được lưu để theo dõi và xuất báo cáo.
+- Báo cáo có thể được tổng hợp theo khoảng thời gian, phòng ban, mã nhân viên và loại hoạt động, rồi xuất ra file CSV hoặc chia sẻ qua hệ thống Android share sheet.
+
+### 10. Luồng audit log và bảo mật
+
+- Mọi hành động quan trọng của admin đều được ghi lại trong `audit_logs`.
+- Audit log ghi:
+  - Người thực hiện
+  - Hành động
+  - Đối tượng ảnh hưởng
+  - Thời gian
+  - Lý do hoặc chi tiết thay đổi
+- Nhờ đó, hệ thống có thể theo dõi các thao tác như đăng nhập, thêm/sửa/xóa nhân viên, xóa vân tay, điều chỉnh chấm công, trả lời đơn từ, cập nhật lương, thiết lập cài đặt hệ thống.
+- Nếu tài khoản bị vô hiệu hóa, không có quyền role phù hợp hoặc không có employeeId, hệ thống chặn tiếp cận các màn hình quan trọng.
+
+### 11. Luồng dữ liệu và kiến trúc phần mềm
+
+- Ứng dụng Android dùng mô hình MVVM + Jetpack Compose.
+- UI chỉ hiển thị state và phát sự kiện, không trực tiếp thao tác Firebase.
+- `MainViewModel` là trung tâm điều phối state, realtime listener và các intent nghiệp vụ.
+- `FirebaseRepository` là lớp duy nhất giao tiếp với Firebase.
+- Domain layer chứa toàn bộ logic tính toán và quy tắc nghiệp vụ như dashboard, lương, lọc dữ liệu, báo cáo, đơn từ, trạng thái thiết bị.
+- Model layer định nghĩa dữ liệu nền tảng để app làm việc với Firestore, attendance, payroll, audit, device, user.
+
+### 12. Kết luận
+
+Dự án này không chỉ là một ứng dụng chấm công đơn thuần, mà là một hệ thống quản lý nhân sự hiện đại tích hợp thiết bị phần cứng và nền tảng điện toán đám mây. Từ việc đăng nhập, quản lý nhân viên, đăng ký vân tay, chấm công tự động, theo dõi thiết bị, cho đến lương, báo cáo và audit, toàn bộ hệ thống được thiết kế theo hướng tự động hóa và minh bạch. Điều này giúp giảm sai sót thủ công, tăng độ tin cậy và tạo nền tảng để doanh nghiệp quản lý nhân sự hiệu quả hơn trong thời gian dài.
+
 ## Chạy Android
 
 1. Mở thư mục `ChamCongIoT` bằng Android Studio (JDK 17).
@@ -81,7 +229,7 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi
 - `performanceReviews/{id}`: kỳ đánh giá, điểm, nhận xét.
 - `notifications/{id}`: thông báo nội bộ.
 - `devices/{id}`: snapshot heartbeat, trạng thái, firmware, số mẫu và capability thiết bị (không lưu plaintext secret).
-- `users/{uid}`: email, displayName, role `ADMIN`/`EMPLOYEE`, trạng thái active.
+- `users/{uid}`: email, displayName, role `ADMIN`/`EMPLOYEE`, trạng thái active; tài khoản Nhân viên có thêm `employeeId` để liên kết đúng hồ sơ.
 - `departments/{id}`: phòng ban do admin quản lý.
 - `settings/{id}`: cấu hình dùng chung do admin quản lý.
 - `audit_logs/{id}`: nhật ký bất biến của các thao tác quản trị.
@@ -154,56 +302,15 @@ Mọi lần thay đổi code phải cập nhật mục này, ghi rõ file đã s
 - Giữ app mở/kết nối mạng để đồng bộ kết quả thiết bị; nếu đóng app, mở lại để hoàn tất. Lệnh đang xử lý không được ghi đè. Thiết bị khởi động lại giữa đăng ký sẽ báo thất bại; xóa mẫu đang chờ trước khi đăng ký lại.
 - KPI chưa tự tính. Công thức chuyên cần đề xuất được giải thích trong tab Hiệu suất; chưa có lịch làm theo tháng để áp dụng.
 
-### Cập nhật và kiểm tra
+## Nhật ký triển khai tạo tài khoản nhân viên (14/09/2026)
 
-1. Nạp lại `firmware/esp8266_fingerprint/esp8266_fingerprint.ino` cho NodeMCU ESP8266 để có lệnh xóa vân tay, heartbeat snapshot và hàng đợi offline. Sau khi khởi động, Serial Monitor 115200 phải có `FW: snapshot-2-offline` và `HEARTBEAT HTTP 200` khi có mạng; nếu không, log sẽ chỉ rõ lỗi Wi-Fi/NTP/Auth/HTTPS.
-2. Cài APK mới: `app/build/outputs/apk/debug/app-debug.apk`.
-3. Source Rules đã được cập nhật; phiên này chưa deploy lên Firebase. Sau khi kiểm tra đúng project, chạy `firebase deploy --only firestore:rules --project chamcongiot-56ae5`. Rules cho phép anonymous device tạo/cập nhật `devices/GATE-01` bằng các field snapshot giới hạn.
-4. Mở app sau khi ESP8266 chạy khoảng 5–30 giây; Dashboard/Thiết bị phải hiển thị `GATE-01`, firmware `snapshot-2-offline` và heartbeat.
-5. Thử thêm hai nhân viên, kiểm tra mã khác nhau; đặt đơn giá/giờ, lập phiếu với số giờ, thưởng và khấu trừ; kiểm tra công thức và phiếu cũ giữ nguyên.
-6. Đăng ký một mẫu thử → xóa vân tay → đợi trạng thái Hoàn tất → quét lại phải không được nhận diện. Nếu template vẫn còn vật lý trong AS608, firmware mới vẫn không được ghi attendance vì mapping đã bị vô hiệu hóa. Thử xóa khi thiết bị tắt: app phải hiện đang chờ; bật lại để hoàn tất.
-7. Xóa nhân viên thử: hồ sơ vào Đã nghỉ; lập phiếu tháng cuối, sau đó nhân viên biến mất khỏi danh sách chọn của chính tháng đó, còn lịch sử vẫn giữ nguyên.
-
-Build Android dùng JDK 17: `gradlew.bat :app:testDebugUnitTest :app:assembleDebug`.
-Build firmware: `arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 firmware/esp8266_fingerprint`.
-
-### Ghi chú verification trên workspace hiện tại
-
-Đường dẫn workspace có ký tự Unicode nên Android Gradle Plugin cần `android.overridePathCheck=true` trong `gradle.properties`. JUnit local test runner cũng không load class ổn định khi chạy trực tiếp từ đường dẫn này; verification đã chạy qua mapping ASCII tạm thời `Z:` tới workspace, sau đó gỡ mapping. `local.properties` chỉ trỏ tới Android SDK local và đã được `.gitignore` loại trừ.
-
-## Nhật ký triển khai quản lý ca và nghiệp vụ tuần (14/09/2026)
-
-Đã duyệt và triển khai lát mở rộng cho các mục 7–11 theo spec [`docs/superpowers/specs/2026-09-14-shift-attendance-workflow-design.md`](docs/superpowers/specs/2026-09-14-shift-attendance-workflow-design.md) và kế hoạch [`docs/superpowers/plans/2026-09-14-shift-attendance-workflow.md`](docs/superpowers/plans/2026-09-14-shift-attendance-workflow.md).
-
-- Ca làm chỉ gồm `Ca sáng`, `Ca tối`, `Ca bổ sung`; admin tạo/chỉnh ca và quy định giờ, nghỉ, đi trễ, về sớm, ngày áp dụng.
-- Admin phân ca cho từng nhân viên hoặc cả phòng ban. Lịch dùng tuần bắt đầu thứ Hai; từng lịch có tăng ca `0`, `1`, `2` hoặc `3` giờ. Có đổi ca thủ công, sao chép tuần trước không ghi đè lịch có sẵn và lịch tháng hiển thị số ca theo ngày.
-- Dashboard và tổng hợp dùng đúng tuần đang chọn (thứ Hai–Chủ nhật), không dùng cửa sổ 7 ngày gần nhất.
-- Có domain tính giờ làm, nghỉ trưa, đi trễ, về sớm, tăng ca; tổng hợp giờ/ngày công/đi trễ/về sớm/tăng ca/nghỉ phép/vắng không phép.
-- Lịch phân ca có thể lưu `workedHoursOverride` từ 0–24 giờ kèm `adjustmentNote` để admin xử lý quên chấm, mất mạng hoặc chấm nhầm mà không sửa attendance gốc.
-- Có domain phân loại `Đã vào công ty`, `Chưa đến`, `Đang nghỉ phép`, `Đã ra về`, `Chưa chấm ra`, `Có mặt bất thường` và workflow đơn `PENDING`/`APPROVED`/`REJECTED` với lý do từ chối bắt buộc.
-- Repository đã có Flow/transaction cho `shifts`, `workSchedules`, `leaveRequests`, `notifications`; Firestore Rules giới hạn các collection này cho admin. Attendance/payroll cũ vẫn được giữ nguyên.
-- File tạo mới: `app/src/main/java/vn/chamcong/iot/model/SchedulingModels.kt`, `RequestModels.kt`, `PresenceModels.kt`; `app/src/main/java/vn/chamcong/iot/domain/SchedulingRules.kt`, `PresenceRules.kt`, `RequestRules.kt`; `app/src/main/java/vn/chamcong/iot/ui/shifts/ShiftsScreen.kt`, `schedule/ScheduleScreen.kt`, `presence/PresenceScreen.kt`, `requests/RequestsScreen.kt`, `reports/WorkSummaryScreen.kt`; các test domain tương ứng.
-- File đã sửa: `DashboardModels.kt`, `DashboardRules.kt`, `DashboardRulesTest.kt`, `FirebaseRepository.kt`, `MainViewModel.kt`, `ChamCongApp.kt`, `DashboardScreen.kt`, `firebase/firestore.rules` và README này.
-- Kiểm chứng cuối: Gradle 8.9 chạy `:app:testDebugUnitTest :app:assembleDebug` thành công; 38 test, 0 failure, 0 error, 0 skipped. APK nằm tại `app/build/outputs/apk/debug/app-debug.apk`.
-- Chưa deploy lại Firebase trong phiên triển khai này; cần chạy lệnh deploy ở phần hướng dẫn sau khi kiểm tra project Firebase đích.
-
-Kiểm tra bằng Gradle 8.9 cài sẵn qua mapping ASCII `Z:` vì `gradlew.bat` trong repo chưa có `gradle-wrapper.jar`. Lệnh tương đương:
-
-```text
-Set-Location Z:
-& 'C:\Users\DELL\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a\gradle-8.9\bin\gradle.bat' :app:testDebugUnitTest
-& 'C:\Users\DELL\.gradle\wrapper\dists\gradle-8.9-bin\90cnw93cvbtalezasaz0blq0a\gradle-8.9\bin\gradle.bat' :app:assembleDebug
-```
-
-## Nhật ký triển khai báo cáo, audit, bảo mật và offline (14/09/2026)
-
-Đã duyệt và triển khai tiếp các mục 13–17 theo spec [`docs/superpowers/specs/2026-09-14-reports-audit-security-offline-design.md`](docs/superpowers/specs/2026-09-14-reports-audit-security-offline-design.md) và plan [`docs/superpowers/plans/2026-09-14-reports-audit-security-offline.md`](docs/superpowers/plans/2026-09-14-reports-audit-security-offline.md).
-
-- Báo cáo có khoảng ngày, mã nhân viên, phòng ban; các nhóm chấm công, ngày công, trễ/sớm, nghỉ phép, tăng ca và hoạt động thiết bị; xuất CSV UTF-8 BOM và chia sẻ qua Android Sharesheet. Báo cáo tháng dùng ngày đầu/cuối tháng được chọn, chưa tự chạy Cloud Scheduler cuối tháng.
-- Audit log bất biến ghi người thực hiện, hành động, đối tượng, lý do, chi tiết và server timestamp cho đăng nhập, nhân viên, xóa vân tay, điều chỉnh công, ca/lịch, duyệt đơn, lương, cấu hình thiết bị và đổi mật khẩu. Đã thêm màn `Nhật ký` chỉ đọc.
-- Authentication đã thêm quên mật khẩu, đổi mật khẩu và chặn màn admin khi `users/{uid}` có `role=EMPLOYEE` hoặc `active=false`; user chưa có profile vẫn giữ cơ chế bootstrap prototype.
-- Firestore Rules đã thêm `users`, `departments`, `settings`, `audit_logs`; audit không update/delete, attendance/payroll không update/delete, `syncReceipts` chỉ admin. Thêm index audit theo `createdAt`.
-- Firmware đổi sang `snapshot-2-offline`, cache mapping cục bộ và outbox LittleFS `/attendance.outbox`; retry dùng cùng `eventId`, HTTP 2xx/409 được xem là đã nhận, lỗi mạng giữ hàng đợi và tự gửi lại.
-- File tạo mới: `app/src/main/java/vn/chamcong/iot/model/ReportModels.kt`, `AuditModels.kt`, `UserModels.kt`; `app/src/main/java/vn/chamcong/iot/domain/ReportRules.kt`, `AuditRules.kt`, `OfflineQueueRules.kt`; `app/src/main/java/vn/chamcong/iot/data/CsvReportExporter.kt`; `app/src/main/java/vn/chamcong/iot/ui/reports/ReportsScreen.kt`, `ui/audit/AuditScreen.kt`; `app/src/main/res/xml/file_paths.xml`; các test `ReportRulesTest.kt`, `AuditRulesTest.kt`, `OfflineQueueRulesTest.kt`, `CsvReportExporterTest.kt`.
-- File đã sửa: `FirebaseRepository.kt`, `MainViewModel.kt`, `ChamCongApp.kt`, `ui/devices/DevicesScreen.kt`, `AndroidManifest.xml`, `firebase/firestore.rules`, `firebase/firestore.indexes.json`, `firmware/esp8266_fingerprint/esp8266_fingerprint.ino` và README này.
-- TDD đã chạy RED trước từng domain mới rồi GREEN. Kiểm chứng cuối bằng Gradle 8.9: 47 test, 0 failure, 0 error, 0 skipped; `:app:assembleDebug` thành công và tạo `app/build/outputs/apk/debug/app-debug.apk`. `arduino-cli` không có trong môi trường nên firmware chưa được compile.
+- Form **Thêm nhân viên** đã có tùy chọn **Tạo tài khoản đăng nhập cho nhân viên**. Admin nhập email, mật khẩu và xác nhận mật khẩu ngay khi lưu hồ sơ.
+- Khi bật tùy chọn này, app lưu hồ sơ nhân viên trước, tạo tài khoản Email/Password trong Firebase Auth bằng Firebase App phụ để không đăng xuất phiên Admin, sau đó tạo `users/{uid}` với `role=EMPLOYEE`, `active=true` và `employeeId` trỏ đúng ID document trong `employees`.
+- Mật khẩu chỉ gửi trực tiếp cho Firebase Auth, không lưu vào Firestore và không xuất hiện trong log. Nếu tạo profile thất bại sau khi Auth đã tạo, app cố gắng xóa tài khoản Auth vừa tạo để tránh tài khoản mồ côi.
+- Tài khoản nhân viên đăng nhập tại màn hình đăng nhập chung bằng email/mật khẩu. Sau khi kiểm tra profile, app mở shell Nhân viên gồm Trang chủ, Chấm công của tôi, Đơn từ và Cá nhân.
+- Khi Admin chuyển nhân viên sang **Đã nghỉ**, các profile tài khoản liên kết được chuyển `active=false`; nhân viên không thể tiếp tục truy cập dữ liệu nghiệp vụ.
+- Firestore Rules chỉ cho Admin tạo/cập nhật profile có `role=EMPLOYEE`, không cho client tạo hoặc nâng tài khoản lên Admin.
+- File tạo mới: `app/src/main/java/vn/chamcong/iot/model/EmployeeAccountModels.kt`, `app/src/main/java/vn/chamcong/iot/domain/EmployeeAccountRules.kt`, `app/src/test/java/vn/chamcong/iot/domain/EmployeeAccountRulesTest.kt`.
+- File đã sửa: `app/src/main/java/vn/chamcong/iot/data/FirebaseRepository.kt`, `app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt`, `app/src/main/java/vn/chamcong/iot/ui/ChamCongApp.kt`, `app/src/main/java/vn/chamcong/iot/model/AuditModels.kt`, `firebase/firestore.rules` và README này.
+- Cách sử dụng: Admin vào **Nhân viên → +**, nhập họ tên/email/phòng ban, tích **Tạo tài khoản đăng nhập**, nhập mật khẩu ít nhất 6 ký tự, rồi chọn **Chỉ lưu nhân viên** hoặc **Lưu & đăng ký vân tay**. Gửi email và mật khẩu cho nhân viên đăng nhập lần đầu; nhân viên có thể đổi mật khẩu sau khi đăng nhập.
+- Kiểm chứng sau cập nhật: 58 unit test, 0 failure, 0 error, 0 skipped; `:app:testDebugUnitTest` và `:app:assembleDebug` đều thành công.

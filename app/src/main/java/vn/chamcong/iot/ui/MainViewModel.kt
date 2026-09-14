@@ -24,21 +24,27 @@ import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.summarizeDashboard
 import vn.chamcong.iot.domain.summarizeWeeklyWork
 import vn.chamcong.iot.domain.canAccessAdmin
+import vn.chamcong.iot.domain.canAccessEmployee
+import vn.chamcong.iot.domain.employeeMonthSummaries as buildEmployeeMonthSummaries
+import vn.chamcong.iot.domain.employeeRequestDraft
 import vn.chamcong.iot.model.Payroll
 import vn.chamcong.iot.data.FirebaseRepository
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.DashboardSummary
 import vn.chamcong.iot.model.DeviceSnapshot
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.EmployeeDaySummary
 import vn.chamcong.iot.model.AppNotification
 import vn.chamcong.iot.model.AuditLog
 import vn.chamcong.iot.model.AttendanceReportRow
 import vn.chamcong.iot.model.DeviceActivityRow
+import vn.chamcong.iot.model.EmployeeAccountInput
 import vn.chamcong.iot.model.LeaveRequest
 import vn.chamcong.iot.model.PresenceRecord
 import vn.chamcong.iot.model.ReportFilter
 import vn.chamcong.iot.model.ReportType
 import vn.chamcong.iot.model.RequestStatus
+import vn.chamcong.iot.model.RequestType
 import vn.chamcong.iot.model.UserProfile
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
@@ -49,6 +55,7 @@ import java.time.ZoneId
 
 data class MainUiState(
     val signedIn: Boolean = false,
+    val profileResolved: Boolean = false,
     val loading: Boolean = false,
     val employees: List<Employee> = emptyList(),
     val attendance: List<Attendance> = emptyList(),
@@ -64,6 +71,10 @@ data class MainUiState(
     val notifications: List<AppNotification> = emptyList(),
     val auditLogs: List<AuditLog> = emptyList(),
     val userProfile: UserProfile? = null,
+    val currentEmployee: Employee? = null,
+    val employeeAttendance: List<Attendance> = emptyList(),
+    val employeeSchedules: List<WorkSchedule> = emptyList(),
+    val employeeRequests: List<LeaveRequest> = emptyList(),
     val selectedRequestFilter: String? = null,
     val employeeQuery: String = "",
     val departmentFilter: String? = null,
@@ -105,7 +116,7 @@ data class MainUiState(
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = FirebaseRepository()
+    private val repository = FirebaseRepository(application)
     private val _state = MutableStateFlow(MainUiState(signedIn = repository.isSignedIn))
     val state: StateFlow<MainUiState> = _state.asStateFlow()
     private val zoneId = ZoneId.of("Asia/Ho_Chi_Minh")
@@ -120,38 +131,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .onFailure { e -> _state.update { it.copy(loading = false, error = e.localizedMessage) } }
     }
 
-    private val subscriptions = mutableListOf<Job>()
+    private val dataSubscriptions = mutableListOf<Job>()
+    private var profileSubscription: Job? = null
     private var scheduleSubscription: Job? = null
+    private var subscriptionMode: String? = null
 
     init { if (repository.isSignedIn) subscribe() }
 
     private fun subscribe() {
-        subscriptions.forEach { it.cancel() }
-        subscriptions.clear()
+        profileSubscription?.cancel()
+        cancelDataSubscriptions()
+        subscriptionMode = null
+        _state.update { it.copy(profileResolved = false) }
+        profileSubscription = viewModelScope.launch {
+            repository.observeUserProfile().catch { e -> setError(e) }.collect { profile ->
+                _state.update { it.copy(userProfile = profile, profileResolved = true) }
+                if (profile?.role == "EMPLOYEE") {
+                    if (canAccessEmployee("password", profile)) subscribeEmployee(profile)
+                    else {
+                        cancelDataSubscriptions()
+                        subscriptionMode = "BLOCKED"
+                    }
+                } else subscribeAdmin()
+            }
+        }
+    }
+
+    private fun cancelDataSubscriptions() {
+        dataSubscriptions.forEach { it.cancel() }
+        dataSubscriptions.clear()
         scheduleSubscription?.cancel()
         scheduleSubscription = null
-        subscriptions += viewModelScope.launch {
+    }
+
+    private fun subscribeAdmin() {
+        if (subscriptionMode == "ADMIN") return
+        cancelDataSubscriptions()
+        subscriptionMode = "ADMIN"
+        dataSubscriptions += viewModelScope.launch {
             repository.observePayroll().catch { e -> setError(e) }.collect { rows ->
                 _state.update { it.copy(payroll=rows) }
             }
         }
-        subscriptions += viewModelScope.launch {
+        dataSubscriptions += viewModelScope.launch {
             repository.observeEmployees().catch { e -> setError(e) }.collect { employees ->
                 _state.update { withUpdatedDashboard(it, employees = employees) }
             }
         }
-        subscriptions += viewModelScope.launch {
+        dataSubscriptions += viewModelScope.launch {
             repository.observeRecentAttendance().catch { e -> setError(e) }.collect { attendance ->
                 _state.update { withUpdatedDashboard(it, attendance = attendance) }
                 attendance.firstOrNull()?.id?.takeIf(String::isNotBlank)?.let(::enqueueReceipt)
             }
         }
-        subscriptions += viewModelScope.launch {
+        dataSubscriptions += viewModelScope.launch {
             repository.observeDevices().catch { e -> setError(e) }.collect { devices ->
                 _state.update { it.copy(devices = devices) }
             }
         }
-        subscriptions += viewModelScope.launch {
+        dataSubscriptions += viewModelScope.launch {
             repository.observeEnrollmentCommands().catch { e -> setError(e) }.collect { commands ->
                 _state.update { it.copy(commands = commands) }
                 commands.filter { it["status"] == "COMPLETED" && it["applied"] != true }.forEach {
@@ -159,35 +197,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
-        subscriptions += viewModelScope.launch {
+        dataSubscriptions += viewModelScope.launch {
             repository.observeShifts().catch { e -> setError(e) }.collect { shifts ->
                 _state.update { it.copy(shifts = shifts) }
             }
         }
-        subscriptions += viewModelScope.launch {
+        dataSubscriptions += viewModelScope.launch {
             repository.observeLeaveRequests().catch { e -> setError(e) }.collect { requests ->
                 _state.update { it.copy(leaveRequests = requests) }
             }
         }
-        subscriptions += viewModelScope.launch {
+        dataSubscriptions += viewModelScope.launch {
             repository.observeNotifications().catch { e -> setError(e) }.collect { notifications ->
                 _state.update { it.copy(notifications = notifications) }
             }
         }
-        subscriptions += viewModelScope.launch {
+        dataSubscriptions += viewModelScope.launch {
             repository.observeAuditLogs().catch { e -> setError(e) }.collect { logs ->
                 _state.update { it.copy(auditLogs = logs) }
-            }
-        }
-        subscriptions += viewModelScope.launch {
-            repository.observeUserProfile().catch { e -> setError(e) }.collect { profile ->
-                _state.update { it.copy(userProfile = profile) }
             }
         }
         subscribeSchedules()
     }
 
+    private fun subscribeEmployee(profile: UserProfile) {
+        val employeeId = profile.employeeId.orEmpty()
+        val mode = "EMPLOYEE:$employeeId"
+        if (subscriptionMode == mode) return
+        cancelDataSubscriptions()
+        subscriptionMode = mode
+        _state.update {
+            it.copy(
+                currentEmployee = null,
+                employeeAttendance = emptyList(),
+                employeeSchedules = emptyList(),
+                employeeRequests = emptyList()
+            )
+        }
+        if (employeeId.isBlank()) return
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployee(employeeId).catch { e -> setError(e) }.collect { employee ->
+                _state.update { it.copy(currentEmployee = employee) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeeAttendance(employeeId).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(employeeAttendance = rows) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeeSchedules(employeeId).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(employeeSchedules = rows) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeShifts().catch { e -> setError(e) }.collect { shifts ->
+                _state.update { it.copy(shifts = shifts) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeeRequests(employeeId).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(employeeRequests = rows) }
+            }
+        }
+    }
+
     private fun subscribeSchedules() {
+        if (subscriptionMode != "ADMIN") return
         scheduleSubscription?.cancel()
         val monday = _state.value.selectedWeekStart
         scheduleSubscription = viewModelScope.launch {
@@ -207,11 +283,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { _state.update { it.copy(saving=false, error=e.localizedMessage) } }
     }
-    fun saveEmployee(employee: Employee, done: () -> Unit) = perform(done) {
-        "Đã lưu nhân viên ${repository.saveEmployee(employee)}"
+    fun saveEmployee(employee: Employee, account: EmployeeAccountInput? = null, done: () -> Unit) = perform(done) {
+        val code = repository.saveEmployee(employee, account)
+        if (account == null) "Đã lưu nhân viên $code" else "Đã lưu nhân viên $code và tạo tài khoản đăng nhập"
     }
-    fun requestFingerprint(employee: Employee, deviceId: String, done: () -> Unit) = perform(done) {
-        "Đã gửi đăng ký cho ${repository.saveAndRequestFingerprint(employee, deviceId)}. Đặt ngón tay tại thiết bị."
+    fun requestFingerprint(employee: Employee, deviceId: String, account: EmployeeAccountInput? = null, done: () -> Unit) = perform(done) {
+        val code = repository.saveAndRequestFingerprint(employee, deviceId, account)
+        if (account == null) "Đã gửi đăng ký cho $code. Đặt ngón tay tại thiết bị."
+        else "Đã lưu nhân viên $code, tạo tài khoản và gửi đăng ký vân tay. Đặt ngón tay tại thiết bị."
     }
     fun remove(employeeId: String, retire: Boolean, done: () -> Unit) = perform(done) {
         repository.removeEmployeeOrFingerprint(employeeId, retire)
@@ -259,6 +338,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.updateDeviceConfiguration(deviceId, name, location)
         "Đã lưu cấu hình thiết bị"
     }
+    fun submitEmployeeRequest(type: RequestType, startDate: String, endDate: String, reason: String, done: () -> Unit = {}) = perform(done) {
+        val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
+        val request = employeeRequestDraft(employee, type, startDate, endDate, reason)
+        repository.submitEmployeeRequest(request)
+        "Đã gửi đơn, đang chờ Admin duyệt"
+    }
     fun markNotificationRead(notificationId: String) = viewModelScope.launch {
         runCatching { repository.markNotificationRead(notificationId) }.onFailure(::setError)
     }
@@ -283,10 +368,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectPresenceDate(value: LocalDate) = _state.update { it.copy(selectedPresenceDate = value) }
     fun setRequestFilter(value: String?) = _state.update { it.copy(selectedRequestFilter = value?.takeIf(String::isNotBlank)) }
     fun signOut() {
-        subscriptions.forEach { it.cancel() }
-        subscriptions.clear()
-        scheduleSubscription?.cancel()
-        scheduleSubscription = null
+        profileSubscription?.cancel()
+        profileSubscription = null
+        cancelDataSubscriptions()
+        subscriptionMode = null
         repository.signOut()
         _state.value = MainUiState()
     }
@@ -295,6 +380,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun setError(error: Throwable) = _state.update { it.copy(error = error.localizedMessage) }
 
     fun hasAdminAccess(): Boolean = canAccessAdmin("password", _state.value.userProfile)
+    fun hasEmployeeAccess(): Boolean = canAccessEmployee("password", _state.value.userProfile)
+
+    fun employeeMonthSummaries(month: LocalDate = LocalDate.now()): List<EmployeeDaySummary> {
+        val employee = _state.value.currentEmployee ?: return emptyList()
+        val approvedLeaveDates = _state.value.employeeRequests
+            .filter { it.status == RequestStatus.APPROVED.name && it.type == RequestType.LEAVE.name }
+            .flatMap { request ->
+                val start = runCatching { LocalDate.parse(request.startDate) }.getOrNull()
+                val end = runCatching { LocalDate.parse(request.endDate) }.getOrNull()
+                if (start == null || end == null || end.isBefore(start)) emptyList()
+                else generateSequence(start) { current ->
+                    current.plusDays(1).takeUnless { it.isAfter(end) }
+                }.toList()
+            }
+            .toSet()
+        return buildEmployeeMonthSummaries(
+            employeeId = employee.id,
+            month = month,
+            attendance = _state.value.employeeAttendance,
+            schedules = _state.value.employeeSchedules,
+            shifts = _state.value.shifts,
+            approvedLeaveDates = approvedLeaveDates,
+            zoneId = zoneId
+        )
+    }
 
     fun reportAttendanceRows(filter: ReportFilter): List<AttendanceReportRow> = vn.chamcong.iot.domain.attendanceReportRows(
         filter = filter,

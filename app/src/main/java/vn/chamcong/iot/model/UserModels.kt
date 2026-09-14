@@ -10,5 +10,6 @@ data class UserProfile(
     val displayName: String = "",
     val role: String = UserRole.EMPLOYEE.name,
     val active: Boolean = true,
+    val employeeId: String? = null,
     val updatedAt: Timestamp = Timestamp.now()
 )

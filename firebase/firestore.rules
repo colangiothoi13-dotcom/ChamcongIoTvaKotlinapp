@@ -16,6 +16,16 @@ service cloud.firestore {
           || (get(userProfilePath()).data.role == 'ADMIN'
             && get(userProfilePath()).data.active == true));
     }
+    function isEmployee() {
+      return isEmailUser()
+        && exists(userProfilePath())
+        && get(userProfilePath()).data.role == 'EMPLOYEE'
+        && get(userProfilePath()).data.active == true
+        && get(userProfilePath()).data.employeeId is string;
+    }
+    function isOwnEmployee(employeeId) {
+      return isEmployee() && get(userProfilePath()).data.employeeId == employeeId;
+    }
     function isDevice() {
       return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
@@ -27,14 +37,30 @@ service cloud.firestore {
     }
 
     match /employees/{id} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isOwnEmployee(id);
       allow create, update, delete: if isAdmin();
     }
     match /users/{id} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == id);
       // Role/active phải được bootstrap bằng Firebase Admin SDK/Console, không
-      // cho client tự nâng quyền hoặc tự mở khóa tài khoản.
-      allow create, update, delete: if false;
+      // cho client tự nâng quyền hoặc tự mở khóa tài khoản. Admin chỉ được
+      // tạo hồ sơ EMPLOYEE gắn với một employeeId; không thể tạo ADMIN.
+      allow create: if isAdmin()
+        && request.resource.data.uid == id
+        && request.resource.data.role == 'EMPLOYEE'
+        && request.resource.data.active == true
+        && request.resource.data.employeeId is string
+        && request.resource.data.email is string
+        && request.resource.data.displayName is string;
+      allow update: if isAdmin()
+        && resource.data.role == 'EMPLOYEE'
+        && request.resource.data.role == 'EMPLOYEE'
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.employeeId == resource.data.employeeId
+        && request.resource.data.email is string
+        && request.resource.data.displayName is string
+        && request.resource.data.active is bool;
+      allow delete: if false;
     }
     match /departments/{id} {
       allow read, create, update: if isAdmin();
@@ -55,7 +81,7 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     match /attendance/{id} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       // Chế độ Spark/prototype: thiết bị anonymous chỉ được tạo bản ghi mới.
       allow create: if isDevice()
         && request.resource.data.deviceId is string
@@ -84,7 +110,7 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
     match /shifts/{id} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isEmployee();
       allow create, update: if isAdmin()
         && request.resource.data.name is string
         && request.resource.data.category in ['MORNING', 'EVENING', 'SUPPLEMENTARY']
@@ -99,7 +125,7 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
     match /workSchedules/{id} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create, update: if isAdmin()
         && request.resource.data.employeeId is string
         && request.resource.data.shiftId is string
@@ -118,8 +144,26 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
     match /leaveRequests/{id} {
-      allow read: if isAdmin();
-      allow create, update: if isAdmin()
+      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
+      allow create: if (isAdmin()
+        && request.resource.data.employeeId is string
+        && request.resource.data.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE']
+        && request.resource.data.startDate is string
+        && request.resource.data.endDate is string
+        && request.resource.data.reason is string
+        && request.resource.data.status in ['PENDING', 'APPROVED', 'REJECTED']);
+      allow create: if isEmployee()
+        && request.resource.data.employeeId == get(userProfilePath()).data.employeeId
+        && request.resource.data.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE']
+        && request.resource.data.startDate is string
+        && request.resource.data.endDate is string
+        && request.resource.data.reason is string
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.reviewerId == null
+        && request.resource.data.reviewerName == null
+        && request.resource.data.reviewedAt == null;
+      allow update: if isAdmin()
         && request.resource.data.employeeId is string
         && request.resource.data.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE']
         && request.resource.data.startDate is string

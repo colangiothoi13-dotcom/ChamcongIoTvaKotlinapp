@@ -1,5 +1,7 @@
 ﻿package vn.chamcong.iot.data
 
+import android.content.Context
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.*
 import com.google.firebase.Timestamp
@@ -8,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import vn.chamcong.iot.domain.copyScheduleToNextWeek
+import vn.chamcong.iot.domain.employeeAccountProfile
 import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.notificationForRequest
 import vn.chamcong.iot.domain.reviewRequest
@@ -16,14 +19,19 @@ import vn.chamcong.iot.domain.validateRequest
 import vn.chamcong.iot.domain.validateShift
 import vn.chamcong.iot.domain.validateWorkedHoursOverride
 import vn.chamcong.iot.domain.validateAuditLog
+import vn.chamcong.iot.domain.validateEmployeeAccountInput
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
 import java.util.UUID
 
 class FirebaseRepository(
+    private val appContext: Context,
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
+    private companion object {
+        const val EMPLOYEE_ACCOUNT_APP_NAME = "employee-account-creator"
+    }
     val isSignedIn: Boolean get() = auth.currentUser != null
     val currentUserId: String get() = auth.currentUser?.uid.orEmpty()
     val currentUserName: String get() = auth.currentUser?.email ?: "Admin"
@@ -65,6 +73,50 @@ class FirebaseRepository(
             if (error != null) close(error)
             else trySend(value?.documents.orEmpty().mapNotNull { it.toObject(Employee::class.java)?.copy(id=it.id) })
         }
+        awaitClose { listener.remove() }
+    }
+    fun observeEmployee(employeeId: String): Flow<Employee?> = callbackFlow {
+        require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+        val listener = db.collection("employees").document(employeeId).addSnapshotListener { value, error ->
+            if (error != null) close(error)
+            else trySend(value?.toObject(Employee::class.java)?.copy(id = employeeId))
+        }
+        awaitClose { listener.remove() }
+    }
+    fun observeEmployeeAttendance(employeeId: String): Flow<List<Attendance>> = callbackFlow {
+        require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+        val listener = db.collection("attendance")
+            .whereEqualTo("employeeId", employeeId)
+            .addSnapshotListener { value, error ->
+                if (error != null) close(error)
+                else trySend(value?.documents.orEmpty()
+                    .mapNotNull { it.toObject(Attendance::class.java)?.copy(id = it.id) }
+                    .sortedByDescending { it.timestamp.toDate().time })
+            }
+        awaitClose { listener.remove() }
+    }
+    fun observeEmployeeSchedules(employeeId: String): Flow<List<WorkSchedule>> = callbackFlow {
+        require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+        val listener = db.collection("workSchedules")
+            .whereEqualTo("employeeId", employeeId)
+            .addSnapshotListener { value, error ->
+                if (error != null) close(error)
+                else trySend(value?.documents.orEmpty()
+                    .mapNotNull { it.toObject(WorkSchedule::class.java)?.copy(id = it.id) }
+                    .sortedBy { it.date })
+            }
+        awaitClose { listener.remove() }
+    }
+    fun observeEmployeeRequests(employeeId: String): Flow<List<LeaveRequest>> = callbackFlow {
+        require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+        val listener = db.collection("leaveRequests")
+            .whereEqualTo("employeeId", employeeId)
+            .addSnapshotListener { value, error ->
+                if (error != null) close(error)
+                else trySend(value?.documents.orEmpty()
+                    .mapNotNull { it.toObject(LeaveRequest::class.java)?.copy(id = it.id) }
+                    .sortedByDescending { it.createdAt.toDate().time })
+            }
         awaitClose { listener.remove() }
     }
     fun observeRecentAttendance(): Flow<List<Attendance>> = callbackFlow {
@@ -294,6 +346,21 @@ class FirebaseRepository(
         return requestRef.id
     }
 
+    suspend fun submitEmployeeRequest(request: LeaveRequest): String {
+        validateRequest(request)
+        require(request.status == RequestStatus.PENDING.name) { "Đơn Nhân viên phải ở trạng thái chờ duyệt" }
+        require(request.reviewerId == null && request.reviewerName == null && request.reviewedAt == null) {
+            "Nhân viên không được tự nhập thông tin duyệt đơn"
+        }
+        val profile = db.collection("users").document(currentUserId).get().await().toObject(UserProfile::class.java)
+        require(profile?.role == UserRole.EMPLOYEE.name && profile.active && profile.employeeId == request.employeeId) {
+            "Tài khoản không được gửi đơn cho nhân viên này"
+        }
+        val requestRef = db.collection("leaveRequests").document()
+        requestRef.set(request.copy(id = requestRef.id, status = RequestStatus.PENDING.name).toFirestoreData()).await()
+        return requestRef.id
+    }
+
     suspend fun reviewLeaveRequest(
         requestId: String,
         status: RequestStatus,
@@ -373,20 +440,8 @@ class FirebaseRepository(
         "read" to read
     )
 
-    private fun deviceSnapshot(document: DocumentSnapshot): DeviceSnapshot = DeviceSnapshot(
-        id = document.id,
-        name = document.getString("name").orEmpty(),
-        location = document.getString("location").orEmpty(),
-        status = document.getString("status") ?: "UNKNOWN",
-        lastHeartbeat = document.getTimestamp("lastHeartbeat"),
-        firmwareVersion = document.getString("firmwareVersion").orEmpty(),
-        fingerprintCount = document.getLong("fingerprintCount")?.toInt(),
-        capacity = document.getLong("capacity")?.toInt(),
-        capabilities = (document.get("capabilities") as? List<*>)
-            .orEmpty()
-            .filterIsInstance<String>()
-            .toSet()
-    )
+    private fun deviceSnapshot(document: DocumentSnapshot): DeviceSnapshot =
+        deviceSnapshotFromFields(document.id, document.data.orEmpty())
 
     suspend fun updateDeviceConfiguration(deviceId: String, name: String, location: String) {
         require(deviceId.isNotBlank()) { "Mã thiết bị không hợp lệ" }
@@ -404,8 +459,56 @@ class FirebaseRepository(
         ))
     }
 
-    suspend fun saveEmployee(employee: Employee): String = saveEmployeeInternal(employee, null)
-    suspend fun saveAndRequestFingerprint(employee: Employee, deviceId: String): String = saveEmployeeInternal(employee, deviceId.trim())
+    suspend fun saveEmployee(employee: Employee, account: EmployeeAccountInput? = null): String {
+        account?.let(::validateEmployeeAccountInput)
+        val result = saveEmployeeInternal(employee, null)
+        account?.let { createEmployeeAccount(result.id, it) }
+        return result.code
+    }
+
+    suspend fun saveAndRequestFingerprint(
+        employee: Employee,
+        deviceId: String,
+        account: EmployeeAccountInput? = null
+    ): String {
+        account?.let(::validateEmployeeAccountInput)
+        val result = saveEmployeeInternal(employee, deviceId.trim())
+        account?.let { createEmployeeAccount(result.id, it) }
+        return result.code
+    }
+
+    private suspend fun createEmployeeAccount(employeeId: String, input: EmployeeAccountInput) {
+        validateEmployeeAccountInput(input)
+        val primaryApp = FirebaseApp.getInstance()
+        val accountApp = runCatching { FirebaseApp.getInstance(EMPLOYEE_ACCOUNT_APP_NAME) }
+            .getOrElse {
+                FirebaseApp.initializeApp(appContext, primaryApp.options, EMPLOYEE_ACCOUNT_APP_NAME)
+                    ?: error("Không khởi tạo được Firebase Auth phụ để tạo tài khoản")
+            }
+        val accountAuth = FirebaseAuth.getInstance(accountApp)
+        accountAuth.signOut()
+        var createdUid: String? = null
+        try {
+            val user = accountAuth.createUserWithEmailAndPassword(input.email.trim(), input.password).await().user
+                ?: error("Firebase không trả về tài khoản mới")
+            createdUid = user.uid
+            val profile = employeeAccountProfile(user.uid, employeeId, input)
+            db.collection("users").document(user.uid).set(profile).await()
+            runCatching { writeAuditLog(AuditLog(
+                actorId = currentUserId,
+                actorName = currentUserName,
+                action = AuditAction.ACCOUNT_CREATE.name,
+                targetType = "user",
+                targetId = user.uid,
+                details = "Tạo tài khoản EMPLOYEE cho nhân viên $employeeId"
+            )) }
+        } catch (error: Exception) {
+            if (createdUid != null) runCatching { accountAuth.currentUser?.delete()?.await() }
+            throw error
+        } finally {
+            accountAuth.signOut()
+        }
+    }
 
     private fun requireFreeCommand(command: DocumentSnapshot) {
         val status = command.getString("status")
@@ -413,7 +516,9 @@ class FirebaseRepository(
             "Thiết bị đang có lệnh chưa xử lý xong. Hãy bật thiết bị và chờ hoàn tất."
         }
     }
-    private suspend fun saveEmployeeInternal(input: Employee, deviceId: String?): String {
+    private data class EmployeeSaveResult(val id: String, val code: String)
+
+    private suspend fun saveEmployeeInternal(input: Employee, deviceId: String?): EmployeeSaveResult {
         require(input.fullName.isNotBlank()) { "Vui lòng nhập họ tên" }
         if (deviceId != null) require(deviceId.isNotBlank() && !deviceId.contains('/')) { "Mã thiết bị không hợp lệ" }
         val ref = if (input.id.isBlank()) db.collection("employees").document() else db.collection("employees").document(input.id)
@@ -458,7 +563,7 @@ class FirebaseRepository(
             targetId = ref.id,
             details = "Lưu hồ sơ ${input.fullName}${if (deviceId != null) " và yêu cầu đăng ký vân tay" else ""}"
         ))
-        return code
+        return EmployeeSaveResult(ref.id, code)
     }
 
     suspend fun removeEmployeeOrFingerprint(employeeId: String, retire: Boolean) {
@@ -495,6 +600,7 @@ class FirebaseRepository(
                     "createdAt" to FieldValue.serverTimestamp()))
             }
         }.await()
+        if (retire) deactivateEmployeeAccounts(employeeId)
         writeAuditLog(AuditLog(
             actorId = currentUserId,
             actorName = currentUserName,
@@ -504,6 +610,23 @@ class FirebaseRepository(
             reason = if (retire) "Chuyển nhân viên sang đã nghỉ" else "Xóa mẫu vân tay trên thiết bị",
             details = "Yêu cầu xử lý qua deviceCommands"
         ))
+    }
+
+    private suspend fun deactivateEmployeeAccounts(employeeId: String) {
+        val profiles = db.collection("users")
+            .whereEqualTo("employeeId", employeeId)
+            .get(Source.SERVER)
+            .await()
+            .documents
+        if (profiles.isEmpty()) return
+        db.runBatch { batch ->
+            profiles.forEach { profile ->
+                batch.update(profile.reference, mapOf(
+                    "active" to false,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ))
+            }
+        }.await()
     }
     fun observeEnrollmentCommands(): Flow<List<Map<String, Any>>> = callbackFlow {
         val listener = db.collection("deviceCommands").addSnapshotListener { value, error ->

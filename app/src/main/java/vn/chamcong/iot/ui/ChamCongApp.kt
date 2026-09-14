@@ -21,6 +21,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
 import vn.chamcong.iot.model.Attendance
+import vn.chamcong.iot.model.EmployeeAccountInput
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.ui.attendance.AttendanceScreen
 import vn.chamcong.iot.ui.dashboard.DashboardScreen
@@ -32,12 +33,21 @@ import vn.chamcong.iot.ui.presence.PresenceScreen
 import vn.chamcong.iot.ui.requests.RequestsScreen
 import vn.chamcong.iot.ui.audit.AuditScreen
 import vn.chamcong.iot.ui.reports.ReportsScreen
+import vn.chamcong.iot.ui.admin.AdminTasksScreen
+import vn.chamcong.iot.ui.admin.ShiftManagementScreen
+import vn.chamcong.iot.ui.employee.EmployeeHomeScreen
+import vn.chamcong.iot.ui.employee.EmployeeAttendanceScreen
+import vn.chamcong.iot.ui.employee.EmployeeRequestsScreen
+import vn.chamcong.iot.ui.employee.EmployeeProfileScreen
 
 private val Brand = Color(0xFF147D64)
 private val Background = Color(0xFFF5F8F6)
 
 enum class AppDestination(val title: String) {
     DASHBOARD("Tổng quan"),
+    TASKS("Tác vụ"),
+    REQUESTS("Đơn từ"),
+    SHIFT_MANAGEMENT("Phân ca"),
     EMPLOYEES("Nhân viên"),
     ATTENDANCE("Chấm công"),
     DEVICES("Thiết bị"),
@@ -46,18 +56,66 @@ enum class AppDestination(val title: String) {
     SHIFTS("Ca làm"),
     SCHEDULE("Lịch"),
     PRESENCE("Có mặt"),
-    REQUESTS("Đơn từ"),
-    REPORTS("Tổng hợp"),
-    AUDIT("Nhật ký")
+    REPORTS("Báo cáo"),
+    AUDIT("Nhật ký"),
+    SETTINGS("Cài đặt")
 }
+
+enum class EmployeeDestination(val title: String) {
+    HOME("Trang chủ"),
+    ATTENDANCE("Chấm công của tôi"),
+    REQUESTS("Đơn từ"),
+    PROFILE("Cá nhân")
+}
+
+val adminPrimaryDestinations = listOf(
+    AppDestination.DASHBOARD,
+    AppDestination.TASKS,
+    AppDestination.REQUESTS,
+    AppDestination.SHIFT_MANAGEMENT,
+    AppDestination.EMPLOYEES
+)
+
+val adminTaskDestinations = listOf(
+    AppDestination.ATTENDANCE,
+    AppDestination.DEVICES,
+    AppDestination.PRESENCE,
+    AppDestination.SHIFTS,
+    AppDestination.SCHEDULE,
+    AppDestination.PAYROLL,
+    AppDestination.PERFORMANCE,
+    AppDestination.REPORTS,
+    AppDestination.AUDIT,
+    AppDestination.SETTINGS
+)
+
+val employeePrimaryDestinations = listOf(
+    EmployeeDestination.HOME,
+    EmployeeDestination.ATTENDANCE,
+    EmployeeDestination.REQUESTS,
+    EmployeeDestination.PROFILE
+)
 
 @Composable
 fun ChamCongApp(vm: MainViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     MaterialTheme(colorScheme = lightColorScheme(primary = Brand, background = Background)) {
         if (!state.signedIn) LoginScreen(state.loading, state.error, state.message, vm::signIn, vm::sendPasswordReset)
+        else if (!state.profileResolved) RoleLoading()
+        else if (vm.hasEmployeeAccess()) EmployeeHomeShell(state, vm)
         else if (!vm.hasAdminAccess()) AccessBlocked(vm::signOut)
-        else HomeScreen(state, vm)
+        else AdminHomeScreen(state, vm)
+    }
+}
+
+@Composable
+private fun RoleLoading() {
+    Surface(Modifier.fillMaxSize(), color = Background) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(12.dp))
+            Text("Đang kiểm tra quyền truy cập…")
+        }
     }
 }
 
@@ -71,7 +129,7 @@ private fun LoginScreen(loading: Boolean, error: String?, message: String?, onLo
                 Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Icon(Icons.Default.Fingerprint, null, tint = Brand, modifier = Modifier.size(48.dp))
                     Text("Chấm công IoT", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text("Đăng nhập tài khoản quản trị")
+                    Text("Đăng nhập tài khoản của bạn")
                     OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true)
                     OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Mật khẩu") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -90,8 +148,8 @@ private fun LoginScreen(loading: Boolean, error: String?, message: String?, onLo
 private fun AccessBlocked(onSignOut: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = Background) {
         Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Tài khoản chưa được cấp quyền admin", style = MaterialTheme.typography.titleLarge)
-            Text("Hãy kiểm tra users/{uid}.role=ADMIN và active=true trong Firebase.")
+            Text("Tài khoản chưa được cấp quyền", style = MaterialTheme.typography.titleLarge)
+            Text("Admin cần kiểm tra role, active và employeeId trong users/{uid} trên Firebase.")
             Button(onSignOut) { Text("Đăng xuất") }
         }
     }
@@ -99,7 +157,7 @@ private fun AccessBlocked(onSignOut: () -> Unit) {
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun HomeScreen(state: MainUiState, vm: MainViewModel) {
+private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(AppDestination.DASHBOARD) }
     var showAdd by remember { mutableStateOf(false) }
     var employeeToEnroll by remember { mutableStateOf<Employee?>(null) }
@@ -107,15 +165,24 @@ private fun HomeScreen(state: MainUiState, vm: MainViewModel) {
     var retire by remember { mutableStateOf(false) }
     var salaryEmployee by remember { mutableStateOf<Employee?>(null) }
     var showChangePassword by remember { mutableStateOf(false) }
-    val destinations = listOf(AppDestination.DASHBOARD, AppDestination.EMPLOYEES, AppDestination.ATTENDANCE, AppDestination.DEVICES, AppDestination.PAYROLL, AppDestination.PERFORMANCE, AppDestination.SHIFTS, AppDestination.SCHEDULE, AppDestination.PRESENCE, AppDestination.REQUESTS, AppDestination.REPORTS, AppDestination.AUDIT)
-    val icons = listOf(Icons.Default.Dashboard, Icons.Default.Groups, Icons.Default.FactCheck, Icons.Default.Devices, Icons.Default.Payments, Icons.Default.Insights, Icons.Default.Event, Icons.Default.CalendarMonth, Icons.Default.HowToReg, Icons.Default.Description, Icons.Default.Assessment, Icons.Default.History)
+    var showAccountMenu by remember { mutableStateOf(false) }
+    val icons = listOf(Icons.Default.Dashboard, Icons.Default.FactCheck, Icons.Default.Description, Icons.Default.Event, Icons.Default.Groups)
     Scaffold(
         topBar = { TopAppBar(title = { Text(selected.title) }, actions = {
-            TextButton({ showChangePassword = true }, enabled = !state.saving) { Text("Đổi mật khẩu") }
-            IconButton({ vm.signOut() }, enabled=!state.saving) { Icon(Icons.Default.Logout, "Đăng xuất") }
+            IconButton({ showAccountMenu = true }, enabled = !state.saving) { Icon(Icons.Default.AccountCircle, "Menu cá nhân") }
+            DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Đổi mật khẩu") },
+                    onClick = { showChangePassword = true; showAccountMenu = false }
+                )
+                DropdownMenuItem(
+                    text = { Text("Đăng xuất") },
+                    onClick = { showAccountMenu = false; vm.signOut() }
+                )
+            }
         }) },
         bottomBar = { NavigationBar {
-            destinations.forEachIndexed { index, destination ->
+            adminPrimaryDestinations.forEachIndexed { index, destination ->
                 NavigationBarItem(
                     selected == destination,
                     { selected = destination },
@@ -132,6 +199,8 @@ private fun HomeScreen(state: MainUiState, vm: MainViewModel) {
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (selected) {
                 AppDestination.DASHBOARD -> DashboardScreen(state, vm) { selected = AppDestination.ATTENDANCE }
+                AppDestination.TASKS -> AdminTasksScreen { destination -> selected = destination }
+                AppDestination.SHIFT_MANAGEMENT -> ShiftManagementScreen { destination -> selected = destination }
                 AppDestination.EMPLOYEES -> EmployeesScreen(
                     state = state,
                     vm = vm,
@@ -154,13 +223,14 @@ private fun HomeScreen(state: MainUiState, vm: MainViewModel) {
                 AppDestination.REQUESTS -> RequestsScreen(state, vm)
                 AppDestination.REPORTS -> ReportsScreen(state, vm)
                 AppDestination.AUDIT -> AuditScreen(state)
+                AppDestination.SETTINGS -> Placeholder("Cài đặt", "Cấu hình doanh nghiệp và thiết bị sẽ được nối vào Firebase Settings khi có yêu cầu nghiệp vụ cụ thể. Các chức năng đổi mật khẩu và xem nhật ký đã có trong menu cá nhân.", Icons.Default.Settings)
             }
         }
     }
     if(showAdd) EmployeeDialog(state,
         onDismiss={ if(!state.saving) showAdd=false },
-        onSave={ vm.saveEmployee(it) { showAdd=false } },
-        onEnroll={ e, d -> vm.requestFingerprint(e,d) { showAdd=false } })
+        onSave={ employee, account -> vm.saveEmployee(employee, account) { showAdd=false } },
+        onEnroll={ employee, deviceId, account -> vm.requestFingerprint(employee, deviceId, account) { showAdd=false } })
     employeeToEnroll?.let { e -> EnrollFingerprintDialog(e, state,
         onDismiss={ if(!state.saving) employeeToEnroll=null },
         onConfirm={ vm.requestFingerprint(e,it) { employeeToEnroll=null } }) }
@@ -176,6 +246,62 @@ private fun HomeScreen(state: MainUiState, vm: MainViewModel) {
         confirmButton={ Button({ vm.remove(e.id,retire) { employeeToRemove=null } },enabled=!state.saving) { Text("Xác nhận xóa") } },
         dismissButton={ TextButton({ employeeToRemove=null },enabled=!state.saving) { Text("Hủy") } }
     ) }
+    if (showChangePassword) ChangePasswordDialog(state, vm) { showChangePassword = false }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
+    var selected by remember { mutableStateOf(EmployeeDestination.HOME) }
+    var showAccountMenu by remember { mutableStateOf(false) }
+    var showChangePassword by remember { mutableStateOf(false) }
+    val icons = listOf(Icons.Default.Home, Icons.Default.FactCheck, Icons.Default.Description, Icons.Default.Person)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(selected.title) },
+                actions = {
+                    IconButton({ showAccountMenu = true }, enabled = !state.saving) {
+                        Icon(Icons.Default.AccountCircle, "Menu cá nhân")
+                    }
+                    DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Đổi mật khẩu") },
+                            onClick = { showChangePassword = true; showAccountMenu = false }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Đăng xuất") },
+                            onClick = { showAccountMenu = false; vm.signOut() }
+                        )
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            NavigationBar {
+                employeePrimaryDestinations.forEachIndexed { index, destination ->
+                    NavigationBarItem(
+                        selected = selected == destination,
+                        onClick = { selected = destination },
+                        icon = { Icon(icons[index], destination.title) },
+                        label = { Text(destination.title, maxLines = 1) }
+                    )
+                }
+            }
+        }
+    ) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            state.message?.let { Text(it, color = Brand, modifier = Modifier.padding(bottom = 8.dp)) }
+            if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
+            when (selected) {
+                EmployeeDestination.HOME -> EmployeeHomeScreen(state, vm)
+                EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(state, vm)
+                EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)
+                EmployeeDestination.PROFILE -> EmployeeProfileScreen(state, vm) { showChangePassword = true }
+            }
+        }
+    }
     if (showChangePassword) ChangePasswordDialog(state, vm) { showChangePassword = false }
 }
 
@@ -281,19 +407,49 @@ private fun Dashboard(state: MainUiState) {
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Icon(icon, null, tint = Brand, modifier = Modifier.size(64.dp)); Spacer(Modifier.height(16.dp)); Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(subtitle, modifier = Modifier.padding(12.dp)) }
 }
 
-@Composable private fun EmployeeDialog(state: MainUiState, onDismiss: ()->Unit, onSave: (Employee)->Unit, onEnroll: (Employee,String)->Unit) {
+@Composable private fun EmployeeDialog(
+    state: MainUiState,
+    onDismiss: () -> Unit,
+    onSave: (Employee, EmployeeAccountInput?) -> Unit,
+    onEnroll: (Employee, String, EmployeeAccountInput?) -> Unit
+) {
     var name by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }
     var department by remember { mutableStateOf("") }; var deviceId by remember { mutableStateOf("GATE-01") }
+    var createAccount by remember { mutableStateOf(false) }
+    var password by remember { mutableStateOf("") }; var passwordConfirmation by remember { mutableStateOf("") }
     val employee=Employee(fullName=name.trim(),email=email.trim(),department=department.trim())
+    val account = if (createAccount) EmployeeAccountInput(email.trim(), password, name.trim()) else null
+    val accountReady = !createAccount || (
+        email.trim().contains("@") && password.length >= 6 && password == passwordConfirmation
+    )
     AlertDialog(onDismissRequest=onDismiss,title={Text("Thêm nhân viên")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Text("Mã nhân viên được cấp tự động khi lưu (NV0001, NV0002…).")
         OutlinedTextField(name,{name=it},label={Text("Họ tên")},singleLine=true)
         OutlinedTextField(email,{email=it},label={Text("Email")},singleLine=true)
         OutlinedTextField(department,{department=it},label={Text("Phòng ban")},singleLine=true)
         OutlinedTextField(deviceId,{deviceId=it},label={Text("Mã thiết bị đăng ký")},singleLine=true)
+        Row(verticalAlignment=Alignment.CenterVertically) {
+            Checkbox(checked=createAccount, onCheckedChange={ createAccount = it })
+            Text("Tạo tài khoản đăng nhập cho nhân viên")
+        }
+        if (createAccount) {
+            Text("Nhân viên sẽ đăng nhập bằng email và mật khẩu này.", style=MaterialTheme.typography.bodySmall)
+            OutlinedTextField(password,{password=it},label={Text("Mật khẩu (ít nhất 6 ký tự)")},singleLine=true,visualTransformation=PasswordVisualTransformation())
+            OutlinedTextField(
+                passwordConfirmation,
+                {passwordConfirmation=it},
+                label={Text("Nhập lại mật khẩu")},
+                singleLine=true,
+                isError=passwordConfirmation.isNotBlank() && passwordConfirmation != password,
+                visualTransformation=PasswordVisualTransformation()
+            )
+            if (passwordConfirmation.isNotBlank() && passwordConfirmation != password) {
+                Text("Mật khẩu nhập lại chưa khớp", color=MaterialTheme.colorScheme.error)
+            }
+        }
         state.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
     } },confirmButton={ Column(horizontalAlignment=Alignment.End) {
-        Button({onEnroll(employee,deviceId)},enabled=!state.saving && name.isNotBlank() && deviceId.isNotBlank()) { Text("Lưu & đăng ký vân tay") }
-        TextButton({onSave(employee)},enabled=!state.saving && name.isNotBlank()) { Text("Chỉ lưu nhân viên") }
+        Button({onEnroll(employee,deviceId,account)},enabled=!state.saving && name.isNotBlank() && deviceId.isNotBlank() && accountReady) { Text("Lưu & đăng ký vân tay") }
+        TextButton({onSave(employee,account)},enabled=!state.saving && name.isNotBlank() && accountReady) { Text("Chỉ lưu nhân viên") }
     } },dismissButton={TextButton(onDismiss,enabled=!state.saving){Text("Hủy")}})
 }
