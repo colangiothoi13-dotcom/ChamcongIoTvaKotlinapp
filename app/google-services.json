@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "903207252658",
+    "project_id": "chamcongiot-56ae5",
+    "storage_bucket": "chamcongiot-56ae5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:903207252658:android:40aaca122ef0c6184f0fab",
+        "android_client_info": {
+          "package_name": "vn.chamcong.iot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDX6BVVu7iKV-L4eukCQy0-BRehWs-NZYw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
