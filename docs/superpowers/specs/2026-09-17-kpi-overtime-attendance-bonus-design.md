@@ -7,20 +7,32 @@ Tự động tính phần thưởng trong phiếu lương theo dữ liệu chấ
 ## Phạm vi
 
 - Áp dụng theo từng tháng lương.
-- Tái sử dụng các cặp chấm công đã resolve, lịch làm việc và ca đã phân.
-- Không thay đổi dữ liệu attendance gốc và không thêm collection Firebase mới.
-- Không cho phép dữ liệu `PENDING`, `DUPLICATE`, `UNSCHEDULED`, `OUT_OF_ORDER`, malformed hoặc thiếu một đầu chấm công tạo thành ca tăng ca hợp lệ.
+- Ca chính vẫn do Admin phân theo tuần; ca bổ sung không được phân trước trong lịch tuần.
+- Nhân viên tự gửi một đơn xin ca bổ sung cho từng ngày; Admin có thể duyệt sau.
+- Tái sử dụng các cặp chấm công đã resolve và adjustment hiện có, nhưng bổ sung trạng thái đơn xin ca để giữ được các lượt quét trong thời gian chờ duyệt.
+- Thêm collection `overtimeRequests`, Firestore rules và index cần thiết; không thay đổi dữ liệu attendance gốc.
+- Không cho phép dữ liệu `PENDING`, `DUPLICATE`, `UNSCHEDULED`, `OUT_OF_ORDER`, malformed hoặc thiếu một đầu chấm công tạo thành ca tăng ca hợp lệ nếu đơn chưa được duyệt.
 
 ## Quy tắc nghiệp vụ
 
 ### Ca tăng ca
 
-- Ca có category `SUPPLEMENTARY` có thời lượng cố định 3 giờ.
-- Admin nhập giờ bắt đầu; hệ thống tự tạo giờ kết thúc sau 3 giờ, hỗ trợ qua ngày.
-- Một ca chỉ được tính là hoàn thành khi có cặp check-in/check-out hợp lệ, được resolver chấp nhận và thuộc đúng lịch ca.
+- Ca `SUPPLEMENTARY` được cố định từ `17:30` đến `20:30` theo múi giờ `Asia/Ho_Chi_Minh`, không cho Admin thay đổi giờ và không đưa vào lịch phân ca tuần.
+- Nhân viên được gửi đơn cho ngày hiện tại hoặc ngày làm việc sắp tới. Mỗi nhân viên chỉ có một đơn cho một ngày; đơn có trạng thái `PENDING`, `APPROVED` hoặc `REJECTED`.
+- Khi đơn `PENDING`, nhân viên vẫn được check-in/check-out trong khung ca; hệ thống lưu các lượt quét và đánh dấu ứng viên tăng ca đang chờ duyệt, không chặn thiết bị và không coi là quét trùng với ca chính.
+- Admin duyệt sau vẫn làm cho các lượt quét hợp lệ trong ngày được resolver tính lại thành ca tăng ca. Admin từ chối không xóa lượt quét, nhưng các lượt đó không được tính tiền tăng ca, thưởng theo ca hoặc Top 3.
+- Một ca chỉ được tính là hoàn thành khi đơn đã `APPROVED`, có cặp check-in/check-out hợp lệ, được resolver chấp nhận và nằm trong khung `17:30–20:30` theo cùng ngày địa phương.
 - Mỗi ca tăng ca hoàn thành:
   - tính tiền giờ theo đơn giá hiện có và 3 giờ làm;
   - cộng thêm `50.000đ` vào tiền thưởng.
+
+### Đơn xin ca bổ sung
+
+- `overtimeRequests` lưu tối thiểu: `employeeId`, `workDate`, `startTime = 17:30`, `endTime = 20:30`, `status`, `submittedAt`, `reviewedAt`, `reviewedBy` và `rejectionReason` khi bị từ chối.
+- Khóa logic của đơn là `employeeId + workDate`; không tạo hai đơn đang hoạt động cho cùng một nhân viên và ngày.
+- Admin nhìn thấy danh sách đơn chờ duyệt, có thể duyệt hoặc từ chối. Từ chối bắt buộc nhập lý do để nhân viên và audit log giải thích được quyết định.
+- Duyệt/từ chối phải ghi audit log; thao tác duyệt làm mới kết quả resolve và breakdown payroll liên quan nếu phiếu lương chưa được lưu.
+- Đơn được gửi sau 17:30 vẫn không bị mất; nếu còn trong khung đến 20:30, các lượt quét hợp lệ vẫn được gắn vào đơn đang chờ duyệt.
 
 ### Top 3 chuyên cần tăng ca
 
@@ -32,7 +44,7 @@ Tự động tính phần thưởng trong phiếu lương theo dữ liệu chấ
 
 ### Đi muộn và giới hạn thưởng
 
-- `lateCount` lấy từ các ngày/ca đã phân sau khi áp dụng lịch và adjustment hiện hành, không lấy trực tiếp từ status raw cũ.
+- `lateCount` lấy từ các ca chính đã phân sau khi áp dụng lịch và adjustment hiện hành, không lấy trực tiếp từ status raw cũ; ca bổ sung không bị tính là đi muộn.
 - Mỗi lần đi muộn trừ `100.000đ` khỏi tiền thưởng.
 - Công thức:
 
@@ -45,11 +57,11 @@ Tự động tính phần thưởng trong phiếu lương theo dữ liệu chấ
 
 ### Domain
 
-Thêm bộ tính thuần Kotlin, nhận employees, attendance, schedules, shifts, adjustments, tháng và timezone; trả về số ca tăng ca, số lần đi muộn, hạng Top 3, tiền thưởng tự động và tổng giờ tăng ca. Bộ tính dùng chung resolver/employee summaries hiện có và không import Firebase.
+Thêm bộ tính thuần Kotlin, nhận employees, attendance, schedules, shifts, overtime requests, adjustments, tháng và timezone; trả về số ca tăng ca, số lần đi muộn, hạng Top 3, tiền thưởng tự động và tổng giờ tăng ca. Bộ tính chỉ nhận request đã `APPROVED` khi tính thưởng; request `PENDING` vẫn được dùng để phân loại ứng viên chấm công nhưng không tạo tiền. Bộ tính dùng chung resolver/employee summaries hiện có và không import Firebase.
 
 ### Ca bổ sung
 
-Tại luồng quản lý ca tuần, template `SUPPLEMENTARY` yêu cầu start time và tự suy ra end time `start + 3h`. Dữ liệu lịch vẫn lưu trong `WorkSchedule` và `WorkShift` hiện có; không tạo schema mới.
+Tại luồng quản lý ca tuần chỉ hiển thị các ca chính. Ca bổ sung dùng mốc cố định `17:30–20:30` và được tạo từ đơn của nhân viên, không lưu như một lịch phân trước trong `WorkSchedule`. Resolver phải tách phiên ca chính và phiên tăng ca để lượt quét lúc 17:30 không bị coi là duplicate của lượt quét ca chính.
 
 ### Payroll/UI
 
@@ -60,13 +72,18 @@ Tại luồng quản lý ca tuần, template `SUPPLEMENTARY` yêu cầu start ti
 
 ### Firebase và tương thích
 
-- Không thêm collection, index hoặc Cloud Function mới.
+- Thêm collection `overtimeRequests` cùng rules giới hạn nhân viên chỉ tạo/xem đơn của mình, còn Admin mới được duyệt/từ chối; các thao tác review phải ghi vào `audit_logs`.
+- Cập nhật resolver/Cloud Function hiện có để tra đơn theo `employeeId + workDate`, giữ các lượt quét khi request `PENDING` và resolve lại khi request được duyệt; không cần tạo Cloud Function mới.
+- Tạo index Firestore cho các truy vấn danh sách đơn chờ duyệt nếu Firebase yêu cầu khi triển khai query thực tế.
 - Phiếu lương hiện có tiếp tục lưu snapshot; phiếu đã lưu không tự động hồi tố.
-- Dữ liệu legacy vẫn dùng fallback hiện tại; status/scan không đủ điều kiện không được tính tăng ca.
+- Dữ liệu legacy vẫn dùng fallback hiện tại; status/scan không đủ điều kiện hoặc request bị từ chối không được tính tăng ca.
 
 ## Kiểm thử
 
-- Ca supplementary luôn dài 3 giờ, gồm trường hợp qua ngày.
+- Ca supplementary luôn cố định `17:30–20:30` và dài đúng 3 giờ.
+- Đơn xin ca được tạo đúng theo nhân viên/ngày, trạng thái chuyển đúng `PENDING → APPROVED/REJECTED`, và lý do từ chối bắt buộc.
+- Request `PENDING` không chặn check-in/check-out; khi được duyệt, lượt quét hợp lệ trước đó được resolve lại; khi bị từ chối, dữ liệu vẫn còn nhưng không tính tăng ca.
+- Khung cố định `17:30–20:30` không bị nhập sai hoặc bị phân trước trong lịch tuần; lượt quét không bị nhầm với ca chính 13:00–17:00.
 - Ca thiếu check-out, rejected/unverified hoặc duplicate không được tính.
 - Top 3 chỉ chọn người không đi muộn; kiểm tra đồng hạng và ít hơn 3 người.
 - Một ca tăng ca cộng đúng `50.000đ`; mỗi lần đi muộn trừ đúng `100.000đ`; thưởng âm bị chặn về 0.
