@@ -27,7 +27,12 @@ data class Attendance(
     val type: String = AttendanceType.CHECK_IN.name,
     val status: String = AttendanceStatus.NORMAL.name,
     val timestamp: Timestamp = Timestamp.now(),
-    val verified: Boolean = true
+    val verified: Boolean = true,
+    val receivedAt: Timestamp? = null,
+    val resolutionStatus: String = AttendanceResolutionStatus.ACCEPTED.name,
+    val scheduleDate: String? = null,
+    val shiftId: String? = null,
+    val resolvedAt: Timestamp? = null
 )
 
 data class Payroll(

@@ -11,6 +11,7 @@ data class WorkShift(
     val allowEarlyMinutes: Int = 0,
     val lateGraceMinutes: Int = 0,
     val earlyLeaveAllowedMinutes: Int = 0,
+    val missingCheckOutGraceMinutes: Int = 60,
     val breakStartTime: String? = null,
     val breakEndTime: String? = null,
     val countsOvertime: Boolean = false,

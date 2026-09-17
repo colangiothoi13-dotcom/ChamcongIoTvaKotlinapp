@@ -6,6 +6,7 @@ import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WorkTimeSummary
 import vn.chamcong.iot.model.WeeklyWorkSummary
 import vn.chamcong.iot.model.Attendance
+import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.LeaveRequest
@@ -40,6 +41,26 @@ fun validateWorkedHoursOverride(hours: Double?) {
     if (hours != null) require(hours.isFinite() && hours in 0.0..24.0) { "Giờ điều chỉnh phải từ 0 đến 24 giờ" }
 }
 
+fun validateAttendanceAdjustment(adjustment: AttendanceAdjustment) {
+    require(adjustment.employeeId.isNotBlank()) { "Mã nhân viên không được để trống" }
+    require(adjustment.employeeName.isNotBlank()) { "Tên nhân viên không được để trống" }
+    require(adjustment.scheduleDate.isNotBlank()) { "Ngày ca không được để trống" }
+    runCatching { LocalDate.parse(adjustment.scheduleDate, dateFormatter) }
+        .getOrElse { throw IllegalArgumentException("Ngày ca phải có dạng ISO yyyy-MM-dd") }
+    require(adjustment.reason.isNotBlank()) { "Lý do không được để trống" }
+    require(adjustment.actorId.isNotBlank()) { "Mã người thực hiện không được để trống" }
+    require(adjustment.actorName.isNotBlank()) { "Tên người thực hiện không được để trống" }
+    require(
+        adjustment.checkInAt != null || adjustment.checkOutAt != null || adjustment.workedHoursOverride != null
+    ) { "Điều chỉnh phải có ít nhất một giá trị" }
+    if (adjustment.checkInAt != null && adjustment.checkOutAt != null) {
+        require(adjustment.checkOutAt.toDate().after(adjustment.checkInAt.toDate())) {
+            "Giờ ra phải sau giờ vào"
+        }
+    }
+    validateWorkedHoursOverride(adjustment.workedHoursOverride)
+}
+
 fun validateShift(shift: WorkShift) {
     require(shift.name.isNotBlank()) { "Tên ca không được để trống" }
     require(shift.category in ShiftCategory.entries.map { it.name }) { "Loại ca chỉ gồm ca sáng, ca tối hoặc ca bổ sung" }
@@ -48,6 +69,7 @@ fun validateShift(shift: WorkShift) {
     require(shift.allowEarlyMinutes >= 0) { "Thời gian cho phép chấm sớm không hợp lệ" }
     require(shift.lateGraceMinutes >= 0) { "Số phút cho phép đi trễ không hợp lệ" }
     require(shift.earlyLeaveAllowedMinutes >= 0) { "Quy định về sớm không hợp lệ" }
+    require(shift.missingCheckOutGraceMinutes >= 0) { "Thời gian chờ thiếu chấm ra không hợp lệ" }
     require(shift.effectiveFrom.isNotBlank()) { "Ngày áp dụng không được để trống" }
     LocalDate.parse(shift.effectiveFrom, dateFormatter)
     shift.effectiveTo?.takeIf(String::isNotBlank)?.let { end ->
