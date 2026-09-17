@@ -1,6 +1,7 @@
 package vn.chamcong.iot.model
 
 import vn.chamcong.iot.domain.employeeMonthSummaries
+import vn.chamcong.iot.domain.payrollHoursForMonth
 import java.time.YearMonth
 import java.time.ZoneId
 import kotlin.math.roundToLong
@@ -48,6 +49,30 @@ fun workedHoursForMonth(
     ).sumOf { it.workedHours }
     return (hours * 100).roundToLong() / 100.0
 }
+
+/**
+ * Payroll-aware overload. The legacy overload above intentionally remains the
+ * regular-hours calculation used by reports and older callers.
+ */
+fun workedHoursForMonth(
+    attendance: List<Attendance>,
+    employeeId: String,
+    month: YearMonth,
+    zoneId: ZoneId,
+    schedules: List<WorkSchedule>,
+    shifts: List<WorkShift>,
+    adjustments: List<AttendanceAdjustment>,
+    overtimeRequests: List<OvertimeRequest>
+): Double = payrollHoursForMonth(
+    employeeId = employeeId,
+    month = month,
+    attendance = attendance,
+    schedules = schedules,
+    shifts = shifts,
+    overtimeRequests = overtimeRequests,
+    adjustments = adjustments,
+    zoneId = zoneId
+)
 
 fun payrollCandidates(
     employees: List<Employee>,

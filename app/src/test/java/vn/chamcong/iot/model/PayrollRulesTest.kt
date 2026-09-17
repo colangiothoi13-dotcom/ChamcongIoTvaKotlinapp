@@ -4,12 +4,127 @@ import com.google.firebase.Timestamp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import vn.chamcong.iot.domain.SUPPLEMENTARY_SHIFT_ID
+import vn.chamcong.iot.domain.calculateMonthlyKpiBonuses
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.Date
 
 class PayrollRulesTest {
+    private val kpiMonth = YearMonth.of(2026, 9)
+    private val kpiZone = ZoneId.of("Asia/Ho_Chi_Minh")
+    private val kpiEmployee = Employee(id = "e1", code = "NV0001", baseSalary = 50_000)
+    private val mainShift = WorkShift(id = "main", startTime = "08:00", endTime = "16:00", effectiveFrom = "2026-01-01")
+    private val mainSchedule = WorkSchedule(employeeId = "e1", date = "2026-09-10", shiftId = "main")
+
+    @Test
+    fun approvedOvertimeAddsFixedHoursAndAutomaticBonusToPayrollSnapshot() {
+        val rows = regularPair() + overtimePair()
+        val requests = listOf(overtimeRequest())
+        val breakdown = payrollBreakdown(rows, requests)
+        val payroll = createPayroll(kpiEmployee, kpiMonth.toString(), payrollHours(rows, requests), breakdown.totalBonus, 25_000)
+
+        assertEquals(11.0, payroll.hoursWorked, 0.001)
+        assertEquals(550_000L, payroll.baseSalary)
+        assertEquals(3.0, breakdown.overtimeHours, 0.001)
+        assertEquals(50_000L, breakdown.overtimeBonus)
+        assertEquals(500_000L, breakdown.top3Bonus)
+        assertEquals(550_000L, payroll.bonus)
+        assertEquals(25_000L, payroll.deduction)
+        assertEquals(1_075_000L, payroll.netSalary)
+
+        // A later request change affects the next preview, never the saved snapshot.
+        val refreshed = payrollBreakdown(rows, listOf(overtimeRequest("REJECTED")))
+        assertEquals(0L, refreshed.overtimeBonus)
+        assertEquals(550_000L, payroll.bonus)
+        assertEquals(11.0, payroll.hoursWorked, 0.001)
+    }
+
+    @Test
+    fun nonPayableOvertimeDoesNotLeakIntoPayrollHoursOrShiftBonus() {
+        val complete = overtimePair()
+        val cases = listOf(
+            overtimeRequest("PENDING") to complete,
+            overtimeRequest("REJECTED") to complete,
+            overtimeRequest() to complete.take(1),
+            overtimeRequest().copy(startTime = "17:00") to complete,
+            overtimeRequest() to complete.map { it.copy(verified = false) },
+            overtimeRequest() to complete.map { it.copy(resolutionStatus = "OVERTIME_PENDING") },
+            overtimeRequest() to complete.map { it.copy(resolutionStatus = "OVERTIME_REJECTED") },
+            overtimeRequest() to complete.map { it.copy(resolutionStatus = "DUPLICATE") }
+        )
+        for ((request, overtime) in cases) {
+            val rows = regularPair() + overtime
+            val breakdown = payrollBreakdown(rows, listOf(request))
+            assertEquals(8.0, payrollHours(rows, listOf(request)), 0.001)
+            assertEquals(0, breakdown.overtimeShiftCount)
+            assertEquals(0.0, breakdown.overtimeHours, 0.001)
+            assertEquals(0L, breakdown.overtimeBonus)
+            // Existing domain rules can award Top 3 even without completed overtime.
+            assertEquals(500_000L, breakdown.totalBonus)
+        }
+    }
+
+    @Test
+    fun latePenaltyFloorsBonusWithoutIncreasingManualDeduction() {
+        val rows = regularPair().map {
+            if (it.type == "CHECK_IN") attendance("e1", "CHECK_IN", "2026-09-10T08:30:00+07:00")
+                .copy(shiftId = "main", scheduleDate = "2026-09-10") else it
+        } + overtimePair()
+        val requests = listOf(overtimeRequest())
+        val breakdown = payrollBreakdown(rows, requests)
+        val payroll = createPayroll(kpiEmployee, kpiMonth.toString(), payrollHours(rows, requests), breakdown.totalBonus, 25_000)
+
+        assertEquals(1, breakdown.lateCount)
+        assertEquals(null, breakdown.top3Rank)
+        assertEquals(100_000L, breakdown.latePenalty)
+        assertEquals(50_000L, breakdown.overtimeBonus)
+        assertEquals(0L, payroll.bonus)
+        assertEquals(25_000L, payroll.deduction)
+        assertEquals(10.5, payroll.hoursWorked, 0.001)
+        assertEquals(500_000L, payroll.netSalary)
+    }
+
+    @Test
+    fun overtimeAwareOverloadKeepsLegacyAndAdjustedRegularHours() {
+        val rows = regularPair()
+        assertEquals(8.0, workedHoursForMonth(rows, "e1", kpiMonth, kpiZone), 0.001)
+        assertEquals(8.0, payrollHours(rows, emptyList()), 0.001)
+        val adjustment = AttendanceAdjustment(
+            employeeId = "e1", scheduleDate = "2026-09-10", workedHoursOverride = 6.5,
+            reason = "Correct regular hours", actorId = "admin", actorName = "Admin"
+        )
+        assertEquals(6.5, workedHoursForMonth(rows, "e1", kpiMonth, kpiZone,
+            listOf(mainSchedule), listOf(mainShift), listOf(adjustment)), 0.001)
+        assertEquals(6.5, payrollHours(rows, emptyList(), listOf(adjustment)), 0.001)
+        assertEquals(9.5, payrollHours(rows + overtimePair(), listOf(overtimeRequest()), listOf(adjustment)), 0.001)
+    }
+
+    private fun payrollHours(rows: List<Attendance>, requests: List<OvertimeRequest>, adjustments: List<AttendanceAdjustment> = emptyList()) =
+        workedHoursForMonth(rows, "e1", kpiMonth, kpiZone,
+            schedules = listOf(mainSchedule), shifts = listOf(mainShift), adjustments = adjustments,
+            overtimeRequests = requests)
+
+    private fun payrollBreakdown(rows: List<Attendance>, requests: List<OvertimeRequest>) =
+        calculateMonthlyKpiBonuses(listOf(kpiEmployee), kpiMonth, rows, listOf(mainSchedule),
+            listOf(mainShift), requests, emptyList(), kpiZone).getValue("e1")
+
+    private fun overtimeRequest(status: String = "APPROVED") = OvertimeRequest(
+        employeeId = "e1", workDate = "2026-09-10", status = status,
+        rejectionReason = if (status == "REJECTED") "Not needed" else null
+    )
+
+    private fun regularPair() = listOf(
+        attendance("e1", "CHECK_IN", "2026-09-10T08:00:00+07:00"),
+        attendance("e1", "CHECK_OUT", "2026-09-10T16:00:00+07:00")
+    ).map { it.copy(shiftId = "main", scheduleDate = "2026-09-10") }
+
+    private fun overtimePair() = listOf(
+        attendance("e1", "CHECK_IN", "2026-09-10T17:30:00+07:00"),
+        attendance("e1", "CHECK_OUT", "2026-09-10T20:30:00+07:00")
+    ).map { it.copy(shiftId = SUPPLEMENTARY_SHIFT_ID, scheduleDate = "2026-09-10") }
+
     @Test
     fun acceptedLookingUnverifiedScansCannotProduceWorkAcrossConsumers() {
         val date = java.time.LocalDate.parse("2026-09-10")

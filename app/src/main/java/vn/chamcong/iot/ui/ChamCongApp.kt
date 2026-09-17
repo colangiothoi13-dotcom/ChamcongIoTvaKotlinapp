@@ -218,7 +218,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 )
                 AppDestination.ATTENDANCE -> AttendanceScreen(state, vm)
                 AppDestination.PAYROLL -> PayrollScreen(state, vm)
-                AppDestination.PERFORMANCE -> Placeholder("Điểm chuyên cần", "Chưa tính KPI tự động. Công thức đề xuất: 70 × (ngày đi làm / ngày phải làm) + 30 × (ngày đúng giờ / ngày đi làm), tối đa 100 điểm. Cần thiết lập lịch làm và lấy đủ dữ liệu theo tháng; 50 lượt gần nhất chưa đủ để đánh giá.", Icons.Default.Insights)
+                AppDestination.PERFORMANCE -> PerformanceScreen(state, vm)
                 AppDestination.DEVICES -> DevicesScreen(state, vm)
                 AppDestination.SHIFTS -> ShiftsScreen(state, vm)
                 AppDestination.SCHEDULE -> ScheduleScreen(state, vm)

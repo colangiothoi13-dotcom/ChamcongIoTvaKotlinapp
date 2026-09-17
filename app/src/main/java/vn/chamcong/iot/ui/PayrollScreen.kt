@@ -11,10 +11,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import vn.chamcong.iot.domain.KpiBonusBreakdown
+import vn.chamcong.iot.domain.payrollHoursForMonth
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.calculateBasePay
 import vn.chamcong.iot.model.payrollCandidates
-import vn.chamcong.iot.model.workedHoursForMonth
 import java.text.NumberFormat
 import java.time.YearMonth
 import java.time.ZoneId
@@ -64,22 +65,6 @@ private fun MoneyField(label: String, value: String, changed: (String) -> Unit) 
 }
 
 @Composable
-private fun HoursField(value: String, changed: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = {
-            val normalized = it.replace(',', '.')
-            if (normalized.count { c -> c == '.' } <= 1 && normalized.all { c -> c.isDigit() || c == '.' } && normalized.length <= 8) {
-                changed(normalized)
-            }
-        },
-        label = { Text("Số giờ làm") },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        modifier = Modifier.fillMaxWidth()
-    )
-}
-
 @Composable
 internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
     var month by remember { mutableStateOf(YearMonth.now().toString()) }
@@ -137,17 +122,26 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
     settings?.let { e -> SalaryDialog(e, state, { settings = null }) { amount -> vm.setSalary(e.id, amount) { settings = null } } }
 
     selected?.let { e ->
-        val calculatedHours = hoursText(workedHoursForMonth(state.attendance, e.id, YearMonth.parse(month), PayrollZone, state.schedules, state.shifts, state.attendanceAdjustments))
-        // Keep the automatic value live as calculation context arrives; preserve explicit user edits.
-        var hoursOverride by remember(e.id, month) { mutableStateOf<String?>(null) }
-        val hours = hoursOverride ?: calculatedHours
-        var bonus by remember(e.id, month) { mutableStateOf("0") }
+        val selectedMonth = YearMonth.parse(month)
+        val breakdown = vm.kpiBonusBreakdowns(selectedMonth)[e.id] ?: KpiBonusBreakdown()
+        val calculatedHours = payrollHoursForMonth(
+            employeeId = e.id,
+            month = selectedMonth,
+            attendance = state.attendance,
+            schedules = state.schedules,
+            shifts = state.shifts,
+            overtimeRequests = state.overtimeRequests,
+            adjustments = state.attendanceAdjustments,
+            zoneId = PayrollZone
+        )
+        val regularHours = (calculatedHours - breakdown.overtimeHours).coerceAtLeast(0.0)
+        val hours = calculatedHours
         var deduction by remember(e.id, month) { mutableStateOf("0") }
         val current = state.employees.firstOrNull { it.id == e.id } ?: e
-        val h = hours.replace(',', '.').toDoubleOrNull()
-        val b = bonus.toLongOrNull()
+        val h = hours
+        val b = breakdown.totalBonus
         val d = deduction.toLongOrNull()
-        val basePay = h?.takeIf { it in 0.0..744.0 }?.let { calculateBasePay(current.baseSalary, it) }
+        val basePay = h.takeIf { it in 0.0..744.0 }?.let { calculateBasePay(current.baseSalary, it) }
         AlertDialog(
             onDismissRequest = { if (!state.saving) selected = null },
             title = { Text("Phiếu lương $month") },
@@ -155,19 +149,24 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("${current.code} • ${current.fullName}")
                     Text("Đơn giá lương cơ bản: ${money(current.baseSalary)}/giờ")
-                    HoursField(hours) { hoursOverride = it }
-                    Text("Tự tính từ các cặp vào/ra trong tháng: $calculatedHours giờ. Có thể chỉnh nếu dữ liệu thiếu.", style = MaterialTheme.typography.bodySmall)
-                    MoneyField("Thưởng (đ)", bonus) { bonus = it }
+                    Text("Giờ ca chính: ${hoursText(regularHours)} giờ")
+                    Text("Giờ tăng ca: ${hoursText(breakdown.overtimeHours)} giờ • ${breakdown.overtimeShiftCount} ca")
+                    Text("Tổng giờ tính lương: ${hoursText(calculatedHours)} giờ")
+                    Text("Đi muộn: ${breakdown.lateCount} lần")
+                    Text("Top 3: ${breakdown.top3Rank?.let { "hạng $it • ${money(breakdown.top3Bonus)}" } ?: "không đủ điều kiện • ${money(breakdown.top3Bonus)}"}")
+                    Text("Thưởng theo ca: ${money(breakdown.overtimeBonus)}")
+                    Text("Phạt đi muộn trong thưởng: ${money(breakdown.latePenalty)}")
+                    Text("Thưởng tự động: ${money(breakdown.totalBonus)}", style = MaterialTheme.typography.titleMedium)
                     MoneyField("Khấu trừ (đ)", deduction) { deduction = it }
-                    if (basePay != null && b != null && d != null) Text("Lương cơ bản: ${money(basePay)} • Thực lĩnh: ${money(basePay + b - d)}")
+                    if (basePay != null && d != null) Text("Lương cơ bản: ${money(basePay)} • Thực lĩnh: ${money(basePay + b - d)}")
                     Text("Phiếu được lưu cố định để giữ lịch sử. Nhân viên đã nghỉ sẽ biến mất khỏi danh sách sau khi tháng này được lập phiếu.")
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
             confirmButton = {
                 Button(
-                    onClick = { vm.savePayroll(e.id, month, h!!, b!!, d!!) { selected = null } },
-                    enabled = !state.saving && h != null && h in 0.0..744.0 && b != null && d != null && b in 0..1000000000000L && d in 0..1000000000000L
+                    onClick = { vm.savePayroll(e.id, month, h, b, d!!) { selected = null } },
+                    enabled = !state.saving && h in 0.0..744.0 && b in 0..1000000000000L && d != null && d in 0..1000000000000L
                 ) { Text("Lưu phiếu") }
             },
             dismissButton = { TextButton({ selected = null }, enabled = !state.saving) { Text("Hủy") } }

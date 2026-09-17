@@ -28,6 +28,8 @@ import vn.chamcong.iot.domain.canAccessEmployee
 import vn.chamcong.iot.domain.employeeMonthSummaries as buildEmployeeMonthSummaries
 import vn.chamcong.iot.domain.employeeRequestDraft
 import vn.chamcong.iot.domain.createOvertimeRequest
+import vn.chamcong.iot.domain.KpiBonusBreakdown
+import vn.chamcong.iot.domain.calculateMonthlyKpiBonuses
 import vn.chamcong.iot.model.Payroll
 import vn.chamcong.iot.data.FirebaseRepository
 import vn.chamcong.iot.model.Attendance
@@ -55,6 +57,7 @@ import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WeeklyWorkSummary
 import vn.chamcong.iot.work.AttendanceSyncWorker
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 
 data class MainUiState(
@@ -484,6 +487,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         zoneId = zoneId,
         adjustments = _state.value.attendanceAdjustments
     )
+
+    fun kpiBonusBreakdowns(month: YearMonth): Map<String, KpiBonusBreakdown> {
+        val current = _state.value
+        return calculateMonthlyKpiBonuses(
+            employees = current.employees,
+            month = month,
+            attendance = current.attendance,
+            schedules = current.schedules,
+            shifts = current.shifts,
+            overtimeRequests = current.overtimeRequests,
+            adjustments = current.attendanceAdjustments,
+            zoneId = zoneId
+        )
+    }
 
     fun reportDeviceRows(): List<DeviceActivityRow> = vn.chamcong.iot.domain.deviceActivityRows(
         devices = _state.value.devices,
