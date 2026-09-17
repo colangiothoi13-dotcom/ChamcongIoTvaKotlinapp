@@ -17,3 +17,6 @@ firmware/build/
 
 # Logs
 *.log
+
+# Feature worktrees
+.worktrees/
