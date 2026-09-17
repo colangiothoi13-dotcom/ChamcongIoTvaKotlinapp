@@ -24,6 +24,9 @@ import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.EmployeeAccountInput
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.ui.attendance.AttendanceScreen
+import vn.chamcong.iot.ui.attendance.attendanceAdjustmentDate
+import vn.chamcong.iot.ui.attendance.attendanceResolutionPresentation
+import vn.chamcong.iot.ui.attendance.attendanceZone
 import vn.chamcong.iot.ui.dashboard.DashboardScreen
 import vn.chamcong.iot.ui.devices.DevicesScreen
 import vn.chamcong.iot.ui.employees.EmployeesScreen
@@ -389,17 +392,41 @@ private fun Dashboard(state: MainUiState) {
         state.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
     } },confirmButton={ Button({onConfirm(deviceId)},enabled=!state.saving && deviceId.isNotBlank()) { Text("Gửi lệnh") } },dismissButton={ TextButton(onDismiss,enabled=!state.saving){Text("Hủy")} })
 }
-@Composable internal fun AttendanceList(attendance: List<Attendance>, modifier: Modifier = Modifier) = LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+@Composable internal fun AttendanceList(
+    attendance: List<Attendance>,
+    modifier: Modifier = Modifier,
+    adjustmentEnabled: Boolean = true,
+    onAdjust: ((Attendance) -> Unit)? = null
+) = LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (attendance.isEmpty()) item { Text("Chưa có lượt chấm phù hợp") }
-    items(attendance, key = { it.id }) { AttendanceRow(it) }
+    items(attendance, key = { it.id }) { AttendanceRow(it, adjustmentEnabled, onAdjust) }
 }
 
-@Composable private fun AttendanceRow(item: Attendance) {
-    val time = remember(item.timestamp) { SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).format(item.timestamp.toDate()) }
+@Composable private fun AttendanceRow(item: Attendance, adjustmentEnabled: Boolean = true, onAdjust: ((Attendance) -> Unit)? = null) {
+    val time = remember(item.timestamp) {
+        SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).apply {
+            timeZone = java.util.TimeZone.getTimeZone(attendanceZone)
+        }.format(item.timestamp.toDate())
+    }
+    val resolution = attendanceResolutionPresentation(item)
+    val tint = when {
+        resolution.accepted -> Color(0xFF16835F)
+        resolution.label.startsWith("SCAN/PENDING") -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.error
+    }
     Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16835F)); Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) { Text(item.employeeName.ifBlank { item.employeeId }, fontWeight = FontWeight.Bold); Text("$time • ${item.deviceId}", style = MaterialTheme.typography.bodySmall) }
-        AssistChip({}, { Text(item.status) })
+        Icon(if (resolution.accepted) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = tint)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(item.employeeName.ifBlank { item.employeeId }, fontWeight = FontWeight.Bold)
+            Text("$time • ${item.deviceId} • ${item.type}", style = MaterialTheme.typography.bodySmall)
+            Text(resolution.label, color = tint, style = MaterialTheme.typography.labelLarge)
+            Text("Ngày ca: ${attendanceAdjustmentDate(item) ?: "Không hợp lệ"}", style = MaterialTheme.typography.bodySmall)
+            if (onAdjust != null) TextButton(
+                onClick = { onAdjust(item) },
+                enabled = adjustmentEnabled && item.employeeId.isNotBlank() && attendanceAdjustmentDate(item) != null
+            ) { Text("Điều chỉnh") }
+        }
     } }
 }
 
