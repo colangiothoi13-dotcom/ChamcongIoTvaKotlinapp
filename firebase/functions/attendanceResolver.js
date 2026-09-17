@@ -88,19 +88,21 @@ function unchanged(type, resolutionStatus, schedule, session) {
   };
 }
 
-function isWithinSupplementaryWindow(timestampMs) {
+function supplementaryWindowForMs(timestampMs) {
   const scheduleDate = localDateForMs(timestampMs, TIME_ZONE);
-  const window = buildShiftWindow(scheduleDate, {
+  return buildShiftWindow(scheduleDate, {
     startTime: SUPPLEMENTARY_START_TIME,
     endTime: SUPPLEMENTARY_END_TIME
   });
-  return timestampMs >= window.startMs && timestampMs <= window.endMs;
 }
 
 function resolveScan({ scan, schedules, session, latestAccepted, requestStatus }) {
   const schedule = pickSchedule(scan.timestampMs, schedules);
-  if (requestStatus === null && isWithinSupplementaryWindow(scan.timestampMs) &&
-      (!schedule || scan.timestampMs > schedule.endMs)) {
+  const supplementaryWindow = supplementaryWindowForMs(scan.timestampMs);
+  const isWithinSupplementaryWindow = scan.timestampMs >= supplementaryWindow.startMs &&
+    scan.timestampMs <= supplementaryWindow.endMs;
+  if (requestStatus === null && isWithinSupplementaryWindow &&
+      (!schedule || schedule.endMs <= supplementaryWindow.startMs)) {
     return unchanged("UNSCHEDULED", "UNSCHEDULED", null, session);
   }
   if (!schedule) return unchanged("UNSCHEDULED", "UNSCHEDULED", null, session);

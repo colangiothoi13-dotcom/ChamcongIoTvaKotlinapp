@@ -168,62 +168,69 @@ exports.resolveAttendance = onDocumentCreated({ document: "attendance/{eventId}"
 
 async function resolveOvertimeRequestEvents(requestId, status) {
   if (!["APPROVED", "REJECTED"].includes(status)) return null;
-  const snapshot = await db.collection("attendance").where("overtimeRequestId", "==", requestId).get();
-  const events = snapshot.docs.slice().sort((left, right) => {
-    const timestampOrder = timestampToMs(left.data().timestamp) - timestampToMs(right.data().timestamp);
-    return timestampOrder || left.id.localeCompare(right.id);
-  });
-  if (!events.length) return null;
-
-  const first = events[0].data();
-  const scheduleDate = localDateForMs(timestampToMs(first.timestamp), TIME_ZONE);
-  const schedule = buildSupplementarySchedule(scheduleDate, { id: requestId, status });
-  const batch = db.batch();
-  let session = null;
-  let latestAccepted = null;
-
-  for (const event of events) {
-    const row = event.data();
-    const timestampMs = timestampToMs(row.timestamp);
-    const result = resolveScan({
-      scan: { timestampMs, eventId: event.id },
-      schedules: [schedule],
-      session,
-      latestAccepted,
-      requestStatus: status
+  const attendanceQuery = db.collection("attendance").where("overtimeRequestId", "==", requestId);
+  return db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(attendanceQuery);
+    const events = snapshot.docs.slice().sort((left, right) => {
+      const timestampOrder = timestampToMs(left.data().timestamp) - timestampToMs(right.data().timestamp);
+      return timestampOrder || left.id.localeCompare(right.id);
     });
-    batch.update(event.ref, {
-      type: result.type,
-      resolutionStatus: result.resolutionStatus,
-      status: result.status,
-      scheduleDate: result.scheduleDate,
-      shiftId: result.shiftId,
-      overtimeRequestId: requestId,
-      resolvedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-    if (result.nextSession && ["CHECK_IN", "CHECK_OUT"].includes(result.type)) {
-      session = result.nextSession;
-      latestAccepted = { timestampMs: result.nextSession.lastAcceptedAt, eventId: event.id };
-    }
-  }
+    if (!events.length) return null;
 
-  if (session) {
+    const first = events[0].data();
+    const scheduleDate = localDateForMs(timestampToMs(first.timestamp), TIME_ZONE);
+    const schedule = buildSupplementarySchedule(scheduleDate, { id: requestId, status });
     const sessionRef = db.collection("attendanceSessions").doc(
       attendanceSessionId(first.employeeId, scheduleDate, SUPPLEMENTARY_SHIFT_ID)
     );
-    batch.set(sessionRef, {
-      employeeId: first.employeeId,
-      scheduleDate,
-      shiftId: SUPPLEMENTARY_SHIFT_ID,
-      lastAcceptedEventId: session.lastAcceptedEventId,
-      lastAcceptedType: session.lastAcceptedType,
-      lastAcceptedAt: admin.firestore.Timestamp.fromMillis(session.lastAcceptedAt),
-      openCheckInAt: session.openCheckInAt == null ? null : admin.firestore.Timestamp.fromMillis(session.openCheckInAt),
-      closed: session.closed,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-  }
-  return batch.commit();
+    const currentSessionSnapshot = await transaction.get(sessionRef);
+    const currentSession = currentSessionSnapshot.exists ? currentSessionSnapshot.data() : null;
+    let session = null;
+    let latestAccepted = null;
+
+    for (const event of events) {
+      const row = event.data();
+      const timestampMs = timestampToMs(row.timestamp);
+      const result = resolveScan({
+        scan: { timestampMs, eventId: event.id },
+        schedules: [schedule],
+        session,
+        latestAccepted,
+        requestStatus: status
+      });
+      transaction.update(event.ref, {
+        type: result.type,
+        resolutionStatus: result.resolutionStatus,
+        status: result.status,
+        scheduleDate: result.scheduleDate,
+        shiftId: result.shiftId,
+        overtimeRequestId: requestId,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      if (result.nextSession && ["CHECK_IN", "CHECK_OUT"].includes(result.type)) {
+        session = result.nextSession;
+        latestAccepted = { timestampMs: result.nextSession.lastAcceptedAt, eventId: event.id };
+      }
+    }
+
+    const currentLastAcceptedAt = currentSession && currentSession.lastAcceptedAt
+      ? timestampToMs(currentSession.lastAcceptedAt)
+      : null;
+    if (session && (currentLastAcceptedAt == null || currentLastAcceptedAt <= session.lastAcceptedAt)) {
+      transaction.set(sessionRef, {
+        employeeId: first.employeeId,
+        scheduleDate,
+        shiftId: SUPPLEMENTARY_SHIFT_ID,
+        lastAcceptedEventId: session.lastAcceptedEventId,
+        lastAcceptedType: session.lastAcceptedType,
+        lastAcceptedAt: admin.firestore.Timestamp.fromMillis(session.lastAcceptedAt),
+        openCheckInAt: session.openCheckInAt == null ? null : admin.firestore.Timestamp.fromMillis(session.openCheckInAt),
+        closed: session.closed,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+    return null;
+  });
 }
 
 exports.resolveOvertimeRequestAttendance = onDocumentUpdated({ document: "overtimeRequests/{requestId}", region: "asia-southeast1" }, async event => {
