@@ -31,6 +31,26 @@ class AttendanceRowPresentationTest {
         }
     }
 
+    @Test fun serverResolutionTypesUseTheirDedicatedLabels() {
+        listOf("DUPLICATE", "UNSCHEDULED", "OUT_OF_ORDER").forEach { status ->
+            val presentation = attendanceResolutionPresentation(row.copy(type = status, resolutionStatus = status, status = "ABNORMAL"))
+            assertTrue("Expected $status label, got ${presentation.label}", presentation.label.startsWith("$status •"))
+            assertFalse(presentation.accepted)
+        }
+    }
+
+    @Test fun serverResolutionTypesDoNotBypassAbnormalGuards() {
+        listOf("DUPLICATE", "UNSCHEDULED", "OUT_OF_ORDER").forEach { status ->
+            val resolved = row.copy(type = status, resolutionStatus = status, status = "ABNORMAL")
+            listOf(resolved.copy(verified = false), resolved.copy(scheduleDate = "bad-date"),
+                resolved.copy(type = "unknown"), resolved.copy(resolutionStatus = "unknown")).forEach {
+                val presentation = attendanceResolutionPresentation(it)
+                assertTrue(presentation.label.startsWith("ABNORMAL"))
+                assertFalse(presentation.accepted)
+            }
+        }
+    }
+
     @Test fun scheduleDateWinsOverVietnamCalendarFallback() {
         assertEquals("2026-09-17", attendanceAdjustmentDate(row.copy(scheduleDate = "2026-09-17")))
         assertEquals("2026-09-18", attendanceAdjustmentDate(row))
