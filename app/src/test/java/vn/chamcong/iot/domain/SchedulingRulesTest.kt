@@ -150,6 +150,26 @@ class SchedulingRulesTest {
         assertEquals(0, result.unauthorizedAbsenceDays)
     }
 
+    @Test
+    fun summarizesAnOvernightPairOnItsShiftStartDate() {
+        val weekStart = LocalDate.of(2026, 9, 14)
+        val result = summarizeWeeklyWork(
+            employees = listOf(Employee(id = "e1", active = true)),
+            attendance = listOf(
+                attendance("e1", AttendanceType.CHECK_IN.name, "2026-09-14T16:00:00Z"),
+                attendance("e1", AttendanceType.CHECK_OUT.name, "2026-09-14T22:30:00Z")
+            ),
+            schedules = listOf(WorkSchedule(employeeId = "e1", shiftId = "night", date = weekStart.toString())),
+            shifts = mapOf("night" to WorkShift(name = "Ca dem", startTime = "22:00", endTime = "06:00", effectiveFrom = weekStart.toString())),
+            approvedRequests = emptyList(),
+            weekStart = weekStart,
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh")
+        )
+
+        assertEquals(6.5, result.totalWorkedHours, 0.01)
+        assertEquals(6.5, result.dailyWorkedHours[weekStart] ?: 0.0, 0.01)
+    }
+
     private fun attendance(employeeId: String, type: String, instant: String) = Attendance(
         employeeId = employeeId,
         type = type,

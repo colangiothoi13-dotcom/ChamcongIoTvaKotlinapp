@@ -7,7 +7,6 @@ import vn.chamcong.iot.model.WorkTimeSummary
 import vn.chamcong.iot.model.WeeklyWorkSummary
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
-import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.LeaveRequest
 import vn.chamcong.iot.model.RequestStatus
@@ -145,13 +144,14 @@ fun summarizeWeeklyWork(
     shifts: Map<String, WorkShift>,
     approvedRequests: List<LeaveRequest>,
     weekStart: LocalDate,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    adjustments: List<AttendanceAdjustment> = emptyList()
 ): WeeklyWorkSummary {
     val monday = mondayOfWeek(weekStart)
     val dates = weekDates(monday)
     val activeEmployees = employees.filter(Employee::active)
     val scheduleByKey = schedules.associateBy { "${it.employeeId}_${it.date}" }
-    val attendanceByKey = attendance.groupBy { "${it.employeeId}_${it.localDate(zoneId)}" }
+    val attendanceByEmployee = attendance.groupBy(Attendance::employeeId)
     var totalWorkedSeconds = 0L
     var totalOvertimeSeconds = 0L
     var lateCount = 0
@@ -174,8 +174,13 @@ fun summarizeWeeklyWork(
         dates.forEach { date ->
             val key = "${employee.id}_$date"
             val schedule = scheduleByKey[key]
-            val rows = attendanceByKey[key].orEmpty().sortedBy { it.timestamp.toDate().time }
-            val pairs = attendancePairs(rows)
+            val pair = resolveAttendancePair(
+                rows = attendanceByEmployee[employee.id].orEmpty(),
+                scheduleDate = date,
+                shift = schedule?.let { shifts[it.shiftId] },
+                adjustments = adjustments,
+                zoneId = zoneId
+            )
             validateWorkedHoursOverride(schedule?.workedHoursOverride)
             if (schedule?.workedHoursOverride != null) {
                 val overrideSeconds = (schedule.workedHoursOverride * 3600).roundToLong()
@@ -186,24 +191,22 @@ fun summarizeWeeklyWork(
                 }
                 return@forEach
             }
-            if (pairs.isEmpty()) {
+            if (pair.checkIn == null || pair.checkOut == null) {
                 if (schedule != null && key !in approvedLeaveKeys) unauthorizedAbsenceDays++
                 return@forEach
             }
             var dayWorkedSeconds = 0L
-            pairs.forEach { (checkIn, checkOut) ->
-                val summary = calculateWorkTime(
-                    checkIn = checkIn,
-                    checkOut = checkOut,
-                    shift = schedule?.let { shifts[it.shiftId] },
-                    overtimeHours = schedule?.overtimeHours ?: 0,
-                    zoneId = zoneId
-                )
-                dayWorkedSeconds += (summary.workedHours * 3600).roundToLong()
-                totalOvertimeSeconds += (summary.overtimeHours * 3600).roundToLong()
-                if (summary.lateMinutes > 0) lateCount++
-                if (summary.earlyLeaveMinutes > 0) earlyLeaveCount++
-            }
+            val summary = calculateWorkTime(
+                checkIn = pair.checkIn,
+                checkOut = pair.checkOut,
+                shift = schedule?.let { shifts[it.shiftId] },
+                overtimeHours = schedule?.overtimeHours ?: 0,
+                zoneId = zoneId
+            )
+            dayWorkedSeconds += (summary.workedHours * 3600).roundToLong()
+            totalOvertimeSeconds += (summary.overtimeHours * 3600).roundToLong()
+            if (summary.lateMinutes > 0) lateCount++
+            if (summary.earlyLeaveMinutes > 0) earlyLeaveCount++
             if (dayWorkedSeconds > 0) {
                 workdays++
                 totalWorkedSeconds += dayWorkedSeconds
@@ -223,25 +226,6 @@ fun summarizeWeeklyWork(
         unauthorizedAbsenceDays = unauthorizedAbsenceDays,
         dailyWorkedHours = dailyHours
     )
-}
-
-private fun attendancePairs(rows: List<Attendance>): List<Pair<Instant, Instant>> {
-    var checkIn: Instant? = null
-    val pairs = mutableListOf<Pair<Instant, Instant>>()
-    rows.forEach { row ->
-        val instant = row.timestamp.toDate().toInstant()
-        when (row.type) {
-            AttendanceType.CHECK_IN.name -> if (checkIn == null) checkIn = instant
-            AttendanceType.CHECK_OUT.name -> {
-                val start = checkIn
-                if (start != null && instant.isAfter(start)) {
-                    pairs += start to instant
-                    checkIn = null
-                }
-            }
-        }
-    }
-    return pairs
 }
 
 private fun parseTime(value: String, label: String): LocalTime = runCatching {
@@ -272,5 +256,3 @@ private fun breakOverlapSeconds(
 }
 
 private fun roundHours(seconds: Long): Double = (seconds / 3600.0 * 100).roundToLong() / 100.0
-
-private fun Attendance.localDate(zoneId: ZoneId): LocalDate = timestamp.toDate().toInstant().atZone(zoneId).toLocalDate()
