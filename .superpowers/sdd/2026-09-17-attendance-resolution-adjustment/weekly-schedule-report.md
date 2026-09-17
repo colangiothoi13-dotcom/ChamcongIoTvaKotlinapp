@@ -103,3 +103,39 @@ Final GREEN after the final build: **OK (132 tests)**, exit 0, 0.311s; JUnit 4.1
 - No merge, push, deployment, production writes, APK install, firmware change or hardware verification.
 
 The implementation, tests, README and this report are included together in the requested implementation commit. The final response provides that commit ID and the SHA-256 of this report; the report intentionally does not embed its own hash or containing commit hash.
+
+## Reviewer fix round 1 — 2026-09-17
+
+Base: `1a131b4c6e731b4e7bb2726aaaf62f77ff73551f`.
+Fix commit: **`a6b6c1bb18fd7e743baf9b33d91f71ba77c4ce7a`**, `fix: address weekly scheduling review findings`.
+This appended evidence is committed separately so it can record the exact fix hash.
+
+### Bounded corrections
+
+1. Verified that inactive/missing selected employees disappeared from the selectable rows but their IDs remained in selection, causing payload validation to fail without a displayed reason. Added pure `unavailableWeeklyEmployeeIds`, a visible count/explanation, and an explicit “Bỏ nhân viên không còn khả dụng” recovery action. The action removes only unavailable IDs. The dialog also displays the actual payload validation error, so removing all stale selections shows “Chọn ít nhất một nhân viên” and missing dates show the existing date-selection guidance. Existing server/save-time validation remains intact. No automatic dropping during composition or saving was introduced.
+2. Added pure `scheduleShiftLabel`, used both by every legacy picker menu item and the selected-value button. Supplemental entries now include start/end, e.g. `Ca bổ sung • 18:00–20:00` and `Ca bổ sung • 22:00–06:00 (ngày hôm sau)`. Category-based handling covers legacy names and new template names; ordinary shifts retain their existing name. Stored shifts and schedules are unchanged by this display fix.
+3. Bulk audit targetType remains `workSchedule`; targetId now uses `scheduleDocumentId(chunk.first().employeeId, chunk.first().date)`, exactly the same canonical-ID helper used by the schedule writes. Chunks are nonempty. The existing details string retains every affected schedule ID. Actor, SHIFT_UPDATE action, audit_logs collection, transaction atomicity and server timestamp serialization are unchanged. Relevant existing audit rules were inspected; no rules or schema changes were needed.
+
+### Tests and exact outcomes
+
+Four new pure tests in `WeeklySchedulingPresentationTest` cover mixed active/inactive/missing selections, recovery to a valid payload, all-unavailable recovery with an explicit empty-selection validation message, supplemental labels with different times and overnight ends, and unchanged ordinary-shift labels.
+
+Before production edits, ran the same cached Gradle command shown above with `:app:compileDebugUnitTestKotlin --offline --no-daemon`. Result: **BUILD FAILED in 29s**, exit 1, 18 tasks (1 executed, 17 up-to-date), due to unresolved `unavailableWeeklyEmployeeIds` and `scheduleShiftLabel`. This records a missing-helper compilation RED, not a failing executed JUnit assertion.
+
+After implementation, ran:
+
+```powershell
+$env:ANDROID_HOME='C:/Users/DELL/AppData/Local/Android/Sdk'
+& 'C:/Users/DELL/.gradle/wrapper/dists/gradle-8.9-bin/90cnw93cvbtalezasaz0blq0a/gradle-8.9/bin/gradle.bat' :app:assembleDebug :app:compileDebugUnitTestKotlin :app:bundleDebugClassesToRuntimeJar --offline --no-daemon
+.\.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/run-task6-tests.ps1 -All
+```
+
+Final cached build: **BUILD SUCCESSFUL in 51s**, exit 0; **39 actionable tasks: 9 executed, 30 up-to-date**. Final direct JUnit: **OK (136 tests)**, exit 0, JUnit 4.13.2, 0.333s (132 baseline plus four new tests). Cached SDK/Gradle access was approved. Existing android.overridePathCheck warning remains. This was an incremental cached build; Gradle test-worker execution was not claimed.
+
+APK SHA-256: `2D6862488BD1D7162E5FC68DDE240F0491F58CF6383EB78F5377DBC8BF727C6B` at `app/build/outputs/apk/debug/app-debug.apk`. APK was not installed or committed.
+
+`git diff --check` and `git diff --cached --check` passed before the fix commit (LF/CRLF informational notices only). README inventory covers the six implementation/test/documentation files in the fix commit and this appended report. No npm tests were relevant: no JS, Functions, rules or Node changes.
+
+### Verification limits and status
+
+No Compose/device/TalkBack interaction or live/emulator Firebase transaction test was run. Pure tests exercise the helper results and the real payload validator; they do not execute the dialog. The small audit target correction was source-reviewed against the canonical write and audit rules, not covered by a new remote-writer assertion; no existing repository transaction test harness was available. No scope expansion, subagents, merge, push, deployment or production writes. The unrelated untracked `.superpowers/firebase-cli-config/` directory remains untouched; all fix implementation files are committed.
