@@ -38,20 +38,21 @@ fun employeeDaySummary(
 ): EmployeeDaySummary {
     val dayRows = attendance
         .asSequence()
-        .filter { it.employeeId == employeeId && it.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate() == date }
+        .filter { it.employeeId == employeeId && belongsToScheduleDate(it, date, shift, zoneId) }
         .sortedBy { it.timestamp.toDate().time }
         .toList()
     val adjustment = latestAdjustment(adjustments, employeeId, date)
-    val checkIn = adjustment?.checkInAt ?: dayRows.firstOrNull { it.type == AttendanceType.CHECK_IN.name }
-        ?.timestamp?.toDate()?.toInstant()
-    val checkOut = adjustment?.checkOutAt ?: dayRows.lastOrNull { row ->
-        row.type == AttendanceType.CHECK_OUT.name && checkIn != null && row.timestamp.toDate().toInstant().isAfter(checkIn)
-    }?.timestamp?.toDate()?.toInstant()
+    val pair = resolveAttendancePair(dayRows, date, shift, adjustments, zoneId)
+    // Explicit employee lookup also covers adjustments with no raw scans.
+    val checkIn = adjustment?.checkInAt ?: pair.checkIn
+    val checkOut = adjustment?.checkOutAt ?: pair.checkOut
     val calculated = if (checkIn != null && checkOut != null) {
-        calculateWorkTime(checkIn, checkOut, shift, schedule?.overtimeHours ?: 0, zoneId)
+        calculateWorkTime(checkIn, checkOut, shift, schedule?.overtimeHours ?: 0, zoneId, date)
     } else WorkTimeSummary()
     val status = when {
         approvedLeave -> EmployeeAttendanceStatus.LEAVE
+        dayRows.any { !it.verified || it.type !in AttendanceType.entries.map { type -> type.name } || it.resolutionStatus in listOf("PENDING", "UNSCHEDULED", "OUT_OF_ORDER") } -> EmployeeAttendanceStatus.ABNORMAL
+        checkIn != null && checkOut != null && !checkOut.isAfter(checkIn) -> EmployeeAttendanceStatus.ABNORMAL
         checkIn == null -> EmployeeAttendanceStatus.MISSING_CHECK_IN
         checkOut == null -> EmployeeAttendanceStatus.MISSING_CHECK_OUT
         calculated.lateMinutes > 0 && calculated.earlyLeaveMinutes > 0 -> EmployeeAttendanceStatus.ABNORMAL

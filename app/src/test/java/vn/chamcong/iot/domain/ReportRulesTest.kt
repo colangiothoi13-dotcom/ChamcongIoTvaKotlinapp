@@ -17,6 +17,43 @@ import java.time.ZoneId
 import java.util.Date
 
 class ReportRulesTest {
+    @Test
+    fun legacyOvernightCheckoutDoesNotCreateAnExtraCalendarDayReport() {
+        val date = LocalDate.parse("2026-09-30")
+        val shift = WorkShift(id = "s", name = "Night", startTime = "22:00", endTime = "06:00", effectiveFrom = "2026-01-01")
+        val schedules = listOf(WorkSchedule(employeeId = "e1", shiftId = "s", date = date.toString()))
+        val events = listOf(attendance("e1", "CHECK_IN", "2026-09-30T15:00:00Z"), attendance("e1", "CHECK_OUT", "2026-09-30T23:00:00Z"))
+        val rows = attendanceReportRows(ReportFilter(date, date.plusDays(1)), listOf(Employee(id = "e1")), events, schedules, listOf(shift), emptyList(), zone)
+        assertEquals(listOf("2026-09-30"), rows.map { it.date })
+        assertEquals(8.0, rows.single().workedHours, 0.001)
+        assertEquals(8.0, vn.chamcong.iot.model.workedHoursForMonth(events, "e1", java.time.YearMonth.of(2026, 9), zone, schedules, listOf(shift)), 0.001)
+    }
+
+    @Test
+    fun approvedLeaveIsScopedToItsEmployeeAndWinsOverAbnormalAttendance() {
+        val date = LocalDate.parse("2026-09-30")
+        val leave = vn.chamcong.iot.model.LeaveRequest(employeeId = "e1", type = "LEAVE", status = "APPROVED", startDate = date.toString(), endDate = date.toString())
+        val rows = attendanceReportRows(ReportFilter(date, date), listOf(Employee(id = "e1"), Employee(id = "e2")),
+            listOf(attendance("e1", "SCAN", "2026-09-30T01:00:00Z")),
+            listOf(WorkSchedule(employeeId = "e2", date = date.toString())), emptyList(), listOf(leave), zone)
+        assertEquals("LEAVE", rows.first { it.employeeId == "e1" }.status)
+        assertEquals("MISSING_CHECK_IN", rows.first { it.employeeId == "e2" }.status)
+    }
+
+    @Test
+    fun overnightReportHasOnlyStartDateAndAcceptedHours() {
+        val date = LocalDate.parse("2026-09-30")
+        val events = listOf(
+            attendance("e1", "CHECK_IN", "2026-09-30T15:00:00Z"),
+            attendance("e1", "CHECK_OUT", "2026-09-30T23:00:00Z"),
+            attendance("e1", "CHECK_OUT", "2026-10-01T00:00:00Z").copy(resolutionStatus = "DUPLICATE")
+        ).map { it.copy(scheduleDate = date.toString()) }
+        val rows = attendanceReportRows(ReportFilter(date, date.plusDays(1)), listOf(Employee(id = "e1")), events, emptyList(), emptyList(), emptyList(), zone)
+        assertEquals(listOf("2026-09-30"), rows.map { it.date })
+        assertEquals(8.0, rows.single().workedHours, 0.001)
+        assertEquals("06:00", rows.single().checkOut)
+    }
+
     private val zone = ZoneId.of("Asia/Ho_Chi_Minh")
 
     @Test(expected = IllegalArgumentException::class)

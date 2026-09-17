@@ -41,7 +41,10 @@ fun resolveAttendancePair(
         .sortedBy { it.timestamp.toDate().toInstant() }
         .toList()
 
-    var checkIn: Instant? = null
+    val employeeId = acceptedRows.firstOrNull()?.employeeId ?: rows.firstOrNull()?.employeeId.orEmpty()
+    val adjustment = latestAdjustment(adjustments, employeeId, scheduleDate)
+    // A corrected check-in can complete an otherwise orphaned accepted checkout.
+    var checkIn: Instant? = adjustment?.checkInAt
     var checkOut: Instant? = null
     acceptedRows.forEach { row ->
         val eventAt = row.timestamp.toDate().toInstant()
@@ -54,8 +57,6 @@ fun resolveAttendancePair(
         }
     }
 
-    val employeeId = acceptedRows.firstOrNull()?.employeeId ?: rows.firstOrNull()?.employeeId.orEmpty()
-    val adjustment = latestAdjustment(adjustments, employeeId, scheduleDate)
     return AttendancePair(
         scheduleDate = scheduleDate,
         checkIn = adjustment?.checkInAt ?: checkIn,
@@ -90,7 +91,7 @@ fun latestAdjustment(
     .filter { runCatching { validateAttendanceAdjustment(it) }.isSuccess }
     .maxByOrNull { it.createdAt }
 
-private fun belongsToScheduleDate(
+internal fun belongsToScheduleDate(
     row: Attendance,
     scheduleDate: LocalDate,
     shift: WorkShift?,

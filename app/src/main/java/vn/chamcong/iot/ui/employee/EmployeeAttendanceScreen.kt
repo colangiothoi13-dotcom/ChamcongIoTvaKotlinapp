@@ -36,7 +36,7 @@ private val zone = java.time.ZoneId.of("Asia/Ho_Chi_Minh")
 fun EmployeeAttendanceScreen(state: MainUiState, vm: MainViewModel, onOpenRequests: () -> Unit = {}) {
     var month by remember { mutableStateOf(LocalDate.now(zone).withDayOfMonth(1)) }
     val summaries = vm.employeeMonthSummaries(month).filter { summary ->
-        summary.workedHours > 0.0 || summary.checkIn != null || summary.checkOut != null || summary.shiftName.isNotBlank() || summary.status.name == "LEAVE"
+        summary.workedHours > 0.0 || summary.checkIn != null || summary.checkOut != null || summary.shiftName.isNotBlank() || summary.status.name in listOf("LEAVE", "ABNORMAL")
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

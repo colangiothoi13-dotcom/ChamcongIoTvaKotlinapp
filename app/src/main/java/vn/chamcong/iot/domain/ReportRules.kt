@@ -3,7 +3,6 @@ package vn.chamcong.iot.domain
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceReportRow
-import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.DeviceActivityRow
 import vn.chamcong.iot.model.DeviceSnapshot
 import vn.chamcong.iot.model.Employee
@@ -50,13 +49,21 @@ fun attendanceReportRows(
     val schedulesByKey = schedules.associateBy { "${it.employeeId}_${it.date}" }
     val attendanceByKey = attendance
         .filter { it.employeeId in employeeIds }
-        .groupBy { "${it.employeeId}_${it.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate()}" }
+        .groupBy { row ->
+            // Legacy overnight scans belong to the matching schedule, not the checkout's calendar day.
+            val date = row.scheduleDate ?: schedules.firstOrNull { schedule ->
+                schedule.employeeId == row.employeeId && shiftsById[schedule.shiftId]?.let { shift ->
+                    runCatching { belongsToScheduleDate(row, LocalDate.parse(schedule.date), shift, zoneId) }.getOrDefault(false)
+                } == true
+            }?.date ?: row.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate().toString()
+            "${row.employeeId}_$date"
+        }
     val approvedLeaveKeys = approvedRequests
         .filter { it.status == "APPROVED" && it.type == "LEAVE" }
         .flatMap { request ->
             val start = runCatching { LocalDate.parse(request.startDate, reportDateFormatter) }.getOrNull()
             val end = runCatching { LocalDate.parse(request.endDate, reportDateFormatter) }.getOrNull()
-            if (start == null || end == null) emptyList() else selectedEmployees.flatMap { employee ->
+            if (start == null || end == null) emptyList() else selectedEmployees.filter { it.id == request.employeeId }.flatMap { employee ->
                 generateSequence(start) { date -> date.plusDays(1).takeIf { !it.isAfter(end) } }
                     .filter { it in filter.startDate..filter.endDate }
                     .map { "${employee.id}_$it" }
@@ -69,39 +76,24 @@ fun attendanceReportRows(
         generateSequence(filter.startDate) { date -> date.plusDays(1).takeIf { !it.isAfter(filter.endDate) } }
             .map { date ->
                 val key = "${employee.id}_$date"
-                val rows = attendanceByKey[key].orEmpty().sortedBy { it.timestamp.toDate().time }
                 val schedule = schedulesByKey[key]
+                val shift = schedule?.let { shiftsById[it.shiftId] }
+                val rows = attendanceByKey[key].orEmpty()
+                    .filter { belongsToScheduleDate(it, date, shift, zoneId) }
                 val adjustment = latestAdjustment(adjustments, employee.id, date)
                 if (rows.isEmpty() && schedule == null && adjustment == null && key !in approvedLeaveKeys) return@map null
-                val checkIns = rows.filter { it.type == AttendanceType.CHECK_IN.name }
-                val checkOuts = rows.filter { it.type == AttendanceType.CHECK_OUT.name }
-                val firstIn = adjustment?.checkInAt ?: checkIns.firstOrNull()?.timestamp?.toDate()?.toInstant()
-                val lastOut = adjustment?.checkOutAt ?: checkOuts.lastOrNull()?.timestamp?.toDate()?.toInstant()
-                val summary = calculateWorkTime(
-                    checkIn = firstIn,
-                    checkOut = lastOut,
-                    shift = schedule?.let { shiftsById[it.shiftId] },
-                    overtimeHours = schedule?.overtimeHours ?: 0,
-                    zoneId = zoneId
+                val summary = employeeDaySummary(
+                    employee.id, date, rows, schedule, shift, key in approvedLeaveKeys, zoneId, adjustments
                 )
-                val status = when {
-                    key in approvedLeaveKeys -> "LEAVE"
-                    rows.any { !it.verified || it.type !in listOf(AttendanceType.CHECK_IN.name, AttendanceType.CHECK_OUT.name) } -> "ABNORMAL"
-                    firstIn == null -> "MISSING_CHECK_IN"
-                    lastOut == null -> "MISSING_CHECK_OUT"
-                    summary.lateMinutes > 0 -> "LATE"
-                    summary.earlyLeaveMinutes > 0 -> "EARLY_LEAVE"
-                    else -> "ON_TIME"
-                }
                 AttendanceReportRow(
                     date = date.toString(),
                     employeeId = employee.id,
                     employeeName = employee.fullName,
                     department = employee.department,
-                    checkIn = firstIn?.atZone(zoneId)?.format(reportTimeFormatter).orEmpty(),
-                    checkOut = lastOut?.atZone(zoneId)?.format(reportTimeFormatter).orEmpty(),
-                    status = status,
-                    workedHours = adjustment?.workedHoursOverride ?: schedule?.workedHoursOverride ?: summary.workedHours,
+                    checkIn = summary.checkIn?.atZone(zoneId)?.format(reportTimeFormatter).orEmpty(),
+                    checkOut = summary.checkOut?.atZone(zoneId)?.format(reportTimeFormatter).orEmpty(),
+                    status = summary.status.name,
+                    workedHours = summary.workedHours,
                     overtimeHours = summary.overtimeHours
                 )
             }

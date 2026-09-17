@@ -1,6 +1,6 @@
 package vn.chamcong.iot.model
 
-import java.time.Duration
+import vn.chamcong.iot.domain.employeeMonthSummaries
 import java.time.YearMonth
 import java.time.ZoneId
 import kotlin.math.roundToLong
@@ -38,31 +38,15 @@ fun workedHoursForMonth(
     attendance: List<Attendance>,
     employeeId: String,
     month: YearMonth,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    schedules: List<WorkSchedule> = emptyList(),
+    shifts: List<WorkShift> = emptyList(),
+    adjustments: List<AttendanceAdjustment> = emptyList()
 ): Double {
-    val events = attendance
-        .asSequence()
-        .filter { it.employeeId == employeeId }
-        .map { it to it.timestamp.toDate().toInstant() }
-        .filter { (_, instant) -> YearMonth.from(instant.atZone(zoneId)) == month }
-        .sortedBy { (_, instant) -> instant }
-        .toList()
-
-    var checkIn: java.time.Instant? = null
-    var totalSeconds = 0L
-    events.forEach { (event, instant) ->
-        when (event.type) {
-            AttendanceType.CHECK_IN.name -> if (checkIn == null) checkIn = instant
-            AttendanceType.CHECK_OUT.name -> {
-                val start = checkIn
-                if (start != null && instant.isAfter(start)) {
-                    totalSeconds += Duration.between(start, instant).seconds
-                    checkIn = null
-                }
-            }
-        }
-    }
-    return (totalSeconds / 3600.0 * 100).roundToLong() / 100.0
+    val hours = employeeMonthSummaries(
+        employeeId, month.atDay(1), attendance, schedules, shifts, emptySet(), zoneId, adjustments
+    ).sumOf { it.workedHours }
+    return (hours * 100).roundToLong() / 100.0
 }
 
 fun payrollCandidates(

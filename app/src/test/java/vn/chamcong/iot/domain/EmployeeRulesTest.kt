@@ -19,6 +19,32 @@ import java.time.ZoneId
 import java.util.Date
 
 class EmployeeRulesTest {
+    @Test
+    fun adjustedCheckInPairsWithRawCheckoutWithoutRawCheckIn() {
+        val date = LocalDate.parse("2026-09-14")
+        val adjustment = vn.chamcong.iot.model.AttendanceAdjustment(employeeId = "e1", employeeName = "An", scheduleDate = date.toString(),
+            checkInAt = Instant.parse("2026-09-14T01:00:00Z"), reason = "Missing scan", actorId = "admin", actorName = "Admin")
+        val summary = employeeDaySummary("e1", date, listOf(attendance("CHECK_OUT", "2026-09-14T10:00:00Z")), null, shift, false, zone, listOf(adjustment))
+        assertEquals(8.0, summary.workedHours, 0.001)
+        assertEquals(EmployeeAttendanceStatus.ON_TIME, summary.status)
+    }
+
+    @Test
+    fun overnightSummaryUsesScheduleDateAndIgnoresDuplicateCheckout() {
+        val date = LocalDate.parse("2026-09-30")
+        val night = shift.copy(startTime = "22:00", endTime = "06:00", breakStartTime = null, breakEndTime = null)
+        val rows = listOf(
+            attendance("CHECK_IN", "2026-09-30T15:00:00Z"),
+            attendance("CHECK_OUT", "2026-09-30T23:00:00Z"),
+            attendance("CHECK_OUT", "2026-10-01T00:00:00Z").copy(resolutionStatus = "DUPLICATE")
+        ).map { it.copy(scheduleDate = date.toString()) }
+        val summary = employeeDaySummary("e1", date, rows, null, night, false, zone)
+        assertEquals(8.0, summary.workedHours, 0.001)
+        assertEquals(Instant.parse("2026-09-30T23:00:00Z"), summary.checkOut)
+        assertEquals(EmployeeAttendanceStatus.ON_TIME, summary.status)
+        assertEquals(0.0, employeeDaySummary("e1", date.plusDays(1), rows, null, null, false, zone).workedHours, 0.001)
+    }
+
     private val zone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val employee = Employee(id = "e1", code = "NV001", fullName = "Nguyễn Văn A", department = "Kinh doanh")
     private val shift = WorkShift(

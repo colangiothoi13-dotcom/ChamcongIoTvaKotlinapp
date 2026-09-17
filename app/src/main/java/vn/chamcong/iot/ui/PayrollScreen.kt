@@ -138,7 +138,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
 
     selected?.let { e ->
         var hours by remember(e.id, month) {
-            mutableStateOf(hoursText(workedHoursForMonth(state.attendance, e.id, YearMonth.parse(month), PayrollZone)))
+            mutableStateOf(hoursText(workedHoursForMonth(state.attendance, e.id, YearMonth.parse(month), PayrollZone, state.schedules, state.shifts, state.attendanceAdjustments)))
         }
         var bonus by remember(e.id, month) { mutableStateOf("0") }
         var deduction by remember(e.id, month) { mutableStateOf("0") }
@@ -155,7 +155,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
                     Text("${current.code} • ${current.fullName}")
                     Text("Đơn giá lương cơ bản: ${money(current.baseSalary)}/giờ")
                     HoursField(hours) { hours = it }
-                    Text("Tự tính từ các cặp vào/ra trong tháng: ${hoursText(workedHoursForMonth(state.attendance, current.id, YearMonth.parse(month), PayrollZone))} giờ. Có thể chỉnh nếu dữ liệu thiếu.", style = MaterialTheme.typography.bodySmall)
+                    Text("Tự tính từ các cặp vào/ra trong tháng: ${hoursText(workedHoursForMonth(state.attendance, current.id, YearMonth.parse(month), PayrollZone, state.schedules, state.shifts, state.attendanceAdjustments))} giờ. Có thể chỉnh nếu dữ liệu thiếu.", style = MaterialTheme.typography.bodySmall)
                     MoneyField("Thưởng (đ)", bonus) { bonus = it }
                     MoneyField("Khấu trừ (đ)", deduction) { deduction = it }
                     if (basePay != null && b != null && d != null) Text("Lương cơ bản: ${money(basePay)} • Thực lĩnh: ${money(basePay + b - d)}")

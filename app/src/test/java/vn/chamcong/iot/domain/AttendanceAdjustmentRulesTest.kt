@@ -48,10 +48,10 @@ class AttendanceAdjustmentRulesTest {
     }
 
     @Test
-    fun adjustedCheckInWithoutShiftPreservesLegacyCutoffs() {
+    fun adjustedCheckInWithoutShiftUsesSharedNextDayFallback() {
         val adjustment = validAdjustment(checkInAt = timestamp("2026-09-17T01:00:00Z"))
         assertEquals(PresenceStatus.PRESENT, adjustedPresence(adjustment, null, "2026-09-17T03:15:01Z"))
-        assertEquals(PresenceStatus.MISSING_CHECK_OUT, adjustedPresence(adjustment, null, "2026-09-17T14:00:00Z"))
+        assertEquals(PresenceStatus.PRESENT, adjustedPresence(adjustment, null, "2026-09-17T14:00:00Z"))
         assertEquals(PresenceStatus.MISSING_CHECK_OUT, adjustedPresence(
             adjustment.copy(checkInAt = timestamp("2026-09-17T16:00:00Z")), null, "2026-09-17T17:01:00Z"
         ))
