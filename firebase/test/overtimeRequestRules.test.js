@@ -26,6 +26,7 @@ function authToken(uid) {
 const admin = { uid: "rules-admin", token: authToken("rules-admin") };
 const employee = { uid: "rules-employee", employeeId: "EMP001", token: authToken("rules-employee") };
 const otherEmployee = { uid: "rules-other", employeeId: "EMP002", token: authToken("rules-other") };
+const inactiveEmployee = { uid: "rules-inactive", employeeId: "EMP003", token: authToken("rules-inactive") };
 
 async function request(url, method, auth, body) {
   return fetch(url, {
@@ -45,6 +46,17 @@ async function seedProfile(actor, role, employeeId) {
     ...(employeeId ? { employeeId: { stringValue: employeeId } } : {})
   };
   const response = await request(`${documents}/users/${actor.uid}`, "PATCH", "owner", { fields });
+  assert.equal(response.status, 200, await response.text());
+}
+
+async function seedEmployee(employeeId, fullName, department, active = true) {
+  const response = await request(`${documents}/employees/${employeeId}`, "PATCH", "owner", {
+    fields: {
+      fullName: { stringValue: fullName },
+      department: { stringValue: department },
+      active: { booleanValue: active }
+    }
+  });
   assert.equal(response.status, 200, await response.text());
 }
 
@@ -76,21 +88,41 @@ async function createOvertime(actor, employeeId, workDate, overrides = {}) {
   return { id, response };
 }
 
-async function reviewOvertime(actor, id, status, reason) {
-  return request(`${database}/documents:commit`, "POST", actor.token, {
-    writes: [{
+async function reviewOvertime(actor, id, status, reason, { includeAudit = true } = {}) {
+  const reviewerName = actor.uid === admin.uid ? "Rules Admin" : "Rules Employee";
+  const writes = [{
+    update: {
+      name: documentName(`overtimeRequests/${id}`),
+      fields: {
+        status: { stringValue: status },
+        reviewerId: { stringValue: actor.uid },
+        reviewerName: { stringValue: reviewerName },
+        rejectionReason: reason == null ? { nullValue: null } : { stringValue: reason }
+      }
+    },
+    updateMask: { fieldPaths: ["status", "reviewerId", "reviewerName", "rejectionReason"] },
+    updateTransforms: [{ fieldPath: "reviewedAt", setToServerValue: "REQUEST_TIME" }]
+  }];
+  if (includeAudit) {
+    writes.push({
       update: {
-        name: documentName(`overtimeRequests/${id}`),
+        name: documentName(`audit_logs/${id}_OVERTIME_REVIEW`),
         fields: {
+          actorId: { stringValue: actor.uid },
+          actorName: { stringValue: reviewerName },
+          action: { stringValue: "OVERTIME_REVIEW" },
+          targetType: { stringValue: "overtimeRequest" },
+          targetId: { stringValue: id },
           status: { stringValue: status },
-          reviewerId: { stringValue: actor.uid },
-          reviewerName: { stringValue: actor.uid === admin.uid ? "Rules Admin" : "Rules Employee" },
-          rejectionReason: reason == null ? { nullValue: null } : { stringValue: reason }
+          reason: { stringValue: reason || "" },
+          details: { stringValue: `Reviewed overtime request as ${status}` }
         }
       },
-      updateMask: { fieldPaths: ["status", "reviewerId", "reviewerName", "rejectionReason"] },
-      updateTransforms: [{ fieldPath: "reviewedAt", setToServerValue: "REQUEST_TIME" }]
-    }]
+      updateTransforms: [{ fieldPath: "createdAt", setToServerValue: "REQUEST_TIME" }]
+    });
+  }
+  return request(`${database}/documents:commit`, "POST", actor.token, {
+    writes
   });
 }
 
@@ -102,6 +134,10 @@ before(async () => {
   await seedProfile(admin, "ADMIN");
   await seedProfile(employee, "EMPLOYEE", employee.employeeId);
   await seedProfile(otherEmployee, "EMPLOYEE", otherEmployee.employeeId);
+  await seedProfile(inactiveEmployee, "EMPLOYEE", inactiveEmployee.employeeId);
+  await seedEmployee(employee.employeeId, `Employee ${employee.employeeId}`, "Engineering");
+  await seedEmployee(otherEmployee.employeeId, `Employee ${otherEmployee.employeeId}`, "Engineering");
+  await seedEmployee(inactiveEmployee.employeeId, `Employee ${inactiveEmployee.employeeId}`, "Engineering", false);
 });
 
 test("employee creates a pending overtime request for their own deterministic document", async () => {
@@ -112,6 +148,23 @@ test("employee creates a pending overtime request for their own deterministic do
 test("employee cannot create an overtime request for another employee", async () => {
   const { response } = await createOvertime(employee, otherEmployee.employeeId, "2026-09-21");
   await expectStatus(response, 403, "other employee create");
+});
+
+test("employee cannot tamper with canonical employee name or department", async () => {
+  const tamperedName = await createOvertime(employee, employee.employeeId, "2026-09-29", {
+    employeeName: { stringValue: "Impersonated Employee" }
+  });
+  await expectStatus(tamperedName.response, 403, "employee name tampering");
+
+  const tamperedDepartment = await createOvertime(employee, employee.employeeId, "2026-09-30", {
+    department: { stringValue: "Executive" }
+  });
+  await expectStatus(tamperedDepartment.response, 403, "employee department tampering");
+});
+
+test("inactive employee record cannot create an overtime request", async () => {
+  const { response } = await createOvertime(inactiveEmployee, inactiveEmployee.employeeId, "2026-10-01");
+  await expectStatus(response, 403, "inactive employee create");
 });
 
 test("employee cannot tamper with the fixed overtime window", async () => {
@@ -145,6 +198,14 @@ test("admin approves a pending overtime request", async () => {
   assert.equal(body.fields.status.stringValue, "APPROVED");
   assert.equal(body.fields.reviewerId.stringValue, admin.uid);
   assert.ok(body.fields.reviewedAt.timestampValue);
+
+  const audit = await request(`${documents}/audit_logs/${id}_OVERTIME_REVIEW`, "GET", admin.token);
+  assert.equal(audit.status, 200, await audit.text());
+  const auditBody = await audit.json();
+  assert.equal(auditBody.fields.targetId.stringValue, id);
+  assert.equal(auditBody.fields.status.stringValue, "APPROVED");
+  assert.equal(auditBody.fields.actorId.stringValue, admin.uid);
+  assert.ok(auditBody.fields.createdAt.timestampValue);
 });
 
 test("admin rejects a pending overtime request with a nonblank reason", async () => {
@@ -157,6 +218,16 @@ test("admin cannot reject a pending overtime request without a reason", async ()
   const { id, response: created } = await createOvertime(employee, employee.employeeId, "2026-09-27");
   await expectStatus(created, 200, "reject-without-reason seed");
   await expectStatus(await reviewOvertime(admin, id, "REJECTED", "   "), 403, "admin reject without reason");
+});
+
+test("admin cannot review a pending overtime request without the paired audit write", async () => {
+  const { id, response: created } = await createOvertime(employee, employee.employeeId, "2026-10-02");
+  await expectStatus(created, 200, "unpaired review seed");
+  await expectStatus(
+    await reviewOvertime(admin, id, "APPROVED", null, { includeAudit: false }),
+    403,
+    "unpaired admin review"
+  );
 });
 
 test("overtime requests cannot be deleted", async () => {

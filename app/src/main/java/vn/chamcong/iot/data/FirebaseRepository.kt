@@ -543,9 +543,22 @@ class FirebaseRepository(
         require(profile?.role == UserRole.EMPLOYEE.name && profile.active && profile.employeeId == request.employeeId) {
             "Tài khoản không được gửi đơn tăng ca cho nhân viên này"
         }
+        val employee = db.collection("employees").document(request.employeeId)
+            .get(Source.SERVER)
+            .await()
+            .toObject(Employee::class.java)
+            ?.copy(id = request.employeeId)
+        require(employee != null && employee.active && employee.fullName.isNotBlank()) {
+            "Nhân viên không còn hoạt động hoặc không tồn tại"
+        }
+        val canonicalRequest = request.copy(
+            employeeName = employee.fullName,
+            department = employee.department
+        )
+        validateOvertimeRequest(canonicalRequest)
         val requestId = scheduleDocumentId(request.employeeId, request.workDate)
         db.collection("overtimeRequests").document(requestId)
-            .set(request.copy(id = requestId, status = OvertimeRequestStatus.PENDING.name).toOvertimeFirestoreData())
+            .set(canonicalRequest.copy(id = requestId, status = OvertimeRequestStatus.PENDING.name).toOvertimeFirestoreData())
             .await()
         return requestId
     }
@@ -588,7 +601,11 @@ class FirebaseRepository(
                 details = "Xử lý đơn tăng ca với trạng thái ${status.name}"
             )
             validateAuditLog(audit)
-            transaction.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+            val auditId = "${requestId}_${AuditAction.OVERTIME_REVIEW.name}"
+            transaction.set(
+                db.collection("audit_logs").document(auditId),
+                audit.toFirestoreData() + ("status" to reviewed.status)
+            )
         }.await()
     }
 

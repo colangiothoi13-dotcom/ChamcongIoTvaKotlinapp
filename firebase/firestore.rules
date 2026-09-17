@@ -8,6 +8,9 @@ service cloud.firestore {
     function userProfilePath() {
       return /databases/$(database)/documents/users/$(request.auth.uid);
     }
+    function employeePath(employeeId) {
+      return /databases/$(database)/documents/employees/$(employeeId);
+    }
     // Giữ bootstrap prototype cho email user chưa có profile; khi đã có profile
     // thì bắt buộc role ADMIN và active=true.
     function isAdmin() {
@@ -111,6 +114,8 @@ service cloud.firestore {
         && request.resource.data.targetId is string
         && (request.resource.data.action != 'ATTENDANCE_ADJUST'
           || (nonBlank(request.resource.data.reason) && nonBlank(request.resource.data.actorName)))
+        && (request.resource.data.action != 'OVERTIME_REVIEW'
+          || matchingOvertimeReviewRequest(id, request.resource.data))
         && (request.resource.data.targetType != 'attendanceAdjustment'
           || (request.resource.data.action == 'ATTENDANCE_ADJUST' && matchingAdjustment(id, request.resource.data)))
         && request.resource.data.createdAt == request.time;
@@ -220,7 +225,53 @@ service cloud.firestore {
         && (data.reviewedAt == null || data.reviewedAt is timestamp)
         && (data.rejectionReason == null || data.rejectionReason is string);
     }
-    function validOvertimeReview(existing, updated) {
+    function matchesActiveEmployeeSnapshot(data) {
+      let employee = employeePath(data.employeeId);
+      return exists(employee)
+        && get(employee).data.active == true
+        && data.employeeName == get(employee).data.fullName
+        && data.department == get(employee).data.department;
+    }
+    function overtimeReviewAuditPath(requestId) {
+      return /databases/$(database)/documents/audit_logs/$(requestId + '_OVERTIME_REVIEW');
+    }
+    function overtimeReviewReason(data) {
+      return data.status == 'REJECTED' ? data.rejectionReason : '';
+    }
+    function matchingOvertimeReviewAudit(requestId, existing, updated) {
+      let auditPath = overtimeReviewAuditPath(requestId);
+      let audit = getAfter(auditPath).data;
+      return !exists(auditPath)
+        && existing.status == 'PENDING'
+        && audit.action == 'OVERTIME_REVIEW'
+        && audit.targetType == 'overtimeRequest'
+        && audit.targetId == requestId
+        && audit.actorId == request.auth.uid
+        && audit.actorName == updated.reviewerName
+        && audit.status == updated.status
+        && audit.reason == overtimeReviewReason(updated)
+        && audit.createdAt == request.time
+        && updated.reviewedAt == request.time;
+    }
+    function matchingOvertimeReviewRequest(id, audit) {
+      let requestId = audit.targetId;
+      let requestPath = /databases/$(database)/documents/overtimeRequests/$(requestId);
+      let existing = get(requestPath).data;
+      let updated = getAfter(requestPath).data;
+      return !exists(/databases/$(database)/documents/audit_logs/$(id))
+        && id == requestId + '_OVERTIME_REVIEW'
+        && exists(requestPath)
+        && existing.status == 'PENDING'
+        && updated.status in ['APPROVED', 'REJECTED']
+        && updated.reviewerId == audit.actorId
+        && updated.reviewerName == audit.actorName
+        && updated.status == audit.status
+        && audit.reason == overtimeReviewReason(updated)
+        && audit.actorId == request.auth.uid
+        && updated.reviewedAt == request.time
+        && audit.createdAt == request.time;
+    }
+    function validOvertimeReview(id, existing, updated) {
       return validOvertimeRequest(updated)
         && existing.status == 'PENDING'
         && updated.status in ['APPROVED', 'REJECTED']
@@ -237,12 +288,14 @@ service cloud.firestore {
         && updated.diff(existing).affectedKeys().hasOnly([
           'status', 'reviewerId', 'reviewerName', 'reviewedAt', 'rejectionReason'])
         && ((updated.status == 'APPROVED' && updated.rejectionReason == null)
-          || (updated.status == 'REJECTED' && nonBlank(updated.rejectionReason)));
+          || (updated.status == 'REJECTED' && nonBlank(updated.rejectionReason)))
+        && matchingOvertimeReviewAudit(id, existing, updated);
     }
     match /overtimeRequests/{id} {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create: if isEmployee()
         && validOvertimeRequest(request.resource.data)
+        && matchesActiveEmployeeSnapshot(request.resource.data)
         && request.resource.data.employeeId == get(userProfilePath()).data.employeeId
         && id == request.resource.data.employeeId + '_' + request.resource.data.workDate
         && request.resource.data.status == 'PENDING'
@@ -252,7 +305,7 @@ service cloud.firestore {
         && request.resource.data.reviewedAt == null
         && request.resource.data.rejectionReason == null;
       allow update: if isAdmin()
-        && validOvertimeReview(resource.data, request.resource.data);
+        && validOvertimeReview(id, resource.data, request.resource.data);
       allow delete: if false;
     }
     match /leaveRequests/{id} {

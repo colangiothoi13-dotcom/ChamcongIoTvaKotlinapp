@@ -47,3 +47,28 @@ No Gradle or emulator process was retried after the implementation because the e
 Kotlin compilation and live Firestore rules behavior remain unverified in this environment due the wrapper/native Gradle failures and Java 17 emulator limitation. Run the focused Gradle test with a complete wrapper/native runtime and run the 9-case emulator suite under Java 21+ before merging.
 
 Pre-existing worktree changes were preserved and not staged: `KpiBonusRulesTest.kt`, `gradlew`, the plan file, and `.superpowers/firebase-cli-config/`.
+
+## Fix round 1 — Important findings
+
+Status: IMPLEMENTED; runtime suites intentionally not run per checkpoint instruction.
+
+### Finding 1 — canonical employee identity
+
+- `FirebaseRepository.submitOvertimeRequest` now reads `employees/{employeeId}` from `Source.SERVER`, requires the employee to exist, be active, and have a nonblank canonical name, then serializes `employeeName` and `department` from that record instead of trusting the request snapshot.
+- `firebase/firestore.rules` now requires the create payload's name and department to match the active employee document at `employees/{employeeId}`. The existing deterministic request ID, owner/profile check, fixed window, pending status, and null review fields remain enforced.
+- The rules suite now seeds employee records and covers name/department tampering plus inactive employee denial.
+- No employee identity lookup was added to historical review; review validates the immutable snapshot already stored on the request.
+
+### Finding 2 — atomic deterministic overtime review audit
+
+- `FirebaseRepository.reviewOvertimeRequest` now writes `audit_logs/{requestId}_OVERTIME_REVIEW` in the same transaction as the request transition and includes the reviewed status in the audit payload.
+- Rules require the deterministic audit path to be absent in pre-state, require `getAfter` pairing in both directions, and match action, target, actor, status, rejection reason, `reviewedAt`, and audit `createdAt` to the same `request.time`.
+- Approve/reject tests now use paired writes, assert the deterministic audit document, and include an unpaired admin review denial. Existing attendance-adjustment audit pairing rules were left intact.
+
+### Fix-round verification
+
+- `node --check firebase/test/overtimeRequestRules.test.js` — PASS, exit 0.
+- `git diff --check` — PASS, exit 0.
+- Rules test cases authored: 12, including canonical seed records, identity tampering, inactive employee, paired approval/rejection, and unpaired review denial.
+- Gradle and Firestore emulator were not run, per the explicit fix-round instruction and the already recorded environment limitations.
+- Files changed by this fix round: `FirebaseRepository.kt`, `firestore.rules`, `overtimeRequestRules.test.js`, and this report/fix report. Pre-existing changes outside scope remain unstaged.
