@@ -2,6 +2,7 @@ package vn.chamcong.iot.domain
 
 import com.google.firebase.Timestamp
 import vn.chamcong.iot.model.Attendance
+import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.EmployeeAttendanceStatus
@@ -32,16 +33,18 @@ fun employeeDaySummary(
     schedule: WorkSchedule?,
     shift: WorkShift?,
     approvedLeave: Boolean,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    adjustments: List<AttendanceAdjustment> = emptyList()
 ): EmployeeDaySummary {
     val dayRows = attendance
         .asSequence()
         .filter { it.employeeId == employeeId && it.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate() == date }
         .sortedBy { it.timestamp.toDate().time }
         .toList()
-    val checkIn = dayRows.firstOrNull { it.type == AttendanceType.CHECK_IN.name }
+    val adjustment = latestAdjustment(adjustments, employeeId, date)
+    val checkIn = adjustment?.checkInAt ?: dayRows.firstOrNull { it.type == AttendanceType.CHECK_IN.name }
         ?.timestamp?.toDate()?.toInstant()
-    val checkOut = dayRows.lastOrNull { row ->
+    val checkOut = adjustment?.checkOutAt ?: dayRows.lastOrNull { row ->
         row.type == AttendanceType.CHECK_OUT.name && checkIn != null && row.timestamp.toDate().toInstant().isAfter(checkIn)
     }?.timestamp?.toDate()?.toInstant()
     val calculated = if (checkIn != null && checkOut != null) {
@@ -63,7 +66,7 @@ fun employeeDaySummary(
         shiftEndTime = shift?.endTime.orEmpty(),
         checkIn = checkIn,
         checkOut = checkOut,
-        workedHours = schedule?.workedHoursOverride ?: calculated.workedHours,
+        workedHours = adjustment?.workedHoursOverride ?: schedule?.workedHoursOverride ?: calculated.workedHours,
         overtimeHours = calculated.overtimeHours,
         lateMinutes = calculated.lateMinutes,
         earlyLeaveMinutes = calculated.earlyLeaveMinutes,
@@ -78,7 +81,8 @@ fun employeeMonthSummaries(
     schedules: List<WorkSchedule>,
     shifts: List<WorkShift>,
     approvedLeaveDates: Set<LocalDate>,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    adjustments: List<AttendanceAdjustment> = emptyList()
 ): List<EmployeeDaySummary> {
     val firstDay = month.withDayOfMonth(1)
     val scheduleByDate = schedules.filter { it.employeeId == employeeId }.associateBy { it.date }
@@ -93,7 +97,8 @@ fun employeeMonthSummaries(
             schedule = schedule,
             shift = schedule?.let { shiftById[it.shiftId] },
             approvedLeave = date in approvedLeaveDates,
-            zoneId = zoneId
+            zoneId = zoneId,
+            adjustments = adjustments
         )
     }
 }

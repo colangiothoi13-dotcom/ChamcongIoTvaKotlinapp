@@ -33,7 +33,39 @@ service cloud.firestore {
       let mappingPath = /databases/$(database)/documents/fingerprintMappings/$(request.resource.data.templateId);
       return exists(mappingPath)
         && get(mappingPath).data.enabled == true
+        && get(mappingPath).data.employeeId == request.resource.data.employeeId
         && get(/databases/$(database)/documents/employees/$(get(mappingPath).data.employeeId)).data.active == true;
+    }
+
+    function nonBlank(value) { return value is string && value.matches('(?s).*[^\\s].*'); }
+    function validAdjustment(data) {
+      return data.keys().hasOnly(['employeeId', 'employeeName', 'scheduleDate',
+          'checkInAt', 'checkOutAt', 'workedHoursOverride', 'reason', 'actorId', 'actorName', 'createdAt'])
+        && nonBlank(data.employeeId) && nonBlank(data.employeeName)
+        && data.scheduleDate is string && data.scheduleDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && nonBlank(data.reason) && data.actorId == request.auth.uid && nonBlank(data.actorName)
+        && data.createdAt == request.time
+        && (data.checkInAt == null || data.checkInAt is timestamp)
+        && (data.checkOutAt == null || data.checkOutAt is timestamp)
+        && (data.workedHoursOverride == null || (data.workedHoursOverride is number
+          && data.workedHoursOverride >= 0 && data.workedHoursOverride <= 24))
+        && (data.checkInAt != null || data.checkOutAt != null || data.workedHoursOverride != null)
+        && (data.checkInAt == null || data.checkOutAt == null || data.checkOutAt > data.checkInAt);
+    }
+    function matchingAdjustmentAudit(id, data) {
+      let auditPath = /databases/$(database)/documents/audit_logs/$(id);
+      let audit = getAfter(auditPath).data;
+      return !exists(auditPath)
+        && audit.action == 'ATTENDANCE_ADJUST' && audit.targetType == 'attendanceAdjustment'
+        && audit.targetId == id && audit.actorId == data.actorId && audit.actorName == data.actorName
+        && audit.reason == data.reason && audit.createdAt == request.time;
+    }
+    function matchingAdjustment(id, audit) {
+      let adjustmentPath = /databases/$(database)/documents/attendanceAdjustments/$(id);
+      let adjustment = getAfter(adjustmentPath).data;
+      return audit.targetId == id && !exists(adjustmentPath)
+        && adjustment.actorId == audit.actorId && adjustment.actorName == audit.actorName
+        && adjustment.reason == audit.reason && adjustment.createdAt == request.time;
     }
 
     match /employees/{id} {
@@ -77,6 +109,10 @@ service cloud.firestore {
         && request.resource.data.action is string
         && request.resource.data.targetType is string
         && request.resource.data.targetId is string
+        && (request.resource.data.action != 'ATTENDANCE_ADJUST'
+          || (nonBlank(request.resource.data.reason) && nonBlank(request.resource.data.actorName)))
+        && (request.resource.data.targetType != 'attendanceAdjustment'
+          || (request.resource.data.action == 'ATTENDANCE_ADJUST' && matchingAdjustment(id, request.resource.data)))
         && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
     }
@@ -84,10 +120,29 @@ service cloud.firestore {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       // Chế độ Spark/prototype: thiết bị anonymous chỉ được tạo bản ghi mới.
       allow create: if isDevice()
+        && request.resource.data.keys().hasOnly(['employeeId', 'employeeName', 'deviceId',
+          'templateId', 'confidence', 'type', 'resolutionStatus', 'status', 'syncStatus', 'timestamp', 'verified'])
+        && request.resource.data.type == 'SCAN'
+        && request.resource.data.resolutionStatus == 'PENDING'
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.syncStatus == 'PENDING_SYNC'
+        && request.resource.data.timestamp is timestamp
+        && nonBlank(request.resource.data.employeeId)
+        && request.resource.data.employeeName is string
+        && request.resource.data.confidence is int
         && request.resource.data.deviceId is string
         && request.resource.data.templateId is int
         && request.resource.data.verified == true
         && activeFingerprintMapping();
+      allow update, delete: if false;
+    }
+    match /attendanceSessions/{id} {
+      allow read, write: if false;
+    }
+    match /attendanceAdjustments/{id} {
+      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
+      allow create: if isAdmin() && validAdjustment(request.resource.data)
+        && matchingAdjustmentAudit(id, request.resource.data);
       allow update, delete: if false;
     }
     match /devices/{id} {

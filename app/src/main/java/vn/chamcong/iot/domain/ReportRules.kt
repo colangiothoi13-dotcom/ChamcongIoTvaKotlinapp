@@ -1,6 +1,7 @@
 package vn.chamcong.iot.domain
 
 import vn.chamcong.iot.model.Attendance
+import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceReportRow
 import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.DeviceActivityRow
@@ -39,7 +40,8 @@ fun attendanceReportRows(
     schedules: List<WorkSchedule>,
     shifts: List<WorkShift>,
     approvedRequests: List<LeaveRequest>,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    adjustments: List<AttendanceAdjustment> = emptyList()
 ): List<AttendanceReportRow> {
     validateReportFilter(filter)
     val selectedEmployees = filterEmployees(employees, filter)
@@ -69,11 +71,12 @@ fun attendanceReportRows(
                 val key = "${employee.id}_$date"
                 val rows = attendanceByKey[key].orEmpty().sortedBy { it.timestamp.toDate().time }
                 val schedule = schedulesByKey[key]
-                if (rows.isEmpty() && schedule == null && key !in approvedLeaveKeys) return@map null
+                val adjustment = latestAdjustment(adjustments, employee.id, date)
+                if (rows.isEmpty() && schedule == null && adjustment == null && key !in approvedLeaveKeys) return@map null
                 val checkIns = rows.filter { it.type == AttendanceType.CHECK_IN.name }
                 val checkOuts = rows.filter { it.type == AttendanceType.CHECK_OUT.name }
-                val firstIn = checkIns.firstOrNull()?.timestamp?.toDate()?.toInstant()
-                val lastOut = checkOuts.lastOrNull()?.timestamp?.toDate()?.toInstant()
+                val firstIn = adjustment?.checkInAt ?: checkIns.firstOrNull()?.timestamp?.toDate()?.toInstant()
+                val lastOut = adjustment?.checkOutAt ?: checkOuts.lastOrNull()?.timestamp?.toDate()?.toInstant()
                 val summary = calculateWorkTime(
                     checkIn = firstIn,
                     checkOut = lastOut,
@@ -98,7 +101,7 @@ fun attendanceReportRows(
                     checkIn = firstIn?.atZone(zoneId)?.format(reportTimeFormatter).orEmpty(),
                     checkOut = lastOut?.atZone(zoneId)?.format(reportTimeFormatter).orEmpty(),
                     status = status,
-                    workedHours = summary.workedHours,
+                    workedHours = adjustment?.workedHoursOverride ?: schedule?.workedHoursOverride ?: summary.workedHours,
                     overtimeHours = summary.overtimeHours
                 )
             }

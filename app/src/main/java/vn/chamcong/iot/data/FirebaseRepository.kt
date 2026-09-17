@@ -22,6 +22,8 @@ import vn.chamcong.iot.domain.validateAuditLog
 import vn.chamcong.iot.domain.validateEmployeeAccountInput
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
+import java.time.Instant
+import vn.chamcong.iot.domain.validateAttendanceAdjustment
 import java.util.UUID
 
 class FirebaseRepository(
@@ -213,6 +215,80 @@ class FirebaseRepository(
         val ref = db.collection("audit_logs").document()
         ref.set(log.toFirestoreData()).await()
         return ref.id
+    }
+
+    fun observeAttendanceAdjustments(): Flow<List<AttendanceAdjustment>> = observeAdjustments(
+        db.collection("attendanceAdjustments").orderBy("createdAt", Query.Direction.DESCENDING)
+    )
+
+    fun observeEmployeeAttendanceAdjustments(employeeId: String): Flow<List<AttendanceAdjustment>> {
+        require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+        // Sort locally so the employee shell needs no additional composite index.
+        return observeAdjustments(db.collection("attendanceAdjustments").whereEqualTo("employeeId", employeeId))
+    }
+
+    private fun observeAdjustments(query: Query): Flow<List<AttendanceAdjustment>> = callbackFlow {
+        val listener = query.addSnapshotListener { value, error ->
+            if (error != null) close(error)
+            else trySend(value?.documents.orEmpty().mapNotNull { it.toAttendanceAdjustment() }
+                .sortedByDescending { it.createdAt })
+        }
+        awaitClose { listener.remove() }
+    }
+
+    suspend fun saveAttendanceAdjustment(adjustment: AttendanceAdjustment): String {
+        require(currentUserId.isNotBlank()) { "Chưa đăng nhập" }
+        val stored = adjustment.copy(actorId = currentUserId, actorName = currentUserName, reason = adjustment.reason.trim())
+        validateAttendanceAdjustment(stored)
+        val collection = db.collection("attendanceAdjustments")
+        val previous = collection.whereEqualTo("employeeId", stored.employeeId)
+            .whereEqualTo("scheduleDate", stored.scheduleDate)
+            .orderBy("createdAt", Query.Direction.DESCENDING).limit(1)
+            .get(Source.SERVER).await().documents.firstOrNull()?.toAttendanceAdjustment()
+        val ref = collection.document()
+        // Shared id lets rules enforce the audit/adjustment pair in both directions.
+        val auditRef = db.collection("audit_logs").document(ref.id)
+        fun values(value: AttendanceAdjustment?): String = value?.let {
+            "id=${it.id}, checkInAt=${it.checkInAt}, checkOutAt=${it.checkOutAt}, workedHoursOverride=${it.workedHoursOverride}"
+        } ?: "none"
+        val audit = AuditLog(
+            actorId = currentUserId, actorName = currentUserName,
+            action = AuditAction.ATTENDANCE_ADJUST.name, targetType = "attendanceAdjustment",
+            targetId = ref.id, reason = stored.reason,
+            details = "employeeId=${stored.employeeId}; scheduleDate=${stored.scheduleDate}; " +
+                "before=[${values(previous)}]; after=[${values(stored.copy(id = ref.id))}]"
+        )
+        validateAuditLog(audit)
+        db.runBatch { batch ->
+            batch.set(ref, stored.toFirestoreData())
+            batch.set(auditRef, audit.toFirestoreData())
+        }.await()
+        return ref.id
+    }
+
+    private fun AttendanceAdjustment.toFirestoreData(): Map<String, Any?> = mapOf(
+        "employeeId" to employeeId, "employeeName" to employeeName, "scheduleDate" to scheduleDate,
+        "checkInAt" to checkInAt?.let { Timestamp(it.epochSecond, it.nano) },
+        "checkOutAt" to checkOutAt?.let { Timestamp(it.epochSecond, it.nano) },
+        "workedHoursOverride" to workedHoursOverride, "reason" to reason,
+        "actorId" to actorId, "actorName" to actorName, "createdAt" to FieldValue.serverTimestamp()
+    )
+
+    private fun DocumentSnapshot.toAttendanceAdjustment(): AttendanceAdjustment? {
+        // Unacknowledged server timestamps must not win latest-adjustment selection.
+        val created = getTimestamp("createdAt") ?: return null
+        fun instant(field: String): Instant? = getTimestamp(field)?.let {
+            Instant.ofEpochSecond(it.seconds, it.nanoseconds.toLong())
+        }
+        return AttendanceAdjustment(
+            id = id, employeeId = getString("employeeId").orEmpty(),
+            employeeName = getString("employeeName").orEmpty(), scheduleDate = getString("scheduleDate").orEmpty(),
+            checkInAt = instant("checkInAt"), checkOutAt = instant("checkOutAt"),
+            workedHoursOverride = (get("workedHoursOverride") as? Number)?.toDouble(),
+            reason = getString("reason").orEmpty(), actorId = getString("actorId").orEmpty(),
+            actorName = getString("actorName").orEmpty(),
+            createdAt = Instant.ofEpochSecond(created.seconds, created.nanoseconds.toLong())
+        )
     }
 
     suspend fun saveShift(shift: WorkShift): String {

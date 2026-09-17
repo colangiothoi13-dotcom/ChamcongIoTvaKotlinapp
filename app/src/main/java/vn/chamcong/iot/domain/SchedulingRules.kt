@@ -176,16 +176,24 @@ fun summarizeWeeklyWork(
         dates.forEach { date ->
             val key = "${employee.id}_$date"
             val schedule = scheduleByKey[key]
-            val pair = resolveAttendancePair(
+            val adjustment = latestAdjustment(adjustments, employee.id, date)
+            val rawPair = resolveAttendancePair(
                 rows = attendanceByEmployee[employee.id].orEmpty(),
                 scheduleDate = date,
                 shift = schedule?.let { shifts[it.shiftId] },
                 adjustments = adjustments,
                 zoneId = zoneId
             )
-            validateWorkedHoursOverride(schedule?.workedHoursOverride)
-            if (schedule?.workedHoursOverride != null) {
-                val overrideSeconds = (schedule.workedHoursOverride * 3600).roundToLong()
+            // An employee can have an adjustment before their first raw scan exists.
+            val pair = rawPair.copy(
+                checkIn = adjustment?.checkInAt ?: rawPair.checkIn,
+                checkOut = adjustment?.checkOutAt ?: rawPair.checkOut,
+                adjustment = adjustment
+            )
+            val workedHoursOverride = adjustment?.workedHoursOverride ?: schedule?.workedHoursOverride
+            validateWorkedHoursOverride(workedHoursOverride)
+            if (workedHoursOverride != null) {
+                val overrideSeconds = (workedHoursOverride * 3600).roundToLong()
                 if (overrideSeconds > 0) {
                     workdays++
                     totalWorkedSeconds += overrideSeconds

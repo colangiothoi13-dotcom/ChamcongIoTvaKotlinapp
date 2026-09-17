@@ -30,6 +30,7 @@ import vn.chamcong.iot.domain.employeeRequestDraft
 import vn.chamcong.iot.model.Payroll
 import vn.chamcong.iot.data.FirebaseRepository
 import vn.chamcong.iot.model.Attendance
+import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.DashboardSummary
 import vn.chamcong.iot.model.DeviceSnapshot
 import vn.chamcong.iot.model.Employee
@@ -59,6 +60,7 @@ data class MainUiState(
     val loading: Boolean = false,
     val employees: List<Employee> = emptyList(),
     val attendance: List<Attendance> = emptyList(),
+    val attendanceAdjustments: List<AttendanceAdjustment> = emptyList(),
     val payroll: List<Payroll> = emptyList(),
     val commands: List<Map<String, Any>> = emptyList(),
     val devices: List<DeviceSnapshot> = emptyList(),
@@ -100,7 +102,8 @@ data class MainUiState(
             attendance = attendance,
             requests = leaveRequests,
             date = selectedPresenceDate,
-            zoneId = ZoneId.of("Asia/Ho_Chi_Minh")
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            adjustments = attendanceAdjustments
         )
 
     val weeklyWorkSummary: WeeklyWorkSummary
@@ -111,7 +114,8 @@ data class MainUiState(
             shifts = shifts.associateBy { it.id },
             approvedRequests = leaveRequests,
             weekStart = selectedWeekStart,
-            zoneId = ZoneId.of("Asia/Ho_Chi_Minh")
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            adjustments = attendanceAdjustments
         )
 }
 
@@ -162,12 +166,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dataSubscriptions.clear()
         scheduleSubscription?.cancel()
         scheduleSubscription = null
+        _state.update { it.copy(attendanceAdjustments = emptyList()) }
     }
 
     private fun subscribeAdmin() {
         if (subscriptionMode == "ADMIN") return
         cancelDataSubscriptions()
         subscriptionMode = "ADMIN"
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeAttendanceAdjustments().catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(attendanceAdjustments = rows) }
+            }
+        }
         dataSubscriptions += viewModelScope.launch {
             repository.observePayroll().catch { e -> setError(e) }.collect { rows ->
                 _state.update { it.copy(payroll=rows) }
@@ -236,6 +246,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (employeeId.isBlank()) return
         dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeeAttendanceAdjustments(employeeId).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(attendanceAdjustments = rows) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
             repository.observeEmployee(employeeId).catch { e -> setError(e) }.collect { employee ->
                 _state.update { it.copy(currentEmployee = employee) }
             }
@@ -282,6 +297,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             onSuccess()
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { _state.update { it.copy(saving=false, error=e.localizedMessage) } }
+    }
+    fun adjustAttendance(adjustment: AttendanceAdjustment, done: () -> Unit) = perform(done) {
+        repository.saveAttendanceAdjustment(adjustment)
+        "Đã lưu điều chỉnh chấm công"
     }
     fun saveEmployee(employee: Employee, account: EmployeeAccountInput? = null, done: () -> Unit) = perform(done) {
         val code = repository.saveEmployee(employee, account)
@@ -402,7 +421,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             schedules = _state.value.employeeSchedules,
             shifts = _state.value.shifts,
             approvedLeaveDates = approvedLeaveDates,
-            zoneId = zoneId
+            zoneId = zoneId,
+            adjustments = _state.value.attendanceAdjustments
         )
     }
 
@@ -413,7 +433,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         schedules = _state.value.schedules,
         shifts = _state.value.shifts,
         approvedRequests = _state.value.leaveRequests,
-        zoneId = zoneId
+        zoneId = zoneId,
+        adjustments = _state.value.attendanceAdjustments
     )
 
     fun reportDeviceRows(): List<DeviceActivityRow> = vn.chamcong.iot.domain.deviceActivityRows(
