@@ -67,3 +67,29 @@ The runner uses real compiled production/test classes and cached Firebase/Androi
 No device/emulator UI session was run. No Firebase deployment, production reads/writes or rules-emulator validation was performed. Those are outside this calculation-only change. Existing one-pair-per-schedule-date resolver semantics remain authoritative; legacy rows without a schedule or explicit schedule date retain calendar-date fallback.
 
 The report and runner are committed separately so the report can name the exact implementation hash. Pre-existing untracked briefs/reviews/reports are preserved and are not included in the Task 6 commits.
+
+## Fix round 1: verified eligibility and unique legacy assignment
+
+Status: completed both Important findings. Fix commit: `4e0795cedaada2497b1b667661de4bf870f0eadc` — `fix: exclude unverified scans and assign legacy attendance once`.
+
+### Findings and bounded implementation
+
+- Confirmed `resolveAttendancePair` previously accepted `resolutionStatus == ACCEPTED` without checking `verified`. Added `verified == true` to shared raw-pair eligibility. Unverified check-ins and checkouts cannot supply effective raw timestamps or calculated work, even with an explicit schedule date or accepted-looking resolution status. Consumers retain ABNORMAL status for these rows. Valid administrative hours/timestamp adjustments remain independent correction sources; the fix does not discard authorized corrections because an unrelated raw scan is unverified.
+- Checked the existing `Attendance` model (`verified: Boolean = true`) and repository deserialization (`toObject(Attendance::class.java)`). Retained the existing legacy model/default contract, with no rule that upgrades an explicit false value based on absent resolution metadata. Existing verified/default legacy tests still pass. This domain-only fix cannot retrospectively establish whether old records missing a verification field were physically verified; it does not change persistence/deserialization or claim to audit historical provenance.
+- Confirmed reports previously used the first matching schedule, while employee monthly summaries independently matched each date's window. Extracted `assignAttendanceScheduleDates` into `AttendanceResolutionRules.kt`. It assigns each legacy row to at most one supplied employee schedule using copies, preserving raw input and explicit schedule dates.
+- Assignment policy: retain inclusive early/grace windows; within matching windows choose the nearest shift start for CHECK_IN or nearest shift end for CHECK_OUT. Resolve equal distances by chronological shift start, schedule date, shift id, then schedule id. This is independent of input scan/schedule ordering. Unsupported scan types use the start boundary solely for display grouping and remain ineligible for work. Missing/unmatched schedule context retains existing fallback behavior.
+- Employee monthly summaries and reports now consume that shared assignment. Payroll already calls monthly summaries. Presence list classification and weekly summaries also use it so their schedule matching does not diverge from the corrected hour consumers. Single-day primitives keep their compatible signatures; callers with multiple candidate schedules must use the shared assignment, as all production multi-schedule callers now do.
+- Files changed: `AttendanceResolutionRules.kt`, `EmployeeRules.kt`, `ReportRules.kt`, `PresenceRules.kt`, `SchedulingRules.kt`, and `PayrollRulesTest.kt`. No Firebase repository, rules, Cloud Function, firmware, UI or production-data changes.
+
+### Regression evidence and verification
+
+Used the review and TDD workflows: inspected both reported paths, then wrote regressions before production edits.
+
+- RED after successful cached test compilation: **31 focused tests, 2 failures**. Accepted-looking unverified input returned **9.0 hours instead of 0.0**. Overlapping legacy windows returned report hours **[0.5, 0.0] instead of [0.0, 0.0]**.
+- Unverified coverage exercises false/true, true/false and false/false check-in/checkout combinations, both with explicit schedule dates and without resolution-date metadata. It asserts zero worked hours in employee day summaries, reports and monthly payroll, ABNORMAL statuses, and exclusion of unverified effective timestamps.
+- Assignment coverage exercises 22:00–06:00 on September 30 followed by 06:00–14:00 on October 1. A 06:00 check-in and 06:30 checkout in overlapping windows are assigned to different intended shift boundaries and do not create or duplicate a half-hour pair. Complete adjacent shifts with a checkout and separate check-in exactly at 06:00 each produce eight hours on their own start date/month. Both cases run with reversed schedule and scan order, assert report/monthly-summary/payroll results, and verify original raw objects remain unchanged.
+- GREEN: cached production/test Kotlin compilation **BUILD SUCCESSFUL**, exit 0. Direct focused JUnit **OK (31 tests)**, exit 0. Full direct JUnit **OK (97 tests)**, exit 0. Existing adjustment, resolver, scheduling, presence and legacy compatibility tests remain green.
+- Commands were the same cached offline compile and `run-task6-tests.ps1` / `run-task6-tests.ps1 -All` documented above. This round did not rerun the known-broken wrapper or Cloud Function suite; no Cloud code changed. The missing wrapper JAR, local dependency-classpath requirement and absence of instrumented UI verification remain as documented.
+- `git diff --check` passed before the fix commit, with only Git line-ending notices. Reviewed all production resolver/day-summary call sites to confirm shared assignment occurs before multi-schedule aggregation. Full schedule context is required to disambiguate legacy rows; explicit server-assigned dates always take priority.
+
+The fix is committed; this evidence is appended in a separate report commit to record its exact hash. Pre-existing untracked Firebase CLI config remains untouched.
