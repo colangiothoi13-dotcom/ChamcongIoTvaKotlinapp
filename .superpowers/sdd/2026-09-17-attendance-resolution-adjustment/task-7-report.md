@@ -93,3 +93,31 @@ The direct runner uses real production/test classes and cached Android/Firebase/
 - Legacy rows without explicit dates use the requested calendar-date fallback for the correction target. Shared domain assignment still determines which available scans contribute to its current summary; explicit server schedule dates remain preferable for overnight work.
 - No Firebase I/O was added to UI. No deployment, production-data reads/writes, security-rule changes, Cloud Function changes, or firmware changes were performed.
 - The pre-existing untracked `.superpowers/firebase-cli-config/` directory was preserved and excluded from commits. Generated APK/build outputs were not staged.
+
+## Fix round 1: server resolution event types
+
+Completed in commit `7e6d890b94b65ea2801add80ae4fcf17db4b1464` — `fix: recognize server attendance resolution event types`.
+
+- Verified `firebase/functions/attendanceResolver.js` and `firebase/functions/index.js`: legitimate rejected/resolved events can have matching `type` and `resolutionStatus` values of `DUPLICATE`, `UNSCHEDULED`, or `OUT_OF_ORDER`, with `status = ABNORMAL`. The UI's earlier type allowlist rejected these before reaching the dedicated labels.
+- Updated only `AttendanceRowPresentation.kt` and `AttendanceRowPresentationTest.kt` in the fix commit. The allowlist now recognizes those three event types, and their dedicated label branches recognize either type or resolution status. They remain non-accepted presentations. Existing pending handling and the earlier unverified, invalid-date, unknown-type, and unknown-resolution guards remain in place.
+- Added production-shaped fixtures with matching type/resolution status and `status = ABNORMAL`, asserting each dedicated label and `accepted == false`. Added coverage for unverified, malformed-date, unknown-type, and unknown-resolution variants of all three types, asserting `ABNORMAL` and non-accepted presentation. Existing accepted, pending, legacy date, target derivation, and parser tests remain covered in the focused run.
+- RED: before the production fix, direct JUnit ran 12 focused tests with one assertion failure: expected a `DUPLICATE` label but received `ABNORMAL` / invalid type. The initial red fixture used matching type/resolution status; final fixtures additionally set the server's `status = ABNORMAL`.
+- GREEN: cached offline production/test Kotlin compilation completed with **BUILD SUCCESSFUL**, exit 0 (19 actionable tasks; 4 executed, 15 up-to-date). Direct focused JUnit completed with **OK (12 tests)**, exit 0. `git diff --check` and staged whitespace checks passed; only Git line-ending notices were emitted.
+
+Compile command, from the same isolated worktree:
+
+```powershell
+$env:ANDROID_HOME='C:/Users/DELL/AppData/Local/Android/Sdk'
+& 'C:/Users/DELL/.gradle/wrapper/dists/gradle-8.9-bin/90cnw93cvbtalezasaz0blq0a/gradle-8.9/bin/gradle.bat' :app:compileDebugUnitTestKotlin :app:bundleDebugClassesToRuntimeJar --offline --no-daemon
+```
+
+Direct focused test command (same cached dependencies as the Task 6 runner):
+
+```powershell
+$worker = Get-Content -Encoding UTF8 'C:/Users/DELL/.gradle/.tmp/gradle-worker-classpath16396057681371034652txt'
+$dependencies = $worker[1].Trim('"').Replace('\\','\').Split(';') | Where-Object { $_ -match '^C:' -and $_ -match 'junit-4|hamcrest|kotlin-stdlib|firebase-common|firebase-firestore|play-services-basement|ui-graphics|ui-unit|ui-geometry|runtime-android|ui-util' }
+$classpath = (@('app/build/tmp/kotlin-classes/debugUnitTest', 'app/build/intermediates/runtime_app_classes_jar/debug/bundleDebugClassesToRuntimeJar/classes.jar', 'C:/Users/DELL/AppData/Local/Android/Sdk/platforms/android-35/android.jar') + $dependencies) -join ';'
+& java -cp $classpath org.junit.runner.JUnitCore vn.chamcong.iot.ui.attendance.AttendanceRowPresentationTest vn.chamcong.iot.ui.attendance.AttendanceAdjustmentInputTest
+```
+
+This round did not rerun APK assembly, the full JVM suite, or device/Compose instrumentation. The missing wrapper JAR and machine-local cached classpath limitations remain as documented above. No server code, unrelated UI, production data, or deployment was changed. The pre-existing untracked Firebase CLI config was preserved. This evidence is committed separately to record the exact fix hash.
