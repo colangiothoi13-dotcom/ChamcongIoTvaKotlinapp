@@ -68,6 +68,29 @@ class SchedulingRulesTest {
     }
 
     @Test
+    fun calculatesPostMidnightOvernightBoundariesFromTheResolvedScheduleDate() {
+        val scheduleDate = LocalDate.of(2026, 9, 14)
+        val shift = WorkShift(
+            name = "Ca dem",
+            startTime = "22:00",
+            endTime = "06:00",
+            effectiveFrom = scheduleDate.toString()
+        )
+
+        val result = calculateWorkTime(
+            checkIn = Instant.parse("2026-09-14T17:30:00Z"),
+            checkOut = Instant.parse("2026-09-14T23:00:00Z"),
+            shift = shift,
+            overtimeHours = 0,
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            scheduleDate = scheduleDate
+        )
+
+        assertEquals(150, result.lateMinutes)
+        assertEquals(0, result.earlyLeaveMinutes)
+    }
+
+    @Test
     fun copyingWeekPreservesWeekdayAndSkipsExistingTarget() {
         val source = listOf(
             WorkSchedule(

@@ -90,7 +90,8 @@ fun calculateWorkTime(
     checkOut: Instant?,
     shift: WorkShift?,
     overtimeHours: Int,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    scheduleDate: LocalDate? = null
 ): WorkTimeSummary {
     validateOvertimeHours(overtimeHours)
     if (checkIn == null || checkOut == null || !checkOut.isAfter(checkIn)) return WorkTimeSummary()
@@ -101,9 +102,10 @@ fun calculateWorkTime(
     if (shift == null) return WorkTimeSummary(workedHours = roundHours(rawSeconds), dayWorked = true)
 
     validateShift(shift)
-    val shiftStart = localIn.toLocalDate().atTime(parseTime(shift.startTime, "Giờ bắt đầu"))
-    val shiftEnd = endOnShiftDate(localIn.toLocalDate(), shift)
-    val breakSeconds = breakOverlapSeconds(localIn, localOut, shift, localIn.toLocalDate())
+    val shiftDate = scheduleDate ?: localIn.toLocalDate()
+    val shiftStart = shiftDate.atTime(parseTime(shift.startTime, "Giờ bắt đầu"))
+    val shiftEnd = endOnShiftDate(shiftDate, shift)
+    val breakSeconds = breakOverlapSeconds(localIn, localOut, shift, shiftDate)
     val workedSeconds = (rawSeconds - breakSeconds).coerceAtLeast(0)
     val lateMinutes = Duration.between(shiftStart.plusMinutes(shift.lateGraceMinutes.toLong()), localIn)
         .toMinutes().coerceAtLeast(0).toInt()
@@ -201,7 +203,8 @@ fun summarizeWeeklyWork(
                 checkOut = pair.checkOut,
                 shift = schedule?.let { shifts[it.shiftId] },
                 overtimeHours = schedule?.overtimeHours ?: 0,
-                zoneId = zoneId
+                zoneId = zoneId,
+                scheduleDate = pair.scheduleDate
             )
             dayWorkedSeconds += (summary.workedHours * 3600).roundToLong()
             totalOvertimeSeconds += (summary.overtimeHours * 3600).roundToLong()
