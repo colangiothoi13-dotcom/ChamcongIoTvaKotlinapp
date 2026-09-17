@@ -47,15 +47,10 @@ fun attendanceReportRows(
     val employeeIds = selectedEmployees.map { it.id }.toSet()
     val shiftsById = shifts.associateBy { it.id }
     val schedulesByKey = schedules.associateBy { "${it.employeeId}_${it.date}" }
-    val attendanceByKey = attendance
+    val attendanceByKey = assignAttendanceScheduleDates(attendance, schedules, shifts, zoneId)
         .filter { it.employeeId in employeeIds }
         .groupBy { row ->
-            // Legacy overnight scans belong to the matching schedule, not the checkout's calendar day.
-            val date = row.scheduleDate ?: schedules.firstOrNull { schedule ->
-                schedule.employeeId == row.employeeId && shiftsById[schedule.shiftId]?.let { shift ->
-                    runCatching { belongsToScheduleDate(row, LocalDate.parse(schedule.date), shift, zoneId) }.getOrDefault(false)
-                } == true
-            }?.date ?: row.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate().toString()
+            val date = row.scheduleDate ?: row.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate().toString()
             "${row.employeeId}_$date"
         }
     val approvedLeaveKeys = approvedRequests

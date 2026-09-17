@@ -153,7 +153,8 @@ fun summarizeWeeklyWork(
     val dates = weekDates(monday)
     val activeEmployees = employees.filter(Employee::active)
     val scheduleByKey = schedules.associateBy { "${it.employeeId}_${it.date}" }
-    val attendanceByEmployee = attendance.groupBy(Attendance::employeeId)
+    val attendanceByEmployee = assignAttendanceScheduleDates(attendance, schedules, shifts.values.toList(), zoneId)
+        .groupBy(Attendance::employeeId)
     var totalWorkedSeconds = 0L
     var totalOvertimeSeconds = 0L
     var lateCount = 0

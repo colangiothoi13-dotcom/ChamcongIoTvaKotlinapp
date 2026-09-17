@@ -69,13 +69,16 @@ fun classifyPresenceForEmployees(
     adjustments: List<AttendanceAdjustment> = emptyList(),
     schedules: List<WorkSchedule> = emptyList(),
     shifts: List<WorkShift> = emptyList()
-): List<PresenceRecord> = employees
+): List<PresenceRecord> {
+    val assignedAttendance = assignAttendanceScheduleDates(attendance, schedules, shifts, zoneId)
+    return employees
     .filter(Employee::active)
     .map { employee ->
         val schedule = schedules.firstOrNull { it.employeeId == employee.id && it.date == date.toString() }
         val shift = schedule?.let { selected -> shifts.firstOrNull { it.id == selected.shiftId } }
-        classifyPresence(employee, attendance, requests, date, zoneId, now, adjustments, shift)
+        classifyPresence(employee, assignedAttendance, requests, date, zoneId, now, adjustments, shift)
     }
+}
 
 private fun isDateInRange(date: LocalDate, start: String, end: String): Boolean = runCatching {
     val startDate = LocalDate.parse(start)

@@ -86,6 +86,7 @@ fun employeeMonthSummaries(
     adjustments: List<AttendanceAdjustment> = emptyList()
 ): List<EmployeeDaySummary> {
     val firstDay = month.withDayOfMonth(1)
+    val assignedAttendance = assignAttendanceScheduleDates(attendance, schedules, shifts, zoneId)
     val scheduleByDate = schedules.filter { it.employeeId == employeeId }.associateBy { it.date }
     val shiftById = shifts.associateBy { it.id }
     return (0 until firstDay.lengthOfMonth()).map { offset ->
@@ -94,7 +95,7 @@ fun employeeMonthSummaries(
         employeeDaySummary(
             employeeId = employeeId,
             date = date,
-            attendance = attendance,
+            attendance = assignedAttendance,
             schedule = schedule,
             shift = schedule?.let { shiftById[it.shiftId] },
             approvedLeave = date in approvedLeaveDates,

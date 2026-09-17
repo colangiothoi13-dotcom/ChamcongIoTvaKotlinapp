@@ -11,6 +11,63 @@ import java.util.Date
 
 class PayrollRulesTest {
     @Test
+    fun acceptedLookingUnverifiedScansCannotProduceWorkAcrossConsumers() {
+        val date = java.time.LocalDate.parse("2026-09-10")
+        val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+        for ((verifiedIn, verifiedOut) in listOf(false to true, true to false, false to false)) {
+            for (scheduleDate in listOf(null, date.toString())) {
+                val rows = listOf(
+                    attendance("e1", "CHECK_IN", "2026-09-10T08:00:00+07:00").copy(verified = verifiedIn, scheduleDate = scheduleDate),
+                    attendance("e1", "CHECK_OUT", "2026-09-10T17:00:00+07:00").copy(verified = verifiedOut, scheduleDate = scheduleDate)
+                )
+                val day = vn.chamcong.iot.domain.employeeDaySummary("e1", date, rows, null, null, false, zone)
+                val report = vn.chamcong.iot.domain.attendanceReportRows(ReportFilter(date, date), listOf(Employee(id = "e1")), rows, emptyList(), emptyList(), emptyList(), zone).single()
+                assertEquals(0.0, day.workedHours, 0.001)
+                assertEquals(0.0, report.workedHours, 0.001)
+                assertEquals(0.0, workedHoursForMonth(rows, "e1", YearMonth.of(2026, 9), zone), 0.001)
+                assertEquals(EmployeeAttendanceStatus.ABNORMAL, day.status)
+                assertEquals("ABNORMAL", report.status)
+                if (!verifiedIn) assertEquals(null, day.checkIn)
+                if (!verifiedOut) assertEquals(null, day.checkOut)
+            }
+        }
+    }
+
+    @Test
+    fun adjacentLegacyWindowsHaveOneAssignmentRegardlessOfInputOrder() {
+        val date = java.time.LocalDate.parse("2026-09-30")
+        val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+        val shifts = listOf(
+            WorkShift(id = "night", name = "Night", startTime = "22:00", endTime = "06:00", effectiveFrom = "2026-01-01"),
+            WorkShift(id = "day", name = "Day", startTime = "06:00", endTime = "14:00", effectiveFrom = "2026-01-01")
+        )
+        val schedules = listOf(WorkSchedule(employeeId = "e1", date = date.toString(), shiftId = "night"),
+            WorkSchedule(employeeId = "e1", date = date.plusDays(1).toString(), shiftId = "day"))
+        // Both scans fit both inclusive windows. They must not form the same pair twice.
+        val overlap = listOf(attendance("e1", "CHECK_IN", "2026-10-01T06:00:00+07:00"),
+            attendance("e1", "CHECK_OUT", "2026-10-01T06:30:00+07:00"))
+        val complete = listOf(attendance("e1", "CHECK_IN", "2026-09-30T22:00:00+07:00"),
+            attendance("e1", "CHECK_OUT", "2026-10-01T06:00:00+07:00"),
+            attendance("e1", "CHECK_IN", "2026-10-01T06:00:00+07:00"),
+            attendance("e1", "CHECK_OUT", "2026-10-01T14:00:00+07:00"))
+        for ((events, expectedHours) in listOf(overlap to 0.0, complete to 8.0)) {
+            val original = events.map { it.copy() }
+            for (orderedSchedules in listOf(schedules, schedules.reversed())) {
+                for (orderedEvents in listOf(events, events.reversed())) {
+                    val reports = vn.chamcong.iot.domain.attendanceReportRows(ReportFilter(date, date.plusDays(1)), listOf(Employee(id = "e1")), orderedEvents, orderedSchedules, shifts, emptyList(), zone)
+                    assertEquals(listOf(expectedHours, expectedHours), reports.map { it.workedHours })
+                    for (day in listOf(date, date.plusDays(1))) {
+                        val summaries = vn.chamcong.iot.domain.employeeMonthSummaries("e1", day, orderedEvents, orderedSchedules, shifts, emptySet(), zone)
+                        assertEquals(expectedHours, summaries.first { it.date == day }.workedHours, 0.001)
+                        assertEquals(expectedHours, workedHoursForMonth(orderedEvents, "e1", YearMonth.from(day), zone, orderedSchedules, shifts), 0.001)
+                    }
+                }
+            }
+            assertEquals(original, events)
+        }
+    }
+
+    @Test
     fun latestAdjustmentAgreesAcrossPayrollReportAndEmployeeSummary() {
         val zone = ZoneId.of("Asia/Ho_Chi_Minh")
         val date = java.time.LocalDate.parse("2026-09-30")
