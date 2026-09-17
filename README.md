@@ -88,6 +88,7 @@ Hệ thống hoạt động theo chu trình sau:
 - Thiết bị gửi `heartbeat` định kỳ cho Firestore, cho biết trạng thái online/offline, firmware đang chạy, số lượng mẫu vân tay và capability của thiết bị.
 - Nếu có lệnh từ hệ thống, ví dụ: đăng ký vân tay, xóa vân tay, cập nhật cấu hình, thiết bị thực hiện theo hàng đợi.
 - Nếu mất mạng, thiết bị lưu outbox và tự retry khi có kết nối trở lại.
+- Mỗi lần quét hợp lệ được gửi lên Firestore dưới dạng sự kiện thô `type=SCAN`, `resolutionStatus=PENDING`, `status=PENDING`. Cloud Function mới quyết định `CHECK_IN`/`CHECK_OUT` theo ca làm và ghi `scheduleDate`; firmware không suy đoán loại lượt theo giờ địa phương.
 - Dashboard và màn hình Thiết bị trên Android nhận snapshot heartbeat để hiển thị trạng thái đầu vào, thời gian online, firmware version và tình trạng hoạt động.
 
 #### Chế độ offline của thiết bị
@@ -100,8 +101,9 @@ Mỗi bản ghi trong hàng đợi offline chứa thông tin như:
 - `deviceId`: mã thiết bị
 - `employeeId` hoặc thông tin nhân viên được xác định
 - `timestamp`: thời gian quét vân tay
-- `type`: loại sự kiện (check-in/check-out, sync, update, delete...)
-- `status`: trạng thái chờ gửi / đang gửi / đã gửi
+- `type`: `SCAN` khi firmware ghi nhận lượt quét; Cloud Function mới bổ sung loại đã phân giải như `CHECK_IN` hoặc `CHECK_OUT`
+- `resolutionStatus`: `PENDING` trước khi Cloud Function phân giải, sau đó trạng thái phân giải như `ACCEPTED`, `DUPLICATE`, `UNSCHEDULED` hoặc `OUT_OF_ORDER`
+- `status`: `PENDING` ở payload firmware; không dùng giờ địa phương trên thiết bị để gán `LATE`/`NORMAL`
 
 Khi mạng trở lại, ESP8266 tự động đọc lại hàng đợi, gửi từng sự kiện theo thứ tự và dùng cùng `eventId` để tránh trùng lặp dữ liệu. Những request gửi thành công với mã HTTP 2xx hoặc 409 sẽ được đánh dấu là đã xử lý; các lỗi mạng hoặc lỗi xác thực tạm thời sẽ được giữ lại để retry ở lần gửi tiếp theo. Cách làm này giúp hệ thống duy trì tính toàn vẹn dữ liệu và giảm nguy cơ mất lượt chấm công trong điều kiện mạng yếu.
 
@@ -224,7 +226,7 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi
 ## Cấu trúc Firestore
 
 - `employees/{id}`: mã, họ tên, phòng ban, email, `fingerprintTemplateId`, trạng thái.
-- `attendance/{eventId}`: nhân viên, thiết bị, thời điểm server, check-in/out, đúng giờ/trễ.
+- `attendance/{eventId}`: nhân viên, thiết bị, thời điểm quét NTP UTC, sự kiện raw `SCAN` và kết quả phân giải theo ca (`CHECK_IN`/`CHECK_OUT`, `scheduleDate`, `resolutionStatus`).
 - `payroll/{id}`: lương cơ bản đã tính theo giờ, đơn giá/giờ, số giờ làm, thưởng, khấu trừ theo kỳ.
 - `performanceReviews/{id}`: kỳ đánh giá, điểm, nhận xét.
 - `notifications/{id}`: thông báo nội bộ.

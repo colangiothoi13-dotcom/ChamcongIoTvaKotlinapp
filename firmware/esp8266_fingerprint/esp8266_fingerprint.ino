@@ -468,7 +468,7 @@ bool buildAttendanceEvent(uint16_t templateId, uint16_t confidence,
                           String& attendanceType) {
   employeeName = "";
   attendanceTime = "--:--:--";
-  attendanceType = "CHECK_IN";
+  attendanceType = "SCAN";
   String employeeId;
   if (!getFingerprintMapping(templateId, employeeId, employeeName)) {
     Serial.println("Khong tim thay nhan vien cua template");
@@ -487,7 +487,6 @@ bool buildAttendanceEvent(uint16_t templateId, uint16_t confidence,
   char timeValue[9];
   strftime(timeValue, sizeof(timeValue), "%H:%M:%S", &localTime);
   attendanceTime = String(timeValue);
-  attendanceType = localTime.tm_hour < 12 ? "CHECK_IN" : "CHECK_OUT";
 
   DynamicJsonDocument doc(1536);
   JsonObject fields = doc.createNestedObject("fields");
@@ -496,8 +495,9 @@ bool buildAttendanceEvent(uint16_t templateId, uint16_t confidence,
   fields["deviceId"]["stringValue"] = DEVICE_ID;
   fields["templateId"]["integerValue"] = templateId;
   fields["confidence"]["integerValue"] = confidence;
-  fields["type"]["stringValue"] = attendanceType;
-  fields["status"]["stringValue"] = (localTime.tm_hour > 8 && localTime.tm_hour < 12) ? "LATE" : "NORMAL";
+  fields["type"]["stringValue"] = "SCAN";
+  fields["resolutionStatus"]["stringValue"] = "PENDING";
+  fields["status"]["stringValue"] = "PENDING";
   fields["syncStatus"]["stringValue"] = "PENDING_SYNC";
   fields["timestamp"]["timestampValue"] = utcTimestamp(now);
   fields["verified"]["booleanValue"] = true;
@@ -834,8 +834,7 @@ void loop() {
                  uploadAttendance(finger.fingerID, finger.confidence,
                                   employeeName, attendanceTime, attendanceType);
   if (success) {
-    String action = attendanceType == "CHECK_IN" ? "VAO " : "RA  ";
-    showLcd(employeeName, attendancePendingSync ? "CHO DONG BO" : action + attendanceTime);
+    showLcd(employeeName, attendancePendingSync ? "DANG XU LY" : "DA NHAN");
   } else {
     showLcd(hasValidTime ? "CHAM CONG LOI" : "LOI DONG BO GIO",
             hasValidTime ? "XIN THU LAI" : "KIEM TRA MANG");
