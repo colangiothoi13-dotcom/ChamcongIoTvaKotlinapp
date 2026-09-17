@@ -64,7 +64,6 @@ data class MainUiState(
     val payroll: List<Payroll> = emptyList(),
     val commands: List<Map<String, Any>> = emptyList(),
     val devices: List<DeviceSnapshot> = emptyList(),
-    val dashboard: DashboardSummary = DashboardSummary(),
     val selectedWeekStart: LocalDate = mondayOfWeek(LocalDate.now()),
     val selectedPresenceDate: LocalDate = LocalDate.now(),
     val shifts: List<WorkShift> = emptyList(),
@@ -87,11 +86,17 @@ data class MainUiState(
     val message: String? = null,
     val error: String? = null
 ) {
+    // Derived on every state snapshot, including schedule, shift and adjustment emissions.
+    val dashboard: DashboardSummary
+        get() = summarizeDashboard(employees, attendance, selectedWeekStart,
+            schedules = schedules, shifts = shifts, adjustments = attendanceAdjustments)
+
     val visibleEmployees: List<Employee>
         get() = filterEmployees(employees, employeeQuery, departmentFilter, showRetired)
 
     val visibleAttendance: List<Attendance>
-        get() = filterAttendance(attendance, attendanceStatusFilter, attendanceTypeFilter)
+        get() = filterAttendance(attendance, attendanceStatusFilter, attendanceTypeFilter,
+            schedules, shifts, attendanceAdjustments)
 
     val visibleLeaveRequests: List<LeaveRequest>
         get() = leaveRequests.filter { selectedRequestFilter.isNullOrBlank() || it.status == selectedRequestFilter }
@@ -187,12 +192,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         dataSubscriptions += viewModelScope.launch {
             repository.observeEmployees().catch { e -> setError(e) }.collect { employees ->
-                _state.update { withUpdatedDashboard(it, employees = employees) }
+                _state.update { it.copy(employees = employees) }
             }
         }
         dataSubscriptions += viewModelScope.launch {
             repository.observeRecentAttendance().catch { e -> setError(e) }.collect { attendance ->
-                _state.update { withUpdatedDashboard(it, attendance = attendance) }
+                _state.update { it.copy(attendance = attendance) }
                 attendance.firstOrNull()?.id?.takeIf(String::isNotBlank)?.let(::enqueueReceipt)
             }
         }
@@ -282,9 +287,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun subscribeSchedules() {
         if (subscriptionMode != "ADMIN") return
         scheduleSubscription?.cancel()
-        val monday = _state.value.selectedWeekStart
         scheduleSubscription = viewModelScope.launch {
-            repository.observeSchedules(monday.toString(), monday.plusDays(6).toString())
+            repository.observeSchedules()
                 .catch { e -> setError(e) }
                 .collect { schedules -> _state.update { it.copy(schedules = schedules) } }
         }
@@ -379,11 +383,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun selectWeek(value: LocalDate) {
         val monday = mondayOfWeek(value)
-        _state.update { current ->
-            val next = current.copy(selectedWeekStart = monday, schedules = emptyList())
-            withUpdatedDashboard(next, weekStart = monday)
-        }
-        if (repository.isSignedIn) subscribeSchedules()
+        _state.update { it.copy(selectedWeekStart = monday) }
     }
     fun moveWeek(delta: Long) = selectWeek(_state.value.selectedWeekStart.plusWeeks(delta))
     fun selectPresenceDate(value: LocalDate) = _state.update { it.copy(selectedPresenceDate = value) }
@@ -458,22 +458,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             vn.chamcong.iot.data.attendanceRowsToCsv(rows)
         }
     }
-
-    private fun withUpdatedDashboard(
-        current: MainUiState,
-        employees: List<Employee> = current.employees,
-        attendance: List<Attendance> = current.attendance,
-        weekStart: LocalDate = current.selectedWeekStart
-    ): MainUiState = current.copy(
-        employees = employees,
-        attendance = attendance,
-        dashboard = summarizeDashboard(
-            employees = employees,
-            attendance = attendance,
-            weekStart = weekStart,
-            zoneId = zoneId
-        )
-    )
 
     private fun enqueueReceipt(eventId: String) {
         val request = OneTimeWorkRequestBuilder<AttendanceSyncWorker>()

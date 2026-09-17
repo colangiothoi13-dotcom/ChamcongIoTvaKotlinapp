@@ -97,7 +97,11 @@ Admin vào **Chấm công → Điều chỉnh** trên dòng lịch sử để xe
 
 Mỗi lần lưu tạo mới `attendanceAdjustments/{id}` theo nhân viên/ngày ca, chứa mốc sửa và/hoặc `workedHoursOverride`, lý do, người thực hiện lấy từ phiên đăng nhập và timestamp server. Cùng một batch tạo `audit_logs/{id}` với `action=ATTENDANCE_ADJUST`, `targetType=attendanceAdjustment`, cùng ID, actor và reason. Chi tiết audit ghi giá trị adjustment trước/sau (không phải snapshot toàn bộ raw scans). Rules yêu cầu cặp adjustment/audit này tồn tại cùng lần ghi và cấm update/delete cả hai: sửa tiếp phải thêm bản ghi mới, không ghi đè lịch sử. Chỉ Admin được tạo adjustment; nhân viên chỉ đọc adjustment của mình.
 
-Android dùng adjustment hợp lệ mới nhất theo `createdAt` của nhân viên/ngày ca cùng các lượt `verified=true`, `ACCEPTED`, loại vào/ra để tính cặp hiệu lực cho hiện diện, báo cáo, màn hình nhân viên và giờ công khi lập phiếu lương. `workedHoursOverride` mới ưu tiên hơn override cũ trên lịch; phiếu lương đã lưu không tự được viết lại. Lượt legacy chưa có `scheduleDate` được gán một lần theo các lịch đã tải, ưu tiên ngày tường minh; không có ca thì dùng ngày địa phương. Toàn bộ phép tính dựa trên dữ liệu đã tải, không tự backfill lịch sử hoặc sửa raw scans.
+Android dùng adjustment hợp lệ mới nhất theo `createdAt` của nhân viên/ngày ca cùng các lượt `verified=true`, `ACCEPTED`, loại vào/ra và `status` hợp lệ để tính cặp hiệu lực cho hiện diện, báo cáo, màn hình nhân viên và giờ công khi lập phiếu lương. Trường bị bỏ qua ở tài liệu legacy giữ default; giá trị trạng thái tường minh không hợp lệ không tạo giờ công. `workedHoursOverride` mới ưu tiên hơn override cũ trên lịch; phiếu lương đã lưu không tự được viết lại. Lượt legacy chưa có `scheduleDate` được gán một lần theo các lịch đã tải, ưu tiên ngày tường minh; không có ca thì dùng ngày địa phương. Toàn bộ phép tính dựa trên dữ liệu đã tải, không tự backfill lịch sử hoặc sửa raw scans.
+
+Admin tải toàn bộ `workSchedules`, độc lập tuần đang chọn, để tính lương tháng, báo cáo và hiện diện kể cả ca qua ranh giới tháng. Chọn tuần chỉ thay đổi khoảng hiển thị; listener nhân viên vẫn giới hạn theo nhân viên. Dashboard và bộ lọc lịch sử tính đi trễ từ ca và cặp hiệu lực, cập nhật khi lịch/ca/adjustment thay đổi; không có ca thì giữ fallback trạng thái legacy. Hộp lập phiếu cập nhật giờ tự tính theo dữ liệu mới cho đến khi người dùng nhập giờ thủ công. Listener toàn bộ lịch tăng số document đọc; giới hạn lịch sử attendance/adjustment hiện có vẫn áp dụng.
+
+Lượt server `DUPLICATE` không ghi đè trạng thái của cặp hợp lệ; `UNSCHEDULED`/`OUT_OF_ORDER` vẫn hiện bất thường. Tổng ngày và báo cáo dùng `PRESENT` (đang làm việc) trước hoặc đúng hạn cuối ca cộng grace; chỉ sau hạn mới là `MISSING_CHECK_OUT`. Nghỉ phép chỉ áp dụng cho nhân viên trên đơn. Nghỉ giữa ca 02:00–02:30 của ca 22:00–06:00 được trừ ở ngày kế tiếp. Rules cho phép bỏ qua `missingCheckOutGraceMinutes`; nếu có thì phải là số nguyên không âm.
 
 ### 6. Luồng xử lý thiết bị ESP8266
 
@@ -370,6 +374,35 @@ Mọi lần thay đổi code phải cập nhật mục này, ghi rõ file đã s
 | `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-6-report.md` | Bằng chứng triển khai và sửa sau review Task 6. |
 | `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-7-report.md` | Bằng chứng UI điều chỉnh và sửa nhãn sự kiện server Task 7. |
 | `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-8-report.md` | Bằng chứng kiểm chứng cuối, commit tài liệu, APK và các bước triển khai cố ý bỏ qua. |
+
+### Nhật ký file: final review fix wave (17/09/2026)
+
+Các file thay đổi so với `80b5d36` trong đợt sửa cuối:
+
+| File | Thay đổi |
+| --- | --- |
+| `firebase/functions/index.js` | Ưu tiên ID snapshot nhân viên sau data; hỗ trợ document Android có `id=""`. |
+| `firebase/functions/test/employeeMapping.test.js` | Chạy handler thật với transaction giả ở biên Firestore, kiểm tra ID canonical và tạo raw scan. |
+| `app/src/main/java/vn/chamcong/iot/data/FirebaseRepository.kt` | Listener Admin lấy toàn bộ lịch, không lọc theo tuần. |
+| `app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt` | Giữ lịch khi đổi tuần; dashboard tính từ state hiện tại, cập nhật cả adjustment/ca/lịch; truyền context vào bộ lọc. |
+| `app/src/main/java/vn/chamcong/iot/ui/PayrollScreen.kt` | Giờ tự tính phản ánh context mới đến khi người dùng nhập override. |
+| `app/src/main/java/vn/chamcong/iot/domain/AttendanceResolutionRules.kt` | Điều kiện accepted dùng chung, loại trạng thái sai, xử lý duplicate và tính phút trễ theo ca. |
+| `app/src/main/java/vn/chamcong/iot/domain/PresenceRules.kt` | Dùng điều kiện accepted/bất thường chung; duplicate không ghi đè hiện diện. |
+| `app/src/main/java/vn/chamcong/iot/domain/EmployeeRules.kt` | Dùng trạng thái chung và deadline checkout; clock mặc định cho tổng ngày/tháng; giữ timestamp tạo đơn bằng default model. |
+| `app/src/main/java/vn/chamcong/iot/domain/ReportRules.kt` | Truyền clock mặc định vào tổng ngày để báo cáo phản ánh deadline. |
+| `app/src/main/java/vn/chamcong/iot/domain/SchedulingRules.kt` | Nghỉ phép đúng nhân viên; neo nghỉ sau nửa đêm vào cửa sổ ca. |
+| `app/src/main/java/vn/chamcong/iot/domain/DashboardRules.kt` | Đếm accepted/cặp hiệu lực, ngày ca, đi trễ và adjustment thay cho status raw. |
+| `app/src/main/java/vn/chamcong/iot/domain/FilterRules.kt` | Lọc/hiển thị trạng thái hiệu lực theo ca, giữ thứ tự và không sửa raw data. |
+| `app/src/main/java/vn/chamcong/iot/model/EmployeeModels.kt` | Thêm trạng thái `PRESENT` cho cặp đang mở trước deadline. |
+| `app/src/main/java/vn/chamcong/iot/ui/employee/EmployeeHomeScreen.kt` | Nhãn tiếng Việt cho trạng thái đang làm việc. |
+| `app/src/test/java/vn/chamcong/iot/domain/FinalReviewRulesTest.kt` | Hồi quy rejection server, trạng thái sai/default legacy, deadline ngày/đêm, phép hai nhân viên, nghỉ giữa ca. |
+| `app/src/test/java/vn/chamcong/iot/ui/FinalReviewStateTest.kt` | Lịch ngoài tuần, qua tháng, dashboard/filter và cập nhật theo adjustment/ca/lịch. |
+| `firebase/firestore.rules` | Kiểm tra grace tùy chọn: integer >= 0. |
+| `firebase/test/shiftRules.test.js` | Emulator local riêng: Admin create/update với omitted, zero, positive, negative, fraction, string, null. |
+| `README.md` | Cập nhật hành vi và inventory đợt sửa cuối. |
+| `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/final-fix-report.md` | Kết quả RED/GREEN, lệnh kiểm chứng, commit và giới hạn. |
+
+Chạy kiểm tra rules riêng bằng `node --test firebase/test/shiftRules.test.js` sau khi khởi động Firestore emulator tại `127.0.0.1:8085`, project `demo-attendance-final-fix`, nạp `firebase/firestore.rules`. Script chỉ dùng endpoint local cố định. `npm test` trong `firebase/functions` vẫn chạy độc lập, không cần emulator. Lệnh khởi động emulator, kết quả chính xác và giới hạn được ghi trong báo cáo cuối.
 
 ## Quản lý nhân viên, vân tay và lương
 

@@ -85,6 +85,7 @@ private fun EmptyEmployeeLinkState() {
 }
 
 internal fun EmployeeAttendanceStatus.toVietnamese(): String = when (this) {
+    EmployeeAttendanceStatus.PRESENT -> "Đang làm việc"
     EmployeeAttendanceStatus.ON_TIME -> "Đủ công"
     EmployeeAttendanceStatus.LATE -> "Đi trễ"
     EmployeeAttendanceStatus.EARLY_LEAVE -> "Về sớm"

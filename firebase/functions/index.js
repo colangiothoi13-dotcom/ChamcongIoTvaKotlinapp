@@ -35,7 +35,7 @@ async function getMappedActiveEmployee(transaction, templateId) {
   if (!mapping.employeeId) return null;
   const employeeSnapshot = await transaction.get(db.collection("employees").doc(String(mapping.employeeId)));
   if (!employeeSnapshot.exists) return null;
-  return resolveMappedEmployee(mapping, { id: employeeSnapshot.id, ...employeeSnapshot.data() });
+  return resolveMappedEmployee(mapping, { ...employeeSnapshot.data(), id: employeeSnapshot.id });
 }
 
 function safeEqual(a, b) {

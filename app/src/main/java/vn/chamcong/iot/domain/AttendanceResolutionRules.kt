@@ -5,6 +5,7 @@ import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendancePair
 import vn.chamcong.iot.model.AttendanceResolutionStatus
 import vn.chamcong.iot.model.AttendanceType
+import vn.chamcong.iot.model.AttendanceStatus
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WorkSchedule
 import java.time.Duration
@@ -18,6 +19,26 @@ data class ShiftWindow(
     val start: Instant,
     val end: Instant
 )
+
+/** Legacy omitted fields retain the model defaults; explicit malformed fields are rejected. */
+fun isAcceptedAttendance(row: Attendance): Boolean =
+    row.verified && row.resolutionStatus == AttendanceResolutionStatus.ACCEPTED.name &&
+        row.type in AttendanceType.entries.map { it.name } &&
+        row.status in AttendanceStatus.entries.map { it.name }
+
+fun isAbnormalAttendance(row: Attendance): Boolean {
+    if (!row.verified) return true
+    // Both the server's rejection type and older typed duplicate rows are supported.
+    if (row.resolutionStatus == AttendanceResolutionStatus.DUPLICATE.name &&
+        row.type in listOf("DUPLICATE", "CHECK_IN", "CHECK_OUT")) return false
+    return !isAcceptedAttendance(row)
+}
+
+fun attendanceLateMinutes(checkIn: Instant?, date: LocalDate, shift: WorkShift?, zoneId: ZoneId): Int {
+    if (checkIn == null || shift == null) return 0
+    val deadline = shiftWindow(date, shift, zoneId).start.plusSeconds(shift.lateGraceMinutes * 60L)
+    return Duration.between(deadline, checkIn).toMinutes().coerceAtLeast(0).toInt()
+}
 
 fun shiftWindow(scheduleDate: LocalDate, shift: WorkShift, zoneId: ZoneId): ShiftWindow {
     val startTime = LocalTime.parse(shift.startTime)
@@ -37,8 +58,7 @@ fun resolveAttendancePair(
 ): AttendancePair {
     val acceptedRows = rows
         .asSequence()
-        .filter { it.verified && it.resolutionStatus == AttendanceResolutionStatus.ACCEPTED.name }
-        .filter { it.type == AttendanceType.CHECK_IN.name || it.type == AttendanceType.CHECK_OUT.name }
+        .filter(::isAcceptedAttendance)
         .filter { row -> belongsToScheduleDate(row, scheduleDate, shift, zoneId) }
         .sortedBy { it.timestamp.toDate().toInstant() }
         .toList()

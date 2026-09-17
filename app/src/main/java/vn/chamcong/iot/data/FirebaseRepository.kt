@@ -152,10 +152,9 @@ class FirebaseRepository(
         awaitClose { listener.remove() }
     }
 
-    fun observeSchedules(startDate: String, endDate: String): Flow<List<WorkSchedule>> = callbackFlow {
+    // Admin calculation context spans arbitrary report/payroll periods and overnight boundaries.
+    fun observeSchedules(): Flow<List<WorkSchedule>> = callbackFlow {
         val listener = db.collection("workSchedules")
-            .whereGreaterThanOrEqualTo("date", startDate)
-            .whereLessThanOrEqualTo("date", endDate)
             .orderBy("date")
             .addSnapshotListener { value, error ->
                 if (error != null) close(error)

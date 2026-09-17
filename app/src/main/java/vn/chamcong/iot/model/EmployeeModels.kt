@@ -4,6 +4,7 @@ import java.time.Instant
 import java.time.LocalDate
 
 enum class EmployeeAttendanceStatus {
+    PRESENT,
     ON_TIME,
     LATE,
     EARLY_LEAVE,

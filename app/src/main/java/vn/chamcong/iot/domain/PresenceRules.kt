@@ -4,7 +4,6 @@ import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
-import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.LeaveRequest
 import vn.chamcong.iot.model.PresenceRecord
@@ -42,12 +41,9 @@ fun classifyPresence(
         checkOut = adjustment?.checkOutAt ?: rawPair.checkOut,
         adjustment = adjustment
     )
-    val latest = dayRows.filter { it.resolutionStatus == "ACCEPTED" }
+    val latest = dayRows.filter(::isAcceptedAttendance)
         .maxByOrNull { it.timestamp.toDate().toInstant() }
-    val abnormal = dayRows.any {
-        !it.verified || it.type !in AttendanceType.entries.map { type -> type.name } ||
-            it.resolutionStatus in listOf("PENDING", "UNSCHEDULED", "OUT_OF_ORDER")
-    }
+    val abnormal = dayRows.any(::isAbnormalAttendance)
     val status = when {
         abnormal -> PresenceStatus.ABNORMAL
         pair.checkIn != null && pair.checkOut != null && !pair.checkOut.isAfter(pair.checkIn) -> PresenceStatus.ABNORMAL

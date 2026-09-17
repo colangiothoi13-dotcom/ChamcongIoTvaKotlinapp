@@ -1,9 +1,7 @@
 package vn.chamcong.iot.domain
 
-import com.google.firebase.Timestamp
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
-import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.EmployeeAttendanceStatus
 import vn.chamcong.iot.model.EmployeeDaySummary
@@ -15,6 +13,7 @@ import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WorkTimeSummary
 import java.time.LocalDate
+import java.time.Instant
 import java.time.ZoneId
 
 fun canAccessEmployee(provider: String, profile: UserProfile?): Boolean =
@@ -34,7 +33,8 @@ fun employeeDaySummary(
     shift: WorkShift?,
     approvedLeave: Boolean,
     zoneId: ZoneId,
-    adjustments: List<AttendanceAdjustment> = emptyList()
+    adjustments: List<AttendanceAdjustment> = emptyList(),
+    now: Instant = Instant.now()
 ): EmployeeDaySummary {
     val dayRows = attendance
         .asSequence()
@@ -51,10 +51,11 @@ fun employeeDaySummary(
     } else WorkTimeSummary()
     val status = when {
         approvedLeave -> EmployeeAttendanceStatus.LEAVE
-        dayRows.any { !it.verified || it.type !in AttendanceType.entries.map { type -> type.name } || it.resolutionStatus in listOf("PENDING", "UNSCHEDULED", "OUT_OF_ORDER") } -> EmployeeAttendanceStatus.ABNORMAL
+        dayRows.any(::isAbnormalAttendance) -> EmployeeAttendanceStatus.ABNORMAL
         checkIn != null && checkOut != null && !checkOut.isAfter(checkIn) -> EmployeeAttendanceStatus.ABNORMAL
         checkIn == null -> EmployeeAttendanceStatus.MISSING_CHECK_IN
-        checkOut == null -> EmployeeAttendanceStatus.MISSING_CHECK_OUT
+        isMissingCheckOut(pair.copy(checkIn = checkIn, checkOut = checkOut), date, shift, now, zoneId) -> EmployeeAttendanceStatus.MISSING_CHECK_OUT
+        checkOut == null -> EmployeeAttendanceStatus.PRESENT
         calculated.lateMinutes > 0 && calculated.earlyLeaveMinutes > 0 -> EmployeeAttendanceStatus.ABNORMAL
         calculated.lateMinutes > 0 -> EmployeeAttendanceStatus.LATE
         calculated.earlyLeaveMinutes > 0 -> EmployeeAttendanceStatus.EARLY_LEAVE
@@ -83,7 +84,8 @@ fun employeeMonthSummaries(
     shifts: List<WorkShift>,
     approvedLeaveDates: Set<LocalDate>,
     zoneId: ZoneId,
-    adjustments: List<AttendanceAdjustment> = emptyList()
+    adjustments: List<AttendanceAdjustment> = emptyList(),
+    now: Instant = Instant.now()
 ): List<EmployeeDaySummary> {
     val firstDay = month.withDayOfMonth(1)
     val assignedAttendance = assignAttendanceScheduleDates(attendance, schedules, shifts, zoneId)
@@ -100,7 +102,8 @@ fun employeeMonthSummaries(
             shift = schedule?.let { shiftById[it.shiftId] },
             approvedLeave = date in approvedLeaveDates,
             zoneId = zoneId,
-            adjustments = adjustments
+            adjustments = adjustments,
+            now = now
         )
     }
 }
@@ -124,8 +127,7 @@ fun employeeRequestDraft(
         reviewerId = null,
         reviewerName = null,
         reviewedAt = null,
-        reviewNote = null,
-        createdAt = Timestamp.now()
+        reviewNote = null
     )
     validateRequest(request)
     return request

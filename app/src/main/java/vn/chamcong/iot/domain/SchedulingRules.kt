@@ -163,13 +163,13 @@ fun summarizeWeeklyWork(
     var unauthorizedAbsenceDays = 0
     val dailyHours = dates.associateWith { 0.0 }.toMutableMap()
     val approvedLeaveKeys = approvedRequests
-        .filter { it.status == RequestStatus.APPROVED.name && it.type == "LEAVE" }
+        .filter { it.status == RequestStatus.APPROVED.name && it.type == "LEAVE" && activeEmployees.any { employee -> employee.id == it.employeeId } }
         .flatMap { request ->
             val start = runCatching { LocalDate.parse(request.startDate) }.getOrNull()
             val end = runCatching { LocalDate.parse(request.endDate) }.getOrNull()
             if (start == null || end == null) emptyList() else dates
                 .filter { it in start..end }
-                .flatMap { date -> activeEmployees.map { "${it.id}_$date" } }
+                .map { date -> "${request.employeeId}_$date" }
         }
         .toSet()
 
@@ -260,10 +260,14 @@ private fun breakOverlapSeconds(
     val breakEndText = shift.breakEndTime ?: return 0L
     val breakStartTime = parseTime(breakStartText, "Giờ bắt đầu nghỉ")
     val breakEndTime = parseTime(breakEndText, "Giờ kết thúc nghỉ")
-    val breakStart = shiftDate.atTime(breakStartTime)
-    val breakEnd = shiftDate.plusDays(if (breakEndTime.isAfter(breakStartTime)) 0 else 1).atTime(breakEndTime)
-    val overlapStart = maxOf(localIn, breakStart)
-    val overlapEnd = minOf(localOut, breakEnd)
+    val shiftStartTime = parseTime(shift.startTime, "Giờ bắt đầu")
+    val shiftStart = shiftDate.atTime(shiftStartTime)
+    val shiftEnd = endOnShiftDate(shiftDate, shift)
+    val breakDate = if (shiftEnd.toLocalDate().isAfter(shiftDate) && breakStartTime.isBefore(shiftStartTime)) shiftDate.plusDays(1) else shiftDate
+    val breakStart = breakDate.atTime(breakStartTime)
+    val breakEnd = breakDate.plusDays(if (breakEndTime.isAfter(breakStartTime)) 0 else 1).atTime(breakEndTime)
+    val overlapStart = maxOf(localIn, breakStart, shiftStart)
+    val overlapEnd = minOf(localOut, breakEnd, shiftEnd)
     return if (overlapEnd.isAfter(overlapStart)) Duration.between(overlapStart, overlapEnd).seconds else 0L
 }
 

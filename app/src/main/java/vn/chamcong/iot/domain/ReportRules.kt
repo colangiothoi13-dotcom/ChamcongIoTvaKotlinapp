@@ -11,6 +11,7 @@ import vn.chamcong.iot.model.ReportFilter
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
 import java.time.LocalDate
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -40,7 +41,8 @@ fun attendanceReportRows(
     shifts: List<WorkShift>,
     approvedRequests: List<LeaveRequest>,
     zoneId: ZoneId,
-    adjustments: List<AttendanceAdjustment> = emptyList()
+    adjustments: List<AttendanceAdjustment> = emptyList(),
+    now: Instant = Instant.now()
 ): List<AttendanceReportRow> {
     validateReportFilter(filter)
     val selectedEmployees = filterEmployees(employees, filter)
@@ -78,7 +80,7 @@ fun attendanceReportRows(
                 val adjustment = latestAdjustment(adjustments, employee.id, date)
                 if (rows.isEmpty() && schedule == null && adjustment == null && key !in approvedLeaveKeys) return@map null
                 val summary = employeeDaySummary(
-                    employee.id, date, rows, schedule, shift, key in approvedLeaveKeys, zoneId, adjustments
+                    employee.id, date, rows, schedule, shift, key in approvedLeaveKeys, zoneId, adjustments, now
                 )
                 AttendanceReportRow(
                     date = date.toString(),
