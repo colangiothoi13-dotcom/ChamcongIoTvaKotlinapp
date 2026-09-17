@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -27,6 +28,7 @@ import vn.chamcong.iot.model.RequestStatus
 import vn.chamcong.iot.model.RequestType
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.overtime.EmployeeOvertimeRequestSection
 import java.time.LocalDate
 
 @Composable
@@ -69,6 +71,8 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
         item { Text("Lịch sử xử lý", style = MaterialTheme.typography.titleMedium) }
         if (state.employeeRequests.isEmpty()) item { Text("Bạn chưa có đơn từ") }
         items(state.employeeRequests, key = { it.id }) { request -> EmployeeRequestCard(request) }
+        item { HorizontalDivider() }
+        item { EmployeeOvertimeRequestSection(state, vm) }
     }
 }
 

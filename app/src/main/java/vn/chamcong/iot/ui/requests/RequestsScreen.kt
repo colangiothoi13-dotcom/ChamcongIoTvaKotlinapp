@@ -26,6 +26,7 @@ import vn.chamcong.iot.model.LeaveRequest
 import vn.chamcong.iot.model.RequestStatus
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.overtime.AdminOvertimeRequestSection
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -33,22 +34,23 @@ import java.util.Locale
 fun RequestsScreen(state: MainUiState, vm: MainViewModel) {
     var rejecting by remember { mutableStateOf<LeaveRequest?>(null) }
     val filters = listOf(null to "Tất cả", RequestStatus.PENDING.name to "Chờ duyệt", RequestStatus.APPROVED.name to "Đã duyệt", RequestStatus.REJECTED.name to "Từ chối")
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Đơn từ", style = MaterialTheme.typography.titleLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            filters.forEach { (value, label) -> FilterChip(selected = state.selectedRequestFilter == value, onClick = { vm.setRequestFilter(value) }, label = { Text(label) }) }
-        }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state.visibleLeaveRequests.isEmpty()) item { Text("Chưa có đơn từ trong nhóm này") }
-            items(state.visibleLeaveRequests, key = { it.id }) { request ->
-                RequestCard(
-                    request = request,
-                    state = state,
-                    onApprove = { vm.reviewRequest(request.id, RequestStatus.APPROVED, "") {} },
-                    onReject = { rejecting = request }
-                )
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { Text("Đơn từ", style = MaterialTheme.typography.titleLarge) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                filters.forEach { (value, label) -> FilterChip(selected = state.selectedRequestFilter == value, onClick = { vm.setRequestFilter(value) }, label = { Text(label) }) }
             }
         }
+        if (state.visibleLeaveRequests.isEmpty()) item { Text("Chưa có đơn từ trong nhóm này") }
+        items(state.visibleLeaveRequests, key = { it.id }) { request ->
+            RequestCard(
+                request = request,
+                state = state,
+                onApprove = { vm.reviewRequest(request.id, RequestStatus.APPROVED, "") {} },
+                onReject = { rejecting = request }
+            )
+        }
+        item { AdminOvertimeRequestSection(state, vm) }
     }
     rejecting?.let { request ->
         var note by remember(request.id) { mutableStateOf("") }
