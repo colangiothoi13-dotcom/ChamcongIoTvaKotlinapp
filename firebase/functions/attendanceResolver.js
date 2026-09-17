@@ -44,7 +44,7 @@ function normalizeSchedule(schedule) {
 function pickSchedule(scanMs, schedules) {
   const candidates = schedules.map(normalizeSchedule).filter(candidate => {
     const opensAt = candidate.startMs - Number(candidate.shift.allowEarlyMinutes || 0) * 60000;
-    const closesAt = candidate.endMs + Number(candidate.shift.missingCheckOutGraceMinutes || 0) * 60000;
+    const closesAt = candidate.endMs + Number(candidate.shift.missingCheckOutGraceMinutes ?? 60) * 60000;
     return scanMs >= opensAt && scanMs <= closesAt;
   });
   if (!candidates.length) return null;
@@ -102,4 +102,10 @@ function localDateForMs(timestampMs, timeZone = TIME_ZONE) {
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
-module.exports = { DUPLICATE_WINDOW_MS, TIME_ZONE, buildShiftWindow, pickSchedule, resolveScan, localDateForMs };
+function resolveMappedEmployee(mapping, employee) {
+  if (!mapping || mapping.enabled !== true || !mapping.employeeId) return null;
+  if (!employee || employee.id !== mapping.employeeId || employee.active !== true) return null;
+  return employee;
+}
+
+module.exports = { DUPLICATE_WINDOW_MS, TIME_ZONE, buildShiftWindow, pickSchedule, resolveScan, localDateForMs, resolveMappedEmployee };

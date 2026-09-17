@@ -5,6 +5,7 @@ const {
   TIME_ZONE,
   buildShiftWindow,
   pickSchedule,
+  resolveMappedEmployee,
   resolveScan
 } = require("../attendanceResolver");
 
@@ -33,6 +34,25 @@ test("pickSchedule accepts only the configured early and missing-checkout window
   assert.equal(pickSchedule(at("2026-09-17T11:00:00Z"), [candidate]).shiftId, "day");
   assert.equal(pickSchedule(at("2026-09-17T00:44:59Z"), [candidate]), null);
   assert.equal(pickSchedule(at("2026-09-17T11:00:01Z"), [candidate]), null);
+});
+
+test("pickSchedule gives legacy shifts without a grace field the sixty-minute default", () => {
+  const legacyShift = { ...dayShift };
+  delete legacyShift.missingCheckOutGraceMinutes;
+  assert.equal(pickSchedule(at("2026-09-17T10:30:00Z"), [schedule("2026-09-17", legacyShift)]).shiftId, "day");
+});
+
+test("pickSchedule preserves an explicit zero missing-checkout grace", () => {
+  const noGraceShift = { ...dayShift, missingCheckOutGraceMinutes: 0 };
+  assert.equal(pickSchedule(at("2026-09-17T10:00:01Z"), [schedule("2026-09-17", noGraceShift)]), null);
+});
+
+test("resolveMappedEmployee trusts an enabled mapping even when the legacy employee slot differs", () => {
+  const employee = { id: "employee-1", active: true, fingerprintTemplateId: 99 };
+  assert.equal(resolveMappedEmployee({ enabled: true, employeeId: "employee-1" }, employee), employee);
+  assert.equal(resolveMappedEmployee({ enabled: false, employeeId: "employee-1" }, employee), null);
+  assert.equal(resolveMappedEmployee(undefined, employee), null);
+  assert.equal(resolveMappedEmployee({ enabled: true, employeeId: "employee-1" }, { ...employee, active: false }), null);
 });
 
 test("resolveScan makes a first scan near shift start a check-in", () => {
