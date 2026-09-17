@@ -27,6 +27,7 @@ import vn.chamcong.iot.domain.canAccessAdmin
 import vn.chamcong.iot.domain.canAccessEmployee
 import vn.chamcong.iot.domain.employeeMonthSummaries as buildEmployeeMonthSummaries
 import vn.chamcong.iot.domain.employeeRequestDraft
+import vn.chamcong.iot.domain.createOvertimeRequest
 import vn.chamcong.iot.model.Payroll
 import vn.chamcong.iot.data.FirebaseRepository
 import vn.chamcong.iot.model.Attendance
@@ -46,6 +47,8 @@ import vn.chamcong.iot.model.ReportFilter
 import vn.chamcong.iot.model.ReportType
 import vn.chamcong.iot.model.RequestStatus
 import vn.chamcong.iot.model.RequestType
+import vn.chamcong.iot.model.OvertimeRequest
+import vn.chamcong.iot.model.OvertimeRequestStatus
 import vn.chamcong.iot.model.UserProfile
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
@@ -69,6 +72,7 @@ data class MainUiState(
     val shifts: List<WorkShift> = emptyList(),
     val schedules: List<WorkSchedule> = emptyList(),
     val leaveRequests: List<LeaveRequest> = emptyList(),
+    val overtimeRequests: List<OvertimeRequest> = emptyList(),
     val notifications: List<AppNotification> = emptyList(),
     val auditLogs: List<AuditLog> = emptyList(),
     val userProfile: UserProfile? = null,
@@ -76,6 +80,7 @@ data class MainUiState(
     val employeeAttendance: List<Attendance> = emptyList(),
     val employeeSchedules: List<WorkSchedule> = emptyList(),
     val employeeRequests: List<LeaveRequest> = emptyList(),
+    val employeeOvertimeRequests: List<OvertimeRequest> = emptyList(),
     val selectedRequestFilter: String? = null,
     val employeeQuery: String = "",
     val departmentFilter: String? = null,
@@ -173,7 +178,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dataSubscriptions.clear()
         scheduleSubscription?.cancel()
         scheduleSubscription = null
-        _state.update { it.copy(attendanceAdjustments = emptyList()) }
+        _state.update {
+            it.copy(
+                attendanceAdjustments = emptyList(),
+                overtimeRequests = emptyList(),
+                employeeOvertimeRequests = emptyList()
+            )
+        }
     }
 
     private fun subscribeAdmin() {
@@ -225,6 +236,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         dataSubscriptions += viewModelScope.launch {
+            repository.observeOvertimeRequests().catch { e -> setError(e) }.collect { requests ->
+                _state.update { it.copy(overtimeRequests = requests) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
             repository.observeNotifications().catch { e -> setError(e) }.collect { notifications ->
                 _state.update { it.copy(notifications = notifications) }
             }
@@ -248,7 +264,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 currentEmployee = null,
                 employeeAttendance = emptyList(),
                 employeeSchedules = emptyList(),
-                employeeRequests = emptyList()
+                employeeRequests = emptyList(),
+                employeeOvertimeRequests = emptyList()
             )
         }
         if (employeeId.isBlank()) return
@@ -280,6 +297,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dataSubscriptions += viewModelScope.launch {
             repository.observeEmployeeRequests(employeeId).catch { e -> setError(e) }.collect { rows ->
                 _state.update { it.copy(employeeRequests = rows) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeeOvertimeRequests(employeeId).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(employeeOvertimeRequests = rows) }
             }
         }
     }
@@ -358,6 +380,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun reviewRequest(requestId: String, status: RequestStatus, note: String, done: () -> Unit) = perform(done) {
         repository.reviewLeaveRequest(requestId, status, repository.currentUserId, repository.currentUserName, note)
         if (status == RequestStatus.APPROVED) "Đã duyệt đơn" else "Đã từ chối đơn"
+    }
+    fun submitOvertimeRequest(workDate: String, done: () -> Unit) = perform(done) {
+        val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
+        val date = runCatching { LocalDate.parse(workDate.trim()) }
+            .getOrElse { error("Ngày tăng ca không hợp lệ") }
+        repository.submitOvertimeRequest(createOvertimeRequest(employee, date))
+        "Đã gửi đơn tăng ca, đang chờ Admin duyệt"
+    }
+    fun reviewOvertimeRequest(
+        requestId: String,
+        status: OvertimeRequestStatus,
+        reason: String,
+        done: () -> Unit
+    ) = perform(done) {
+        repository.reviewOvertimeRequest(requestId, status, reason)
+        if (status == OvertimeRequestStatus.APPROVED) "Đã duyệt đơn tăng ca" else "Đã từ chối đơn tăng ca"
     }
     fun sendPasswordReset(email: String, done: () -> Unit = {}) = perform(done) {
         repository.sendPasswordReset(email)

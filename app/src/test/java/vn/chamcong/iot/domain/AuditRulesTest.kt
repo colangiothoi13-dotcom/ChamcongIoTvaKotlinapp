@@ -10,6 +10,34 @@ import vn.chamcong.iot.model.UserProfile
 
 class AuditRulesTest {
     @Test
+    fun acceptsOvertimeReviewAuditLog() {
+        validateAuditLog(
+            AuditLog(
+                actorId = "admin-1",
+                actorName = "Admin",
+                action = AuditAction.OVERTIME_REVIEW.name,
+                targetType = "overtimeRequest",
+                targetId = "e1_2026-09-17",
+                details = "Reviewed overtime request as APPROVED",
+                createdAt = Timestamp.now()
+            )
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsOvertimeReviewAuditWithoutTarget() {
+        validateAuditLog(
+            AuditLog(
+                actorId = "admin-1",
+                actorName = "Admin",
+                action = AuditAction.OVERTIME_REVIEW.name,
+                targetType = "overtimeRequest",
+                targetId = ""
+            )
+        )
+    }
+
+    @Test
     fun acceptsACompleteAuditLog() {
         validateAuditLog(
             AuditLog(

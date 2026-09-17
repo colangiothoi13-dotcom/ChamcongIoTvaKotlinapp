@@ -201,6 +201,60 @@ service cloud.firestore {
         && request.resource.data.source is string;
       allow delete: if isAdmin();
     }
+    function validOvertimeRequest(data) {
+      return data.keys().hasOnly([
+          'employeeId', 'employeeName', 'department', 'workDate',
+          'startTime', 'endTime', 'status', 'createdAt',
+          'reviewerId', 'reviewerName', 'reviewedAt', 'rejectionReason'])
+        && nonBlank(data.employeeId)
+        && nonBlank(data.employeeName)
+        && data.department is string
+        && data.workDate is string
+        && data.workDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && data.startTime == '17:30'
+        && data.endTime == '20:30'
+        && data.status in ['PENDING', 'APPROVED', 'REJECTED']
+        && data.createdAt is timestamp
+        && (data.reviewerId == null || nonBlank(data.reviewerId))
+        && (data.reviewerName == null || nonBlank(data.reviewerName))
+        && (data.reviewedAt == null || data.reviewedAt is timestamp)
+        && (data.rejectionReason == null || data.rejectionReason is string);
+    }
+    function validOvertimeReview(existing, updated) {
+      return validOvertimeRequest(updated)
+        && existing.status == 'PENDING'
+        && updated.status in ['APPROVED', 'REJECTED']
+        && updated.employeeId == existing.employeeId
+        && updated.employeeName == existing.employeeName
+        && updated.department == existing.department
+        && updated.workDate == existing.workDate
+        && updated.startTime == existing.startTime
+        && updated.endTime == existing.endTime
+        && updated.createdAt == existing.createdAt
+        && updated.reviewerId == request.auth.uid
+        && nonBlank(updated.reviewerName)
+        && updated.reviewedAt == request.time
+        && updated.diff(existing).affectedKeys().hasOnly([
+          'status', 'reviewerId', 'reviewerName', 'reviewedAt', 'rejectionReason'])
+        && ((updated.status == 'APPROVED' && updated.rejectionReason == null)
+          || (updated.status == 'REJECTED' && nonBlank(updated.rejectionReason)));
+    }
+    match /overtimeRequests/{id} {
+      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
+      allow create: if isEmployee()
+        && validOvertimeRequest(request.resource.data)
+        && request.resource.data.employeeId == get(userProfilePath()).data.employeeId
+        && id == request.resource.data.employeeId + '_' + request.resource.data.workDate
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.reviewerId == null
+        && request.resource.data.reviewerName == null
+        && request.resource.data.reviewedAt == null
+        && request.resource.data.rejectionReason == null;
+      allow update: if isAdmin()
+        && validOvertimeReview(resource.data, request.resource.data);
+      allow delete: if false;
+    }
     match /leaveRequests/{id} {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create: if (isAdmin()

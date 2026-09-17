@@ -14,7 +14,9 @@ import vn.chamcong.iot.domain.employeeAccountProfile
 import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.notificationForRequest
 import vn.chamcong.iot.domain.reviewRequest
+import vn.chamcong.iot.domain.reviewOvertimeRequest as applyOvertimeReview
 import vn.chamcong.iot.domain.validateOvertimeHours
+import vn.chamcong.iot.domain.validateOvertimeRequest
 import vn.chamcong.iot.domain.validateRequest
 import vn.chamcong.iot.domain.validateShift
 import vn.chamcong.iot.domain.validateWorkedHoursOverride
@@ -121,6 +123,19 @@ class FirebaseRepository(
             }
         awaitClose { listener.remove() }
     }
+    fun observeEmployeeOvertimeRequests(employeeId: String): Flow<List<OvertimeRequest>> = callbackFlow {
+        require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+        val listener = db.collection("overtimeRequests")
+            .whereEqualTo("employeeId", employeeId)
+            .addSnapshotListener { value, error ->
+                if (error != null) close(error)
+                else trySend(value?.documents.orEmpty()
+                    .mapNotNull(::overtimeRequest)
+                    .sortedByDescending { it.createdAt ?: Instant.MIN })
+            }
+        awaitClose { listener.remove() }
+    }
+
     fun observeRecentAttendance(): Flow<List<Attendance>> = callbackFlow {
         val listener = db.collection("attendance").orderBy("timestamp", Query.Direction.DESCENDING).limit(50)
             .addSnapshotListener { value, error ->
@@ -169,6 +184,17 @@ class FirebaseRepository(
             .addSnapshotListener { value, error ->
                 if (error != null) close(error)
                 else trySend(value?.documents.orEmpty().mapNotNull { it.toObject(LeaveRequest::class.java)?.copy(id = it.id) })
+            }
+        awaitClose { listener.remove() }
+    }
+
+    fun observeOvertimeRequests(): Flow<List<OvertimeRequest>> = callbackFlow {
+        val listener = db.collection("overtimeRequests")
+            .addSnapshotListener { value, error ->
+                if (error != null) close(error)
+                else trySend(value?.documents.orEmpty()
+                    .mapNotNull(::overtimeRequest)
+                    .sortedByDescending { it.createdAt ?: Instant.MIN })
             }
         awaitClose { listener.remove() }
     }
@@ -504,6 +530,68 @@ class FirebaseRepository(
         ))
     }
 
+    suspend fun submitOvertimeRequest(request: OvertimeRequest): String {
+        validateOvertimeRequest(request)
+        require(request.status == OvertimeRequestStatus.PENDING.name) {
+            "Đơn tăng ca phải ở trạng thái chờ duyệt"
+        }
+        require(request.createdAt == null && request.reviewerId == null && request.reviewerName == null &&
+            request.reviewedAt == null && request.rejectionReason == null) {
+            "Nhân viên không được tự nhập thông tin duyệt đơn"
+        }
+        val profile = db.collection("users").document(currentUserId).get().await().toObject(UserProfile::class.java)
+        require(profile?.role == UserRole.EMPLOYEE.name && profile.active && profile.employeeId == request.employeeId) {
+            "Tài khoản không được gửi đơn tăng ca cho nhân viên này"
+        }
+        val requestId = scheduleDocumentId(request.employeeId, request.workDate)
+        db.collection("overtimeRequests").document(requestId)
+            .set(request.copy(id = requestId, status = OvertimeRequestStatus.PENDING.name).toOvertimeFirestoreData())
+            .await()
+        return requestId
+    }
+
+    suspend fun reviewOvertimeRequest(
+        requestId: String,
+        status: OvertimeRequestStatus,
+        reason: String
+    ) {
+        require(requestId.isNotBlank()) { "Mã đơn tăng ca không hợp lệ" }
+        val reviewerId = currentUserId
+        val reviewerName = currentUserName
+        require(reviewerId.isNotBlank()) { "Chưa đăng nhập" }
+        db.runTransaction { transaction ->
+            val requestRef = db.collection("overtimeRequests").document(requestId)
+            val current = transaction.get(requestRef).let(::overtimeRequest)
+                ?: error("Không tìm thấy đơn tăng ca")
+            val reviewed = applyOvertimeReview(
+                request = current,
+                status = status,
+                reviewerId = reviewerId,
+                reviewerName = reviewerName,
+                reason = reason,
+                reviewedAt = Instant.now()
+            )
+            transaction.update(requestRef, mapOf<String, Any?>(
+                "status" to reviewed.status,
+                "reviewerId" to reviewed.reviewerId,
+                "reviewerName" to reviewed.reviewerName,
+                "reviewedAt" to FieldValue.serverTimestamp(),
+                "rejectionReason" to reviewed.rejectionReason
+            ))
+            val audit = AuditLog(
+                actorId = reviewerId,
+                actorName = reviewerName,
+                action = AuditAction.OVERTIME_REVIEW.name,
+                targetType = "overtimeRequest",
+                targetId = requestId,
+                reason = reviewed.rejectionReason.orEmpty(),
+                details = "Xử lý đơn tăng ca với trạng thái ${status.name}"
+            )
+            validateAuditLog(audit)
+            transaction.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+        }.await()
+    }
+
     suspend fun markNotificationRead(notificationId: String) {
         require(notificationId.isNotBlank()) { "Thông báo không hợp lệ" }
         db.collection("notifications").document(notificationId).update("read", true).await()
@@ -541,6 +629,21 @@ class FirebaseRepository(
         "reviewedAt" to reviewedAt,
         "reviewNote" to reviewNote,
         "createdAt" to FieldValue.serverTimestamp()
+    )
+
+    private fun OvertimeRequest.toOvertimeFirestoreData(): Map<String, Any?> = mapOf(
+        "employeeId" to employeeId,
+        "employeeName" to employeeName,
+        "department" to department,
+        "workDate" to workDate,
+        "startTime" to startTime,
+        "endTime" to endTime,
+        "status" to status,
+        "createdAt" to FieldValue.serverTimestamp(),
+        "reviewerId" to reviewerId,
+        "reviewerName" to reviewerName,
+        "reviewedAt" to reviewedAt?.let { Timestamp(it.epochSecond, it.nano) },
+        "rejectionReason" to rejectionReason
     )
 
     private fun AppNotification.toFirestoreData(): Map<String, Any?> = mapOf(
@@ -808,6 +911,26 @@ class FirebaseRepository(
             targetId = ref.id,
             details = "Lưu phiếu lương tháng $month"
         ))
+    }
+
+    private fun overtimeRequest(document: DocumentSnapshot): OvertimeRequest? {
+        if (!document.exists()) return null
+        fun instant(field: String): Instant? = document.getTimestamp(field)?.toDate()?.toInstant()
+        return OvertimeRequest(
+            id = document.id,
+            employeeId = document.getString("employeeId").orEmpty(),
+            employeeName = document.getString("employeeName").orEmpty(),
+            department = document.getString("department").orEmpty(),
+            workDate = document.getString("workDate").orEmpty(),
+            startTime = document.getString("startTime").orEmpty(),
+            endTime = document.getString("endTime").orEmpty(),
+            status = document.getString("status").orEmpty(),
+            createdAt = instant("createdAt"),
+            reviewerId = document.getString("reviewerId"),
+            reviewerName = document.getString("reviewerName"),
+            reviewedAt = instant("reviewedAt"),
+            rejectionReason = document.getString("rejectionReason")
+        )
     }
 
     private fun auditLog(document: DocumentSnapshot): AuditLog = AuditLog(
