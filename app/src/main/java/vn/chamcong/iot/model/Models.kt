@@ -32,6 +32,7 @@ data class Attendance(
     val resolutionStatus: String = AttendanceResolutionStatus.ACCEPTED.name,
     val scheduleDate: String? = null,
     val shiftId: String? = null,
+    val overtimeRequestId: String? = null,
     val resolvedAt: Timestamp? = null
 )
 

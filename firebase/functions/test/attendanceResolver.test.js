@@ -3,6 +3,11 @@ const assert = require("node:assert/strict");
 const {
   DUPLICATE_WINDOW_MS,
   TIME_ZONE,
+  SUPPLEMENTARY_SHIFT_ID,
+  SUPPLEMENTARY_START_TIME,
+  SUPPLEMENTARY_END_TIME,
+  attendanceSessionId,
+  buildSupplementarySchedule,
   buildShiftWindow,
   pickSchedule,
   resolveMappedEmployee,
@@ -26,6 +31,27 @@ test("buildShiftWindow carries overnight end into the next local day", () => {
   const window = buildShiftWindow("2026-09-17", nightShift);
   assert.equal(window.startMs, at("2026-09-17T15:00:00Z"));
   assert.equal(window.endMs, at("2026-09-17T23:00:00Z"));
+});
+
+test("buildSupplementarySchedule creates the fixed Asia/Ho_Chi_Minh window", () => {
+  const candidate = buildSupplementarySchedule("2026-09-17", { id: "request-1", status: "PENDING" });
+  const window = buildShiftWindow(candidate.scheduleDate, candidate.shift);
+
+  assert.equal(SUPPLEMENTARY_SHIFT_ID, "SUPPLEMENTARY_1730_2030");
+  assert.equal(SUPPLEMENTARY_START_TIME, "17:30");
+  assert.equal(SUPPLEMENTARY_END_TIME, "20:30");
+  assert.equal(candidate.shiftId, SUPPLEMENTARY_SHIFT_ID);
+  assert.equal(candidate.overtimeRequestId, "request-1");
+  assert.equal(window.startMs, at("2026-09-17T10:30:00Z"));
+  assert.equal(window.endMs, at("2026-09-17T13:30:00Z"));
+});
+
+test("attendanceSessionId isolates supplementary attendance from the legacy main session", () => {
+  assert.equal(attendanceSessionId("employee-1", "2026-09-17", "afternoon"), "employee-1_2026-09-17");
+  assert.equal(
+    attendanceSessionId("employee-1", "2026-09-17", SUPPLEMENTARY_SHIFT_ID),
+    "employee-1_2026-09-17_SUPPLEMENTARY_1730_2030"
+  );
 });
 
 test("pickSchedule accepts only the configured early and missing-checkout window", () => {

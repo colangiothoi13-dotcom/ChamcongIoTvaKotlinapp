@@ -3,7 +3,16 @@ const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
-const { TIME_ZONE, localDateForMs, pickSchedule, resolveMappedEmployee, resolveScan } = require("./attendanceResolver");
+const {
+  TIME_ZONE,
+  SUPPLEMENTARY_SHIFT_ID,
+  attendanceSessionId,
+  buildSupplementarySchedule,
+  localDateForMs,
+  pickSchedule,
+  resolveMappedEmployee,
+  resolveScan
+} = require("./attendanceResolver");
 const { shouldNotifyAttendance } = require("./attendanceNotification");
 
 admin.initializeApp();
@@ -111,23 +120,38 @@ exports.resolveAttendance = onDocumentCreated({ document: "attendance/{eventId}"
       return shift.exists ? { scheduleDate: row.date, shiftId: row.shiftId, shift: { id: row.shiftId, ...shift.data() } } : null;
     }).filter(Boolean);
 
+    const requestId = `${employee.id}_${localDate}`;
+    const requestSnapshot = await transaction.get(db.collection("overtimeRequests").doc(requestId));
+    const requestData = requestSnapshot.exists ? requestSnapshot.data() : null;
+    const overtimeRequest = requestData &&
+      requestData.employeeId === employee.id &&
+      requestData.workDate === localDate &&
+      ["PENDING", "APPROVED", "REJECTED"].includes(requestData.status)
+      ? { id: requestSnapshot.id, ...requestData }
+      : null;
+    if (overtimeRequest) schedules.push(buildSupplementarySchedule(localDate, overtimeRequest));
+
     const selected = pickSchedule(scanMs, schedules);
-    const sessionRef = selected && db.collection("attendanceSessions").doc(`${employee.id}_${selected.scheduleDate}`);
+    const sessionRef = selected && db.collection("attendanceSessions").doc(
+      attendanceSessionId(employee.id, selected.scheduleDate, selected.shiftId)
+    );
     const sessionSnapshot = sessionRef ? await transaction.get(sessionRef) : null;
     const session = sessionSnapshot && sessionSnapshot.exists ? sessionSnapshot.data() : null;
     const result = resolveScan({
       scan: { timestampMs: scanMs, eventId: event.params.eventId }, schedules, session,
-      latestAccepted: session && session.lastAcceptedAt ? { timestampMs: timestampToMs(session.lastAcceptedAt), eventId: session.lastAcceptedEventId } : null
+      latestAccepted: session && session.lastAcceptedAt ? { timestampMs: timestampToMs(session.lastAcceptedAt), eventId: session.lastAcceptedEventId } : null,
+      requestStatus: overtimeRequest ? overtimeRequest.status : null
     });
+    const overtimeRequestId = result.shiftId === SUPPLEMENTARY_SHIFT_ID ? requestId : null;
 
     transaction.update(eventRef, {
       employeeId: employee.id, employeeName: employee.fullName,
       type: result.type, resolutionStatus: result.resolutionStatus, status: result.status,
-      scheduleDate: result.scheduleDate, shiftId: result.shiftId,
+      scheduleDate: result.scheduleDate, shiftId: result.shiftId, overtimeRequestId,
       receivedAt: admin.firestore.FieldValue.serverTimestamp(),
       resolvedAt: admin.firestore.FieldValue.serverTimestamp()
     });
-    if (result.resolutionStatus === "ACCEPTED") {
+    if (sessionRef && result.nextSession && ["CHECK_IN", "CHECK_OUT"].includes(result.type)) {
       transaction.set(sessionRef, {
         employeeId: employee.id, scheduleDate: result.scheduleDate, shiftId: result.shiftId,
         lastAcceptedEventId: result.nextSession.lastAcceptedEventId,
@@ -140,6 +164,73 @@ exports.resolveAttendance = onDocumentCreated({ document: "attendance/{eventId}"
     }
     return null;
   });
+});
+
+async function resolveOvertimeRequestEvents(requestId, status) {
+  if (!["APPROVED", "REJECTED"].includes(status)) return null;
+  const snapshot = await db.collection("attendance").where("overtimeRequestId", "==", requestId).get();
+  const events = snapshot.docs.slice().sort((left, right) => {
+    const timestampOrder = timestampToMs(left.data().timestamp) - timestampToMs(right.data().timestamp);
+    return timestampOrder || left.id.localeCompare(right.id);
+  });
+  if (!events.length) return null;
+
+  const first = events[0].data();
+  const scheduleDate = localDateForMs(timestampToMs(first.timestamp), TIME_ZONE);
+  const schedule = buildSupplementarySchedule(scheduleDate, { id: requestId, status });
+  const batch = db.batch();
+  let session = null;
+  let latestAccepted = null;
+
+  for (const event of events) {
+    const row = event.data();
+    const timestampMs = timestampToMs(row.timestamp);
+    const result = resolveScan({
+      scan: { timestampMs, eventId: event.id },
+      schedules: [schedule],
+      session,
+      latestAccepted,
+      requestStatus: status
+    });
+    batch.update(event.ref, {
+      type: result.type,
+      resolutionStatus: result.resolutionStatus,
+      status: result.status,
+      scheduleDate: result.scheduleDate,
+      shiftId: result.shiftId,
+      overtimeRequestId: requestId,
+      resolvedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    if (result.nextSession && ["CHECK_IN", "CHECK_OUT"].includes(result.type)) {
+      session = result.nextSession;
+      latestAccepted = { timestampMs: result.nextSession.lastAcceptedAt, eventId: event.id };
+    }
+  }
+
+  if (session) {
+    const sessionRef = db.collection("attendanceSessions").doc(
+      attendanceSessionId(first.employeeId, scheduleDate, SUPPLEMENTARY_SHIFT_ID)
+    );
+    batch.set(sessionRef, {
+      employeeId: first.employeeId,
+      scheduleDate,
+      shiftId: SUPPLEMENTARY_SHIFT_ID,
+      lastAcceptedEventId: session.lastAcceptedEventId,
+      lastAcceptedType: session.lastAcceptedType,
+      lastAcceptedAt: admin.firestore.Timestamp.fromMillis(session.lastAcceptedAt),
+      openCheckInAt: session.openCheckInAt == null ? null : admin.firestore.Timestamp.fromMillis(session.openCheckInAt),
+      closed: session.closed,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  }
+  return batch.commit();
+}
+
+exports.resolveOvertimeRequestAttendance = onDocumentUpdated({ document: "overtimeRequests/{requestId}", region: "asia-southeast1" }, async event => {
+  const before = event?.data?.before?.data?.();
+  const after = event?.data?.after?.data?.();
+  if (!before || !after || before.status !== "PENDING" || before.status === after.status) return null;
+  return resolveOvertimeRequestEvents(event.params.requestId, after.status);
 });
 
 exports.getEnrollmentCommand = onRequest({ region: "asia-southeast1", secrets: [deviceApiKey] }, async (req, res) => {

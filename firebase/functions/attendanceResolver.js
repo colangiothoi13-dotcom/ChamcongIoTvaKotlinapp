@@ -1,5 +1,8 @@
 const DUPLICATE_WINDOW_MS = 180000;
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
+const SUPPLEMENTARY_SHIFT_ID = "SUPPLEMENTARY_1730_2030";
+const SUPPLEMENTARY_START_TIME = "17:30";
+const SUPPLEMENTARY_END_TIME = "20:30";
 
 function formatParts(timestampMs, timeZone) {
   return Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
@@ -30,6 +33,26 @@ function buildShiftWindow(scheduleDate, shift, timeZone = TIME_ZONE) {
   let endMs = zonedDateTimeToMs(scheduleDate, shift.endTime, timeZone);
   if (endMs <= startMs) endMs = zonedDateTimeToMs(nextDate(scheduleDate), shift.endTime, timeZone);
   return { scheduleDate, startMs, endMs };
+}
+
+function buildSupplementarySchedule(workDate, request) {
+  return {
+    scheduleDate: workDate,
+    shiftId: SUPPLEMENTARY_SHIFT_ID,
+    overtimeRequestId: request && request.id ? request.id : null,
+    shift: {
+      id: SUPPLEMENTARY_SHIFT_ID,
+      startTime: SUPPLEMENTARY_START_TIME,
+      endTime: SUPPLEMENTARY_END_TIME,
+      allowEarlyMinutes: 0,
+      missingCheckOutGraceMinutes: 0
+    }
+  };
+}
+
+function attendanceSessionId(employeeId, scheduleDate, shiftId) {
+  const legacyId = `${employeeId}_${scheduleDate}`;
+  return shiftId === SUPPLEMENTARY_SHIFT_ID ? `${legacyId}_${SUPPLEMENTARY_SHIFT_ID}` : legacyId;
 }
 
 function normalizeSchedule(schedule) {
@@ -65,8 +88,21 @@ function unchanged(type, resolutionStatus, schedule, session) {
   };
 }
 
-function resolveScan({ scan, schedules, session, latestAccepted }) {
+function isWithinSupplementaryWindow(timestampMs) {
+  const scheduleDate = localDateForMs(timestampMs, TIME_ZONE);
+  const window = buildShiftWindow(scheduleDate, {
+    startTime: SUPPLEMENTARY_START_TIME,
+    endTime: SUPPLEMENTARY_END_TIME
+  });
+  return timestampMs >= window.startMs && timestampMs <= window.endMs;
+}
+
+function resolveScan({ scan, schedules, session, latestAccepted, requestStatus }) {
   const schedule = pickSchedule(scan.timestampMs, schedules);
+  if (requestStatus === null && isWithinSupplementaryWindow(scan.timestampMs) &&
+      (!schedule || scan.timestampMs > schedule.endMs)) {
+    return unchanged("UNSCHEDULED", "UNSCHEDULED", null, session);
+  }
   if (!schedule) return unchanged("UNSCHEDULED", "UNSCHEDULED", null, session);
 
   if (latestAccepted && Math.abs(scan.timestampMs - latestAccepted.timestampMs) <= DUPLICATE_WINDOW_MS) {
@@ -91,9 +127,12 @@ function resolveScan({ scan, schedules, session, latestAccepted }) {
     openCheckInAt: type === "CHECK_IN" ? scan.timestampMs : null,
     closed: type === "CHECK_OUT"
   };
+  const supplementaryStatus = schedule.shiftId === SUPPLEMENTARY_SHIFT_ID ? requestStatus : null;
+  const resolutionStatus = supplementaryStatus === "PENDING" ? "OVERTIME_PENDING" :
+    supplementaryStatus === "REJECTED" ? "OVERTIME_REJECTED" : "ACCEPTED";
   return {
-    type, resolutionStatus: "ACCEPTED", scheduleDate: schedule.scheduleDate,
-    shiftId: schedule.shiftId, status: "NORMAL", nextSession
+    type, resolutionStatus, scheduleDate: schedule.scheduleDate,
+    shiftId: schedule.shiftId, status: resolutionStatus === "ACCEPTED" ? "NORMAL" : "ABNORMAL", nextSession
   };
 }
 
@@ -108,4 +147,17 @@ function resolveMappedEmployee(mapping, employee) {
   return employee;
 }
 
-module.exports = { DUPLICATE_WINDOW_MS, TIME_ZONE, buildShiftWindow, pickSchedule, resolveScan, localDateForMs, resolveMappedEmployee };
+module.exports = {
+  DUPLICATE_WINDOW_MS,
+  TIME_ZONE,
+  SUPPLEMENTARY_SHIFT_ID,
+  SUPPLEMENTARY_START_TIME,
+  SUPPLEMENTARY_END_TIME,
+  attendanceSessionId,
+  buildSupplementarySchedule,
+  buildShiftWindow,
+  pickSchedule,
+  resolveScan,
+  localDateForMs,
+  resolveMappedEmployee
+};
