@@ -34,7 +34,7 @@ fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
     var editor by remember { mutableStateOf<WorkShift?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Quản lý ca làm", style = MaterialTheme.typography.titleLarge)
-        Text("Admin tạo và chỉnh ba loại ca: ca sáng, ca tối, ca bổ sung.", style = MaterialTheme.typography.bodySmall)
+        Text("Phân lịch có sẵn: Ca sáng 08:00–12:00, Ca chiều 13:00–17:00, Ca bổ sung/tăng ca nhập giờ mỗi lần. Các ca cũ vẫn được giữ.", style = MaterialTheme.typography.bodySmall)
         Button(onClick = {
             vm.clearError()
             editor = WorkShift(name = "Ca sáng", effectiveFrom = LocalDate.now().toString())
@@ -45,7 +45,8 @@ fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
             state.shifts.forEach { shift ->
                 ShiftRow(shift) {
                     vm.clearError()
-                    editor = shift
+                    // Template snapshots must keep the times used by previously assigned schedules.
+                    editor = if (shift.id.startsWith("weekly_v1_")) shift.copy(id = "") else shift
                 }
             }
         }
@@ -69,7 +70,7 @@ private fun ShiftRow(shift: WorkShift, onEdit: () -> Unit) {
             Text("Cho phép sớm ${shift.allowEarlyMinutes} phút • Đi trễ ${shift.lateGraceMinutes} phút • Về sớm ${shift.earlyLeaveAllowedMinutes} phút", style = MaterialTheme.typography.bodySmall)
             Text("Nghỉ: ${shift.breakStartTime ?: "-"}–${shift.breakEndTime ?: "-"} • ${if (shift.countsOvertime) "Có tính tăng ca" else "Không tính tăng ca"}", style = MaterialTheme.typography.bodySmall)
             Text("Áp dụng từ ${shift.effectiveFrom}${shift.effectiveTo?.let { " đến $it" } ?: ""}", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = onEdit) { Text("Chỉnh sửa") }
+            TextButton(onClick = onEdit) { Text(if (shift.id.startsWith("weekly_v1_")) "Tạo bản tùy chỉnh" else "Chỉnh sửa") }
         }
     }
 }
@@ -149,7 +150,7 @@ private fun ShiftEditorDialog(
 
 private fun categoryLabel(category: String): String = when (category) {
     ShiftCategory.MORNING.name -> "Ca sáng"
-    ShiftCategory.EVENING.name -> "Ca tối"
+    ShiftCategory.EVENING.name -> "Ca chiều / tối"
     ShiftCategory.SUPPLEMENTARY.name -> "Ca bổ sung"
     else -> category
 }

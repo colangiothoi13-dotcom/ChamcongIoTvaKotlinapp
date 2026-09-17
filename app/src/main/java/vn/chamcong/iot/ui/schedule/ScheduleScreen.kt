@@ -1,6 +1,7 @@
 package vn.chamcong.iot.ui.schedule
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,18 +38,20 @@ import java.time.YearMonth
 fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
     var monthMode by remember { mutableStateOf(false) }
     var assignment by remember { mutableStateOf<AssignmentTarget?>(null) }
+    var bulkAssignment by remember { mutableStateOf(false) }
     val dates = weekDates(state.selectedWeekStart)
     val activeEmployees = state.employees.filter { it.active }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Lịch phân ca", style = MaterialTheme.typography.titleLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        WeeklyScheduleWarning(state)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { vm.moveWeek(-1) }) { Text("‹ Tuần trước") }
             Text("Tuần ${state.selectedWeekStart} – ${dates.last()}", modifier = Modifier.padding(top = 12.dp))
             TextButton(onClick = { vm.moveWeek(1) }) { Text("Tuần sau ›") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { vm.selectWeek(LocalDate.now()) }) { Text("Tuần này") }
-            Button(onClick = { vm.clearError(); assignment = AssignmentTarget(null, dates.first(), false) }) { Text("Phân cho nhân viên") }
+            Button(onClick = { vm.clearError(); bulkAssignment = true }, enabled = !state.saving) { Text("Phân cho nhân viên") }
             Button(onClick = { vm.clearError(); assignment = AssignmentTarget(null, dates.first(), true) }) { Text("Phân cho phòng ban") }
             Button(onClick = { vm.clearError(); vm.copyPreviousWeek {} }) { Text("Sao chép tuần trước") }
         }
@@ -71,6 +74,7 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
     assignment?.let { target ->
         ScheduleAssignmentDialog(state, target, vm) { assignment = null }
     }
+    if (bulkAssignment) WeeklyAssignmentDialog(state, vm) { bulkAssignment = false }
 }
 
 private data class AssignmentTarget(val employee: vn.chamcong.iot.model.Employee?, val date: LocalDate, val departmentMode: Boolean)

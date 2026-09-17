@@ -338,6 +338,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.saveSchedule(schedule)
         "Đã phân ca ${schedule.shiftName} cho ${schedule.employeeName}"
     }
+    fun assignWeeklyShift(employeeIds: Set<String>, week: LocalDate, dates: Set<LocalDate>,
+        template: vn.chamcong.iot.domain.ShiftTemplate, start: String, end: String, done: () -> Unit) = perform(done) {
+        val shift = template.resolve(start, end)
+        val schedules = vn.chamcong.iot.domain.weeklyAssignmentPayload(
+            _state.value.employees, employeeIds, week, dates, shift, repository.currentUserId)
+        repository.saveWeeklySchedules(shift, schedules)
+        "Đã lưu ${schedules.size} lịch phân ca"
+    }
     fun assignShiftToDepartment(department: String, dates: List<String>, shift: WorkShift, overtimeHours: Int, done: () -> Unit) = perform(done) {
         repository.assignShiftToDepartment(department, dates, shift, overtimeHours, repository.currentUserId)
         "Đã phân ca ${shift.name} cho phòng ban $department"

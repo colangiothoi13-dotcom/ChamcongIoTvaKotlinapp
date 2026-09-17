@@ -8,6 +8,29 @@ MVP quản trị nhân sự và chấm công bằng vân tay gồm:
 
 ## Kiến trúc
 
+### Phân ca tuần cho nhiều nhân viên (17/09/2026)
+
+Trong **Quản lý ca làm → Lịch → Phân cho nhân viên**, Admin chọn nhiều nhân viên, chọn ngày trong tuần thứ hai–chủ nhật, rồi lưu một trong ba mẫu: **Ca sáng 08:00–12:00**, **Ca chiều 13:00–17:00**, **Ca bổ sung/tăng ca** nhập giờ mỗi lần. Giờ nhập theo `HH:mm`, không được bằng nhau; giờ kết thúc nhỏ hơn giờ bắt đầu nghĩa là kết thúc ngày hôm sau. Mỗi nhân viên/ngày vẫn chỉ có một `WorkSchedule`; phân lại thay ca của ngày đó, không cộng ca thứ hai.
+
+Hạn cảnh báo là **17:00 Chủ nhật trước tuần được chọn, Asia/Ho_Chi_Minh**. Cảnh báo chưa hoàn tất/quá hạn đếm nhân viên active chưa có bất kỳ lịch nào trong tuần; không bắt buộc làm cả bảy ngày. Admin tự kiểm tra các ngày cần làm, vì schema hiện tại chưa có kế hoạch ngày nghỉ. Cảnh báo cập nhật khi màn hình mở và không khóa thao tác sau hạn.
+
+Mẫu là helper thuần; chỉ nút **Lưu phân ca** mới ghi dữ liệu. ID `weekly_v1_<template>_<start>_<end>` ổn định, transaction chỉ tạo ca nếu chưa có và kiểm tra nội dung nếu đã có; không seed trong composition, không tạo ca trùng khi thử lại/cùng lúc. Các ca legacy không bị đổi tên, giờ hoặc gộp tự động. Ca chiều dùng category `EVENING` để tương thích schema. Mẫu đã lưu là snapshot: màn hình ca cho tạo bản tùy chỉnh thay vì sửa snapshot. Nếu snapshot bị sửa từ client cũ, lưu tuần báo lỗi thay vì ghi đè lịch sử cấu hình.
+
+Bulk save dùng ID `${employeeId}_${date}`, merge các field phân ca, giữ `workedHoursOverride`, `adjustmentNote`, `note` hiện có và không ghi attendance/attendanceAdjustments. Mỗi transaction tối đa 400 lịch kèm ca mẫu và audit với server timestamp; lỗi giữa các chunk hiện số lịch đã lưu, có thể thử lại. Phân phòng ban, chọn ô đơn và sao chép tuần vẫn dùng luồng hiện có.
+
+| File thay đổi trong đợt này | Nội dung |
+| --- | --- |
+| `app/src/main/java/vn/chamcong/iot/domain/WeeklyScheduling.kt` | Mẫu ca thuần, cảnh báo hạn/độ phủ và payload nhân viên × ngày. |
+| `app/src/test/java/vn/chamcong/iot/domain/WeeklySchedulingTest.kt` | Biên tuần/năm, trước/đúng/sau hạn, độ phủ, mẫu/giờ bổ sung và lựa chọn bulk. |
+| `app/src/main/java/vn/chamcong/iot/data/FirebaseRepository.kt` | Transaction lưu mẫu không trùng, merge lịch và audit theo chunk. |
+| `app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt` | Intent phân ca tuần qua saving/error hiện có. |
+| `app/src/main/java/vn/chamcong/iot/ui/schedule/ScheduleScreen.kt` | Nối nút phân nhân viên vào dialog tuần, cảnh báo, cuộn màn hình/thanh thao tác. |
+| `app/src/main/java/vn/chamcong/iot/ui/schedule/WeeklyAssignmentDialog.kt` | Checkbox có nhãn nhân viên/ngày, validation giờ, tiến trình/lỗi và cảnh báo hạn. |
+| `app/src/main/java/vn/chamcong/iot/ui/shifts/ShiftsScreen.kt` | Mô tả ba mẫu, giữ snapshot mẫu khi tạo bản tùy chỉnh. |
+| `app/src/main/java/vn/chamcong/iot/ui/admin/ShiftManagementScreen.kt` | Mô tả luồng tuần trong hub hiện có. |
+| `README.md` | Hướng dẫn, quyết định tương thích và inventory. |
+| `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/weekly-schedule-report.md` | Báo cáo triển khai, RED/GREEN, build và giới hạn kiểm chứng. |
+
 ```text
 Ngón tay -> AS608/R307 (đối chiếu cục bộ)
                     |

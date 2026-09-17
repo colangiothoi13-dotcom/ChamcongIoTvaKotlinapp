@@ -325,6 +325,42 @@ class FirebaseRepository(
         ))
     }
 
+    /** Explicit assignment only. Stable template IDs are create-only, including concurrent saves. */
+    suspend fun saveWeeklySchedules(shift: WorkShift, schedules: List<WorkSchedule>) {
+        validateShift(shift)
+        require(schedules.isNotEmpty())
+        val shiftRef = db.collection("shifts").document(shift.id)
+        var saved = 0
+        try {
+            schedules.chunked(400).forEach { chunk ->
+                val auditRef = db.collection("audit_logs").document()
+                db.runTransaction { transaction ->
+                    val snapshot = transaction.get(shiftRef)
+                    if (snapshot.exists()) {
+                        require(snapshot.toObject(WorkShift::class.java)?.copy(id = shift.id) == shift) {
+                            "Ca mẫu đã bị thay đổi. Vui lòng kiểm tra cấu hình ca."
+                        }
+                    } else transaction.set(shiftRef, shift.copy(id = ""))
+                    chunk.forEach { schedule ->
+                        // Only schedule fields: preserve legacy hours adjustments and all attendance history.
+                        transaction.set(db.collection("workSchedules").document(scheduleDocumentId(schedule.employeeId, schedule.date)),
+                            mapOf("id" to "", "employeeId" to schedule.employeeId, "employeeName" to schedule.employeeName,
+                                "department" to schedule.department, "date" to schedule.date, "shiftId" to shift.id,
+                                "shiftName" to shift.name, "overtimeHours" to 0, "assignedBy" to currentUserId,
+                                "source" to "EMPLOYEE"), SetOptions.merge())
+                    }
+                    transaction.set(auditRef, AuditLog(actorId = currentUserId, actorName = currentUserName,
+                        action = AuditAction.SHIFT_UPDATE.name, targetType = "workSchedule", targetId = shift.id,
+                        details = "Phân ca tuần: ${chunk.size} lịch; ${chunk.joinToString { it.id }}").toFirestoreData())
+                }.await()
+                saved += chunk.size
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) {
+            throw IllegalStateException("Đã lưu $saved/${schedules.size} lịch. Có thể thử lại an toàn. ${e.localizedMessage}", e)
+        }
+    }
+
     suspend fun assignShiftToDepartment(
         department: String,
         dates: List<String>,
