@@ -7,6 +7,8 @@ import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.PresenceStatus
 import vn.chamcong.iot.model.ReportFilter
+import vn.chamcong.iot.model.WorkSchedule
+import vn.chamcong.iot.model.WorkShift
 import java.time.LocalDate
 import java.time.ZoneId
 import vn.chamcong.iot.model.AttendanceAdjustment
@@ -23,8 +25,47 @@ class AttendanceAdjustmentRulesTest {
         val older = validAdjustment(workedHoursOverride = 4.0)
         val newer = older.copy(id = "new", createdAt = older.createdAt.plusSeconds(1))
         val otherEmployee = newer.copy(employeeId = "other", createdAt = newer.createdAt.plusSeconds(1))
-        assertEquals(newer, latestAdjustment(listOf(newer, otherEmployee, older), "employee-1", LocalDate.parse("2026-09-17")))
+        val otherDate = newer.copy(scheduleDate = "2026-09-18", createdAt = newer.createdAt.plusSeconds(2))
+        assertEquals(newer, latestAdjustment(listOf(newer, otherEmployee, otherDate, older), "employee-1", LocalDate.parse("2026-09-17")))
     }
+
+    @Test
+    fun adjustedOvernightCheckInStaysPresentThroughScheduleGraceDeadline() {
+        // A post-midnight correction still belongs to the September 17 shift.
+        val adjustment = validAdjustment(checkInAt = timestamp("2026-09-17T17:30:00Z"))
+        val shift = WorkShift(id = "night", startTime = "22:00", endTime = "06:00", missingCheckOutGraceMinutes = 60)
+        assertEquals(PresenceStatus.PRESENT, adjustedPresence(adjustment, shift, "2026-09-17T23:30:00Z"))
+        assertEquals(PresenceStatus.PRESENT, adjustedPresence(adjustment, shift, "2026-09-18T00:00:00Z"))
+        assertEquals(PresenceStatus.MISSING_CHECK_OUT, adjustedPresence(adjustment, shift, "2026-09-18T00:00:01Z"))
+    }
+
+    @Test
+    fun adjustedShortDayShiftIsMissingAfterItsGraceDeadline() {
+        val adjustment = validAdjustment(checkInAt = timestamp("2026-09-17T01:00:00Z"))
+        val shift = WorkShift(id = "day", startTime = "08:00", endTime = "10:00", missingCheckOutGraceMinutes = 15)
+        assertEquals(PresenceStatus.PRESENT, adjustedPresence(adjustment, shift, "2026-09-17T03:15:00Z"))
+        assertEquals(PresenceStatus.MISSING_CHECK_OUT, adjustedPresence(adjustment, shift, "2026-09-17T03:15:01Z"))
+    }
+
+    @Test
+    fun adjustedCheckInWithoutShiftPreservesLegacyCutoffs() {
+        val adjustment = validAdjustment(checkInAt = timestamp("2026-09-17T01:00:00Z"))
+        assertEquals(PresenceStatus.PRESENT, adjustedPresence(adjustment, null, "2026-09-17T03:15:01Z"))
+        assertEquals(PresenceStatus.MISSING_CHECK_OUT, adjustedPresence(adjustment, null, "2026-09-17T14:00:00Z"))
+        assertEquals(PresenceStatus.MISSING_CHECK_OUT, adjustedPresence(
+            adjustment.copy(checkInAt = timestamp("2026-09-17T16:00:00Z")), null, "2026-09-17T17:01:00Z"
+        ))
+    }
+
+    private fun adjustedPresence(adjustment: AttendanceAdjustment, shift: WorkShift?, now: String): PresenceStatus =
+        classifyPresenceForEmployees(
+            employees = listOf(Employee(id = adjustment.employeeId)), attendance = emptyList(), requests = emptyList(),
+            date = LocalDate.parse(adjustment.scheduleDate), zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            now = timestamp(now), adjustments = listOf(adjustment),
+            schedules = shift?.let { listOf(WorkSchedule(employeeId = adjustment.employeeId,
+                date = adjustment.scheduleDate, shiftId = it.id)) }.orEmpty(),
+            shifts = listOfNotNull(shift)
+        ).single().status
 
     @Test
     fun adjustmentOverlayDoesNotMutateLegacyAttendance() {

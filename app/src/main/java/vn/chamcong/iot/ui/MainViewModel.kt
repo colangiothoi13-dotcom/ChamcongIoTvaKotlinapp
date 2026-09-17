@@ -103,7 +103,9 @@ data class MainUiState(
             requests = leaveRequests,
             date = selectedPresenceDate,
             zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
-            adjustments = attendanceAdjustments
+            adjustments = attendanceAdjustments,
+            schedules = schedules,
+            shifts = shifts
         )
 
     val weeklyWorkSummary: WeeklyWorkSummary

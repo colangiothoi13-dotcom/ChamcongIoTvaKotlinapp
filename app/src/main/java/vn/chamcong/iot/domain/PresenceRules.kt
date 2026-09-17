@@ -2,6 +2,9 @@ package vn.chamcong.iot.domain
 
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
+import vn.chamcong.iot.model.AttendancePair
+import vn.chamcong.iot.model.WorkSchedule
+import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.LeaveRequest
@@ -20,7 +23,8 @@ fun classifyPresence(
     date: LocalDate,
     zoneId: ZoneId,
     now: Instant = Instant.now(),
-    adjustments: List<AttendanceAdjustment> = emptyList()
+    adjustments: List<AttendanceAdjustment> = emptyList(),
+    shift: WorkShift? = null
 ): PresenceRecord {
     val dateIsCoveredByLeave = approvedRequests.any { request ->
         request.employeeId == employee.id &&
@@ -33,8 +37,16 @@ fun classifyPresence(
     val adjustment = latestAdjustment(adjustments, employee.id, date)
     if (adjustment?.checkOutAt != null) return PresenceRecord(employee, PresenceStatus.LEFT)
     if (adjustment?.checkInAt != null) {
-        val missingCheckout = date.isBefore(now.atZone(zoneId).toLocalDate()) ||
-            Duration.between(adjustment.checkInAt, now).toHours() > 12
+        val missingCheckout = if (shift != null) {
+            isMissingCheckOut(
+                pair = AttendancePair(scheduleDate = date, checkIn = adjustment.checkInAt),
+                scheduleDate = date, shift = shift, now = now, zoneId = zoneId
+            )
+        } else {
+            // Preserve the legacy fallback only when no schedule/shift context is available.
+            date.isBefore(now.atZone(zoneId).toLocalDate()) ||
+                Duration.between(adjustment.checkInAt, now).toHours() > 12
+        }
         val hasRawCheckout = rows.any {
             it.employeeId == employee.id && it.resolutionStatus == "ACCEPTED" &&
                 it.type == AttendanceType.CHECK_OUT.name &&
@@ -77,10 +89,16 @@ fun classifyPresenceForEmployees(
     date: LocalDate,
     zoneId: ZoneId,
     now: Instant = Instant.now(),
-    adjustments: List<AttendanceAdjustment> = emptyList()
+    adjustments: List<AttendanceAdjustment> = emptyList(),
+    schedules: List<WorkSchedule> = emptyList(),
+    shifts: List<WorkShift> = emptyList()
 ): List<PresenceRecord> = employees
     .filter(Employee::active)
-    .map { employee -> classifyPresence(employee, attendance, requests, date, zoneId, now, adjustments) }
+    .map { employee ->
+        val schedule = schedules.firstOrNull { it.employeeId == employee.id && it.date == date.toString() }
+        val shift = schedule?.let { selected -> shifts.firstOrNull { it.id == selected.shiftId } }
+        classifyPresence(employee, attendance, requests, date, zoneId, now, adjustments, shift)
+    }
 
 private fun Attendance.localDate(zoneId: ZoneId): LocalDate = timestamp.toDate().toInstant().atZone(zoneId).toLocalDate()
 
