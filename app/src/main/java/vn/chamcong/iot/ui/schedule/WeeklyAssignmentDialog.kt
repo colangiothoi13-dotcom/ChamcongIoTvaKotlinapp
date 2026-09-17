@@ -44,9 +44,11 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
     var end by remember(template) { mutableStateOf("") }
     val resolved = runCatching { template.resolve(start, end) }
     val validation = resolved.exceptionOrNull()?.localizedMessage
-    val validSelection = resolved.getOrNull()?.let { shift ->
-        runCatching { weeklyAssignmentPayload(state.employees, employees, week, dates, shift, "preview") }.isSuccess
-    } == true
+    val unavailableEmployees = unavailableWeeklyEmployeeIds(state.employees, employees)
+    val selectionValidation = resolved.getOrNull()?.let { shift ->
+        runCatching { weeklyAssignmentPayload(state.employees, employees, week, dates, shift, "preview") }
+    }
+    val validSelection = selectionValidation?.isSuccess == true
     AlertDialog(
         onDismissRequest = { if (!state.saving) onDismiss() },
         title = { Text("Phân ca tuần cho nhân viên") },
@@ -54,6 +56,13 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${weekDates(week).first()} – ${weekDates(week).last()} (Thứ hai – Chủ nhật)")
                 Text("Chọn nhân viên (${employees.size})")
+                if (unavailableEmployees.isNotEmpty()) {
+                    Text("${unavailableEmployees.size} nhân viên đã chọn không còn hoạt động hoặc không còn trong danh sách. Bỏ các lựa chọn này để tiếp tục.",
+                        color = MaterialTheme.colorScheme.error)
+                    TextButton(enabled = !state.saving, onClick = { employees = employees - unavailableEmployees }) {
+                        Text("Bỏ nhân viên không còn khả dụng")
+                    }
+                }
                 state.employees.filter { it.active }.forEach { employee ->
                     SelectionRow("${employee.code} • ${employee.fullName}", employee.id in employees, !state.saving) {
                         employees = if (it) employees + employee.id else employees - employee.id
@@ -80,6 +89,9 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
                     validation?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
                 Text("${employees.size * dates.size} lịch sẽ được lưu. Lịch cùng nhân viên/ngày sẽ được cập nhật; mỗi ngày chỉ có một ca.")
+                selectionValidation?.exceptionOrNull()?.localizedMessage?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
                 if (state.saving) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Đang lưu phân ca…") }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }

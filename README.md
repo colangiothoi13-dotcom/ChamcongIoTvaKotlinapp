@@ -8,6 +8,12 @@ MVP quản trị nhân sự và chấm công bằng vân tay gồm:
 
 ## Kiến trúc
 
+### Weekly scheduling: reviewer fix round 1
+
+The weekly dialog now explains unavailable selected employees and offers an explicit removal action; validation errors remain visible when Save is disabled. The legacy picker and its selected value show supplemental start/end times, including a next-day marker for overnight shifts. Bulk audit entries now target the first canonical workSchedule ID in each chunk and retain all affected IDs in details.
+
+Changed-file inventory: `ui/schedule/WeeklyAssignmentDialog.kt` (selection recovery/validation), `ui/schedule/ScheduleScreen.kt` (picker labels), new `ui/schedule/WeeklySchedulingPresentation.kt` (pure selection/label helpers), and `data/FirebaseRepository.kt` (audit target), all under `app/src/main/java/vn/chamcong/iot/`; new `app/src/test/java/vn/chamcong/iot/ui/schedule/WeeklySchedulingPresentationTest.kt` (four regression tests); `README.md`; appended `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/weekly-schedule-report.md` (verification and fix hash).
+
 ### Phân ca tuần cho nhiều nhân viên (17/09/2026)
 
 Trong **Quản lý ca làm → Lịch → Phân cho nhân viên**, Admin chọn nhiều nhân viên, chọn ngày trong tuần thứ hai–chủ nhật, rồi lưu một trong ba mẫu: **Ca sáng 08:00–12:00**, **Ca chiều 13:00–17:00**, **Ca bổ sung/tăng ca** nhập giờ mỗi lần. Giờ nhập theo `HH:mm`, không được bằng nhau; giờ kết thúc nhỏ hơn giờ bắt đầu nghĩa là kết thúc ngày hôm sau. Mỗi nhân viên/ngày vẫn chỉ có một `WorkSchedule`; phân lại thay ca của ngày đó, không cộng ca thứ hai.

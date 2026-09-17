@@ -350,7 +350,8 @@ class FirebaseRepository(
                                 "source" to "EMPLOYEE"), SetOptions.merge())
                     }
                     transaction.set(auditRef, AuditLog(actorId = currentUserId, actorName = currentUserName,
-                        action = AuditAction.SHIFT_UPDATE.name, targetType = "workSchedule", targetId = shift.id,
+                        action = AuditAction.SHIFT_UPDATE.name, targetType = "workSchedule",
+                        targetId = scheduleDocumentId(chunk.first().employeeId, chunk.first().date),
                         details = "Phân ca tuần: ${chunk.size} lịch; ${chunk.joinToString { it.id }}").toFirestoreData())
                 }.await()
                 saved += chunk.size

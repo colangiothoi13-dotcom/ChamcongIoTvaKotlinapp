@@ -159,9 +159,9 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                     }
                 }
                 Text("Ca")
-                OutlinedButton(onClick = { menuExpanded = true }, enabled = state.shifts.isNotEmpty()) { Text(selectedShift?.name ?: "Chưa có ca") }
+                OutlinedButton(onClick = { menuExpanded = true }, enabled = state.shifts.isNotEmpty()) { Text(selectedShift?.let(::scheduleShiftLabel) ?: "Chưa có ca") }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    state.shifts.forEach { shift -> DropdownMenuItem(text = { Text(shift.name) }, onClick = { selectedShift = shift; menuExpanded = false }) }
+                    state.shifts.forEach { shift -> DropdownMenuItem(text = { Text(scheduleShiftLabel(shift)) }, onClick = { selectedShift = shift; menuExpanded = false }) }
                 }
                 Text("Tăng ca")
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
