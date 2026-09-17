@@ -210,7 +210,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         dataSubscriptions += viewModelScope.launch {
-            repository.observeRecentAttendance().catch { e -> setError(e) }.collect { attendance ->
+            repository.observeAllAttendance().catch { e -> setError(e) }.collect { attendance ->
                 _state.update { it.copy(attendance = attendance) }
                 attendance.firstOrNull()?.id?.takeIf(String::isNotBlank)?.let(::enqueueReceipt)
             }

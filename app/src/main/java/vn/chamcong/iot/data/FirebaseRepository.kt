@@ -144,6 +144,15 @@ class FirebaseRepository(
             }
         awaitClose { listener.remove() }
     }
+    fun observeAllAttendance(): Flow<List<Attendance>> = callbackFlow {
+        val listener = db.collection("attendance").addSnapshotListener { value, error ->
+            if (error != null) close(error)
+            else trySend(value?.documents.orEmpty()
+                .mapNotNull { it.toObject(Attendance::class.java)?.copy(id = it.id) }
+                .sortedByDescending { it.timestamp.toDate().time })
+        }
+        awaitClose { listener.remove() }
+    }
     fun observePayroll(): Flow<List<Payroll>> = callbackFlow {
         val listener = db.collection("payroll").orderBy("month", Query.Direction.DESCENDING).addSnapshotListener { value, error ->
             if (error != null) close(error)

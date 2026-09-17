@@ -65,7 +65,6 @@ private fun MoneyField(label: String, value: String, changed: (String) -> Unit) 
 }
 
 @Composable
-@Composable
 internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
     var month by remember { mutableStateOf(YearMonth.now().toString()) }
     var selected by remember { mutableStateOf<Employee?>(null) }
