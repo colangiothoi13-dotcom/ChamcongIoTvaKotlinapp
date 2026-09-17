@@ -1,6 +1,5 @@
 package vn.chamcong.iot.model
 
-import com.google.firebase.Timestamp
 import java.time.Instant
 import java.time.LocalDate
 
@@ -11,13 +10,13 @@ data class AttendanceAdjustment(
     val employeeId: String = "",
     val employeeName: String = "",
     val scheduleDate: String = "",
-    val checkInAt: Timestamp? = null,
-    val checkOutAt: Timestamp? = null,
+    val checkInAt: Instant? = null,
+    val checkOutAt: Instant? = null,
     val workedHoursOverride: Double? = null,
     val reason: String = "",
     val actorId: String = "",
     val actorName: String = "",
-    val createdAt: Timestamp = Timestamp.now()
+    val createdAt: Instant = Instant.now()
 )
 
 data class AttendancePair(

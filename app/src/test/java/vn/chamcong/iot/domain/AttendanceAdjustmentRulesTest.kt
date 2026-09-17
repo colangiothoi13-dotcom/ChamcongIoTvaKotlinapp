@@ -1,10 +1,8 @@
 package vn.chamcong.iot.domain
 
-import com.google.firebase.Timestamp
 import org.junit.Test
 import vn.chamcong.iot.model.AttendanceAdjustment
 import java.time.Instant
-import java.util.Date
 
 class AttendanceAdjustmentRulesTest {
     @Test(expected = IllegalArgumentException::class)
@@ -39,8 +37,8 @@ class AttendanceAdjustmentRulesTest {
 
     private fun validAdjustment(
         scheduleDate: String = "2026-09-17",
-        checkInAt: Timestamp? = null,
-        checkOutAt: Timestamp? = null,
+        checkInAt: Instant? = null,
+        checkOutAt: Instant? = null,
         workedHoursOverride: Double? = null,
         reason: String = "Quên chấm công"
     ) = AttendanceAdjustment(
@@ -57,5 +55,5 @@ class AttendanceAdjustmentRulesTest {
         createdAt = timestamp("2026-09-17T10:00:00Z")
     )
 
-    private fun timestamp(value: String) = Timestamp(Date.from(Instant.parse(value)))
+    private fun timestamp(value: String) = Instant.parse(value)
 }

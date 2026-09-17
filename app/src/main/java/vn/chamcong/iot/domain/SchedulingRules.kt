@@ -54,7 +54,7 @@ fun validateAttendanceAdjustment(adjustment: AttendanceAdjustment) {
         adjustment.checkInAt != null || adjustment.checkOutAt != null || adjustment.workedHoursOverride != null
     ) { "Điều chỉnh phải có ít nhất một giá trị" }
     if (adjustment.checkInAt != null && adjustment.checkOutAt != null) {
-        require(adjustment.checkOutAt.toDate().after(adjustment.checkInAt.toDate())) {
+        require(adjustment.checkOutAt.isAfter(adjustment.checkInAt)) {
             "Giờ ra phải sau giờ vào"
         }
     }
