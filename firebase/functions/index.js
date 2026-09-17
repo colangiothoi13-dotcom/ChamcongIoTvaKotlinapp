@@ -1,12 +1,31 @@
 const { onRequest } = require("firebase-functions/v2/https");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
+const { TIME_ZONE, localDateForMs, pickSchedule, resolveScan } = require("./attendanceResolver");
 
 admin.initializeApp();
 const db = admin.firestore();
 const deviceApiKey = defineSecret("DEVICE_API_KEY");
+
+function previousLocalDate(date) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
+}
+
+function timestampToMs(timestamp) {
+  if (timestamp && typeof timestamp.toMillis === "function") return timestamp.toMillis();
+  if (timestamp instanceof Date) return timestamp.getTime();
+  const parsed = Date.parse(timestamp);
+  if (!Number.isNaN(parsed)) return parsed;
+  throw new Error("INVALID_TIMESTAMP");
+}
+
+function timestampFromRequest(timestamp, fallback) {
+  if (!timestamp) return fallback;
+  return admin.firestore.Timestamp.fromMillis(timestampToMs(timestamp));
+}
 
 function safeEqual(a, b) {
   const left = Buffer.from(a || "");
@@ -27,18 +46,17 @@ exports.recordAttendance = onRequest({ region: "asia-southeast1", secrets: [devi
       const previous = await transaction.get(eventRef);
       if (previous.exists) return { duplicate: true, ...previous.data() };
 
-      const matches = await db.collection("employees").where("fingerprintTemplateId", "==", templateId).where("active", "==", true).limit(1).get();
+      const matches = await transaction.get(db.collection("employees").where("fingerprintTemplateId", "==", templateId).where("active", "==", true).limit(1));
       if (matches.empty) throw new Error("FINGERPRINT_NOT_REGISTERED");
       const employee = matches.docs[0];
       const now = admin.firestore.Timestamp.now();
-      const localHour = Number(new Intl.DateTimeFormat("en", { hour: "2-digit", hour12: false, timeZone: "Asia/Ho_Chi_Minh" }).format(now.toDate()));
       const data = {
         employeeId: employee.id,
         employeeName: employee.get("fullName"),
         deviceId, templateId, confidence: Number(confidence || 0),
-        type: localHour < 12 ? "CHECK_IN" : "CHECK_OUT",
-        status: localHour > 8 && localHour < 12 ? "LATE" : "NORMAL",
-        timestamp: now, verified: true
+        type: "SCAN", resolutionStatus: "PENDING", status: "PENDING",
+        timestamp: timestampFromRequest(req.body.timestamp, now),
+        receivedAt: admin.firestore.FieldValue.serverTimestamp(), verified: true
       };
       transaction.create(eventRef, data);
       return data;
@@ -48,6 +66,72 @@ exports.recordAttendance = onRequest({ region: "asia-southeast1", secrets: [devi
     const status = error.message === "FINGERPRINT_NOT_REGISTERED" ? 404 : 500;
     return res.status(status).json({ ok: false, message: error.message });
   }
+});
+
+exports.resolveAttendance = onDocumentCreated({ document: "attendance/{eventId}", region: "asia-southeast1" }, async event => {
+  const eventRef = event.data.ref;
+  const rawEvent = event.data.data();
+  if (rawEvent.resolutionStatus !== "PENDING" || rawEvent.type !== "SCAN") return null;
+
+  return db.runTransaction(async transaction => {
+    const currentEvent = await transaction.get(eventRef);
+    if (!currentEvent.exists) return null;
+    const scan = currentEvent.data();
+    if (scan.resolutionStatus !== "PENDING" || scan.type !== "SCAN") return null;
+
+    const employeeMatches = await transaction.get(db.collection("employees")
+      .where("fingerprintTemplateId", "==", scan.templateId).where("active", "==", true).limit(1));
+    if (employeeMatches.empty) {
+      transaction.update(eventRef, {
+        type: "UNSCHEDULED", resolutionStatus: "UNSCHEDULED", status: "ABNORMAL",
+        scheduleDate: null, shiftId: null,
+        receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      return null;
+    }
+
+    const employee = employeeMatches.docs[0];
+    const scanMs = timestampToMs(scan.timestamp);
+    const localDate = localDateForMs(scanMs, TIME_ZONE);
+    const scheduleSnapshot = await transaction.get(db.collection("workSchedules")
+      .where("employeeId", "==", employee.id).where("date", "in", [previousLocalDate(localDate), localDate]));
+    const scheduleRows = scheduleSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const shiftSnapshots = await Promise.all(scheduleRows.map(row => transaction.get(db.collection("shifts").doc(row.shiftId))));
+    const schedules = scheduleRows.map((row, index) => {
+      const shift = shiftSnapshots[index];
+      return shift.exists ? { scheduleDate: row.date, shiftId: row.shiftId, shift: { id: row.shiftId, ...shift.data() } } : null;
+    }).filter(Boolean);
+
+    const selected = pickSchedule(scanMs, schedules);
+    const sessionRef = selected && db.collection("attendanceSessions").doc(`${employee.id}_${selected.scheduleDate}`);
+    const sessionSnapshot = sessionRef ? await transaction.get(sessionRef) : null;
+    const session = sessionSnapshot && sessionSnapshot.exists ? sessionSnapshot.data() : null;
+    const result = resolveScan({
+      scan: { timestampMs: scanMs, eventId: event.params.eventId }, schedules, session,
+      latestAccepted: session && session.lastAcceptedAt ? { timestampMs: timestampToMs(session.lastAcceptedAt), eventId: session.lastAcceptedEventId } : null
+    });
+
+    transaction.update(eventRef, {
+      employeeId: employee.id, employeeName: employee.get("fullName"),
+      type: result.type, resolutionStatus: result.resolutionStatus, status: result.status,
+      scheduleDate: result.scheduleDate, shiftId: result.shiftId,
+      receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+      resolvedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    if (result.resolutionStatus === "ACCEPTED") {
+      transaction.set(sessionRef, {
+        employeeId: employee.id, scheduleDate: result.scheduleDate, shiftId: result.shiftId,
+        lastAcceptedEventId: result.nextSession.lastAcceptedEventId,
+        lastAcceptedType: result.nextSession.lastAcceptedType,
+        lastAcceptedAt: admin.firestore.Timestamp.fromMillis(result.nextSession.lastAcceptedAt),
+        openCheckInAt: result.nextSession.openCheckInAt == null ? null : admin.firestore.Timestamp.fromMillis(result.nextSession.openCheckInAt),
+        closed: result.nextSession.closed,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+    return null;
+  });
 });
 
 exports.getEnrollmentCommand = onRequest({ region: "asia-southeast1", secrets: [deviceApiKey] }, async (req, res) => {
@@ -88,11 +172,12 @@ exports.completeEnrollment = onRequest({ region: "asia-southeast1", secrets: [de
   }
 });
 
-exports.notifyAttendance = onDocumentCreated({ document: "attendance/{eventId}", region: "asia-southeast1" }, async event => {
+exports.notifyAttendance = onDocumentUpdated({ document: "attendance/{eventId}", region: "asia-southeast1" }, async event => {
   const data = event.data.data();
+  if (data.resolutionStatus !== "ACCEPTED") return null;
   return admin.messaging().send({
     topic: "attendance-admins",
     notification: { title: "Chấm công thành công", body: `${data.employeeName} • ${data.type}` },
-    data: { eventId: event.params.eventId }
+    data: { eventId: event.params.eventId, scheduleDate: data.scheduleDate || "", type: data.type }
   });
 });

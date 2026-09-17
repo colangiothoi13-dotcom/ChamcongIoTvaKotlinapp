@@ -3,6 +3,9 @@
   "private": true,
   "engines": { "node": "22" },
   "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "firebase-admin": "^13.0.1",
     "firebase-functions": "^6.1.1"
