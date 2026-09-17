@@ -13,6 +13,9 @@ test("does not notify rejected, pending, repeated accepted, or malformed updates
   assert.equal(shouldNotifyAttendance({ resolutionStatus: "PENDING" }, { resolutionStatus: "DUPLICATE" }), false);
   assert.equal(shouldNotifyAttendance({ resolutionStatus: "PENDING" }, { resolutionStatus: "PENDING" }), false);
   assert.equal(shouldNotifyAttendance({ resolutionStatus: "ACCEPTED" }, { resolutionStatus: "ACCEPTED" }), false);
+  assert.equal(shouldNotifyAttendance(undefined, { resolutionStatus: "ACCEPTED" }), false);
+  assert.equal(shouldNotifyAttendance({}, { resolutionStatus: "ACCEPTED" }), false);
+  assert.equal(shouldNotifyAttendance({ resolutionStatus: "PENDING" }, {}), false);
   assert.doesNotThrow(() => shouldNotifyAttendance(undefined, undefined));
   assert.equal(shouldNotifyAttendance(undefined, undefined), false);
 });
