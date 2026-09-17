@@ -4,7 +4,7 @@ MVP quản trị nhân sự và chấm công bằng vân tay gồm:
 
 - Android: Kotlin, Jetpack Compose, Firebase Auth, Firestore, FCM và WorkManager.
 - Thiết bị: ESP8266 + cảm biến AS608/R307, LED xanh/đỏ và buzzer.
-- Backend Spark miễn phí: Firebase Anonymous Auth + Firestore REST dành cho ESP8266.
+- Backend: Firebase Anonymous Auth + Firestore REST dành cho ESP8266; Cloud Functions phân giải chấm công theo lịch ca.
 
 ## Kiến trúc
 
@@ -13,8 +13,9 @@ Ngón tay -> AS608/R307 (đối chiếu cục bộ)
                     |
                     v
 ESP8266 --Anonymous Auth/HTTPS--> Firestore <--realtime--> Android
-   |
- LED/còi
+   |                                ^
+ LED/còi                            | phân giải cùng document
+                              Cloud Functions
 ```
 
 Không lưu ảnh hay đặc trưng vân tay trên Firestore. Module cảm biến giữ template; Firestore chỉ giữ số `fingerprintTemplateId` gắn với nhân viên. Bản production cần xin đồng ý xử lý dữ liệu sinh trắc học, phân quyền, nhật ký truy cập và chính sách xóa dữ liệu.
@@ -75,11 +76,28 @@ Hệ thống hoạt động theo chu trình sau:
 - Sensor đọc mẫu vân tay và đối chiếu với template đã lưu trên AS608.
 - Nếu khớp:
   - Thiết bị kiểm tra mapping trên Firestore xem nhân viên có đang active và có quyền chấm công hay không.
-  - Nếu hợp lệ, thiết bị ghi sự kiện chấm công với thời gian hiện tại.
+  - Nếu hợp lệ, thiết bị ghi lượt thô `SCAN/PENDING` với thời gian NTP UTC; Cloud Function phân giải theo lịch ca.
   - App Android theo dõi realtime collection `attendance` để cập nhật trạng thái chấm công ngay trên dashboard và màn hình chấm công.
 - Nếu không khớp hoặc mapping đã bị vô hiệu hóa:
   - Hệ thống từ chối xác thực.
   - Không ghi sự kiện attendance, tránh vi phạm/ghi nhầm người khác.
+
+#### Phân giải theo lịch ca và điều chỉnh chấm công
+
+`resolveAttendance` chạy khi tạo `attendance/{eventId}`, đọc lại lượt `SCAN` có `resolutionStatus=PENDING` trong transaction, xác minh mapping vân tay đang bật và nhân viên còn active. Hàm tra `workSchedules` của ngày quét và ngày trước đó theo `Asia/Ho_Chi_Minh`, đọc `shifts`, rồi cập nhật chính document này. ID lượt, thiết bị và thời điểm quét được giữ nguyên; loại/trạng thái được thay bằng kết quả server, kèm `scheduleDate`, `shiftId`, `receivedAt`, `resolvedAt`. Android và thiết bị không được update/delete attendance.
+
+- `scheduleDate` là ngày bắt đầu ca (`yyyy-MM-dd`), không nhất thiết là ngày trên đồng hồ khi chấm ra. Ví dụ ca 22:00 ngày 17/09 đến 06:00 ngày 18/09: cả hai lượt mang `scheduleDate=2026-09-17`. Nếu giờ kết thúc nhỏ hơn hoặc bằng giờ bắt đầu, kết thúc thuộc ngày kế tiếp.
+- Cửa sổ nhận lượt chạy từ đầu ca trừ `allowEarlyMinutes` đến cuối ca cộng `missingCheckOutGraceMinutes`, gồm cả hai mốc. Khi nhiều cửa sổ khớp, server chọn ca có mốc đầu/cuối gần lượt quét nhất, rồi ưu tiên ca bắt đầu sớm hơn nếu bằng nhau.
+- Chưa có phiên mở: lượt gần đầu ca hơn (hoặc cách đều) là `CHECK_IN`; gần cuối ca hơn là `CHECK_OUT` để bộc lộ trường hợp thiếu chấm vào. Có check-in đang mở thì lượt hợp lệ tiếp theo đóng phiên bằng `CHECK_OUT`. `attendanceSessions/{employeeId}_{scheduleDate}` chỉ do backend truy cập; transaction đọc lại trạng thái để tránh phân giải lại một event.
+- Trong ca đã chọn, lượt cách lượt được chấp nhận gần nhất không quá **3 phút (180.000 ms, kể cả đúng 3 phút)** là `DUPLICATE`. Lượt cũ hơn nằm ngoài cửa sổ trùng là `OUT_OF_ORDER`; không có ca khớp hoặc phiên đã đóng là `UNSCHEDULED`. Lượt bị từ chối không thay đổi phiên được chấp nhận và có `status=ABNORMAL`. Không có quy tắc trước/sau 12 giờ để quyết định vào/ra.
+- Lượt hợp lệ có `resolutionStatus=ACCEPTED`; server hiện đặt `status=NORMAL`, còn Android tính đi trễ/về sớm theo ca và cặp hiệu lực. Trigger FCM xét update có trạng thái trước khác `ACCEPTED` và trạng thái sau là `ACCEPTED` (luồng resolver bình thường là `PENDING` → `ACCEPTED`); helper hiện kiểm tra cấu trúc/trường trạng thái, không tự xác minh lại loại lượt. Lịch sử vẫn hiển thị riêng pending, trùng, ngoài lịch và sai thứ tự; chúng không đóng góp giờ làm.
+- Khi có chấm vào nhưng chưa chấm ra, chỉ đánh dấu thiếu chấm ra khi thời điểm hiện tại **sau** cuối ca cộng `missingCheckOutGraceMinutes`. Mặc định là **60 phút**, kể cả ca cũ chưa có field; giá trị `0` được giữ nguyên. Ca 22:00–06:00 với mặc định này chỉ quá hạn sau 07:00 hôm sau. Không tự tạo checkout hoặc tự cộng giờ đến hết ca. Khi không có thông tin ca, fallback thiếu checkout là sau ngày lịch tương ứng.
+
+Admin vào **Chấm công → Điều chỉnh** trên dòng lịch sử để xem nhân viên, ngày ca, giờ vào/ra và giờ công hiệu lực. Nhập giờ theo `yyyy-MM-dd HH:mm` tại `Asia/Ho_Chi_Minh` (ca qua đêm phải nhập ngày hôm sau cho giờ ra), hoặc nhập giờ công từ 0 đến 24, và **bắt buộc nhập lý do không rỗng**. Ít nhất một giá trị phải thay đổi; nếu có cả hai mốc thì giờ ra phải sau giờ vào. Ô bỏ trống giữ giá trị hiệu lực hiện tại, không xóa giá trị; giờ override cũ được giữ khi để trống ô giờ công.
+
+Mỗi lần lưu tạo mới `attendanceAdjustments/{id}` theo nhân viên/ngày ca, chứa mốc sửa và/hoặc `workedHoursOverride`, lý do, người thực hiện lấy từ phiên đăng nhập và timestamp server. Cùng một batch tạo `audit_logs/{id}` với `action=ATTENDANCE_ADJUST`, `targetType=attendanceAdjustment`, cùng ID, actor và reason. Chi tiết audit ghi giá trị adjustment trước/sau (không phải snapshot toàn bộ raw scans). Rules yêu cầu cặp adjustment/audit này tồn tại cùng lần ghi và cấm update/delete cả hai: sửa tiếp phải thêm bản ghi mới, không ghi đè lịch sử. Chỉ Admin được tạo adjustment; nhân viên chỉ đọc adjustment của mình.
+
+Android dùng adjustment hợp lệ mới nhất theo `createdAt` của nhân viên/ngày ca cùng các lượt `verified=true`, `ACCEPTED`, loại vào/ra để tính cặp hiệu lực cho hiện diện, báo cáo, màn hình nhân viên và giờ công khi lập phiếu lương. `workedHoursOverride` mới ưu tiên hơn override cũ trên lịch; phiếu lương đã lưu không tự được viết lại. Lượt legacy chưa có `scheduleDate` được gán một lần theo các lịch đã tải, ưu tiên ngày tường minh; không có ca thì dùng ngày địa phương. Toàn bộ phép tính dựa trên dữ liệu đã tải, không tự backfill lịch sử hoặc sửa raw scans.
 
 ### 6. Luồng xử lý thiết bị ESP8266
 
@@ -182,17 +200,25 @@ Dự án này không chỉ là một ứng dụng chấm công đơn thuần, m�
 
 Repository hiện có script `gradlew`/`gradlew.bat` nhưng chưa kèm `gradle-wrapper.jar`. Android Studio có thể đồng bộ bằng Gradle đã cấu hình; nếu cần build từ terminal, tạo wrapper bằng `gradle wrapper --gradle-version 8.9`.
 
-## Deploy Firebase trên gói Spark
+## Backend Firebase và kiểm chứng cục bộ
 
-Yêu cầu Node.js 22 và Firebase CLI:
+`firebase/functions/package.json` khai báo runtime Node.js 22. Luồng chấm công hiện yêu cầu Cloud Functions hoạt động; chỉ cấu hình Auth/Firestore như bản Spark prototype cũ sẽ để lượt mới ở `SCAN/PENDING`. Firmware gửi Firestore REST trực tiếp; các endpoint HTTPS cũ trong `index.js` vẫn khai báo secret `DEVICE_API_KEY`. Khi chuẩn bị triển khai, người vận hành cần kiểm tra cấu hình Functions, secret cho endpoint dùng đến và yêu cầu dịch vụ của project đích.
 
-```bash
-firebase login
-firebase use YOUR_PROJECT_ID
-firebase deploy --only firestore --project chamcongiot-56ae5
+Chạy kiểm chứng trước khi triển khai (PowerShell, từ thư mục dự án):
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:assembleDebug
+Push-Location firebase/functions
+npm test
+Pop-Location
+rg -n "localHour|tm_hour.*12|< 12|CHECK_IN.*12|CHECK_OUT.*12" firmware firebase/functions app/src/main/java
+git diff --check
 ```
 
-Không cần Cloud Functions, Secret Manager, Blaze hay custom claim. Trong bản prototype, tài khoản Email/Password là quản trị và tài khoản Anonymous là thiết bị. Trước khi dùng thực tế nên chuyển sang backend xác thực thiết bị riêng.
+APK debug: `app/build/outputs/apk/debug/app-debug.apk`. `npm test` kiểm thử logic resolver/notification, không thay thế kiểm thử Firestore Rules trên emulator hoặc thiết bị thật. Cần xem từng kết quả `rg`: `< 128` và `<< 12` trong bộ chuyển UTF-8 của firmware không phải quyết định chấm công.
+
+Task 8 chỉ cập nhật tài liệu và kiểm chứng cục bộ; không deploy, flash thiết bị hoặc thay đổi dữ liệu production. Việc triển khai Functions, Rules/indexes trong `firebase/`, cấu hình project và nạp firmware được để lại cho người vận hành sau khi kiểm chứng môi trường phù hợp. Bằng chứng và giới hạn của lần chạy này được ghi tại `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-8-report.md`.
 
 ## Nạp firmware
 
@@ -229,6 +255,8 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi
 
 - `employees/{id}`: mã, họ tên, phòng ban, email, `fingerprintTemplateId`, trạng thái.
 - `attendance/{eventId}`: giữ nguyên định danh sự kiện, thiết bị, thời điểm quét NTP UTC và provenance raw scan; Cloud Function cập nhật in place kết quả phân giải theo ca (`CHECK_IN`/`CHECK_OUT`, `scheduleDate`, `resolutionStatus`) trên cùng document.
+- `attendanceSessions/{employeeId}_{scheduleDate}`: trạng thái phiên phân giải của backend, cấm client đọc/ghi.
+- `attendanceAdjustments/{id}`: điều chỉnh append-only theo nhân viên/ngày ca, lý do bắt buộc và audit `ATTENDANCE_ADJUST` cùng ID. Index truy vấn: `employeeId ASC`, `scheduleDate ASC`, `createdAt DESC`.
 - `payroll/{id}`: lương cơ bản đã tính theo giờ, đơn giá/giờ, số giờ làm, thưởng, khấu trừ theo kỳ.
 - `performanceReviews/{id}`: kỳ đánh giá, điểm, nhận xét.
 - `notifications/{id}`: thông báo nội bộ.
@@ -294,6 +322,54 @@ Mọi lần thay đổi code phải cập nhật mục này, ghi rõ file đã s
 - Sửa `firmware/esp8266_fingerprint/esp8266_fingerprint.ino`: gửi snapshot `devices/GATE-01` lúc khởi động và heartbeat mỗi 30 giây; in version `snapshot-2-offline` và lý do bỏ qua nếu chưa đủ Wi-Fi/NTP/Auth/HTTPS.
 - Sửa `firebase/firestore.rules`: cho phép thiết bị anonymous ghi snapshot đúng document của mình với các field giới hạn.
 - Sửa `README.md`: ghi kiến trúc MVVM, đường dẫn spec và quy tắc nhật ký file.
+
+### Bổ sung nhật ký file: phân giải theo ca và điều chỉnh (17/09/2026)
+
+Đối chiếu thay đổi của Tasks 1–8 từ base `2c5c2f6`; mỗi file source/test/rules/firmware/functions thay đổi được liệt kê dưới đây. Không tạo README riêng cho Functions.
+
+| File | Thay đổi |
+| --- | --- |
+| `app/src/main/java/vn/chamcong/iot/model/AttendanceResolutionModels.kt` | Tạo enum phân giải, cặp chấm công và adjustment với `Instant`, không phụ thuộc Firebase. |
+| `app/src/main/java/vn/chamcong/iot/model/Models.kt` | Thêm `SCAN`, loại bất thường và metadata phân giải attendance. |
+| `app/src/main/java/vn/chamcong/iot/model/SchedulingModels.kt` | Thêm thời gian chờ thiếu checkout mặc định 60 phút cho ca. |
+| `app/src/main/java/vn/chamcong/iot/domain/AttendanceResolutionRules.kt` | Tạo cửa sổ ca, ghép cặp accepted/verified, chọn adjustment mới nhất, hạn checkout và gán legacy scan một lần. |
+| `app/src/main/java/vn/chamcong/iot/domain/SchedulingRules.kt` | Kiểm tra adjustment/ca qua đêm; tính giờ và tổng tuần theo cặp hiệu lực/ngày ca. |
+| `app/src/main/java/vn/chamcong/iot/domain/PresenceRules.kt` | Hiện diện theo cặp điều chỉnh và hạn cuối ca, giữ trạng thái bất thường. |
+| `app/src/main/java/vn/chamcong/iot/domain/ReportRules.kt` | Báo cáo dùng ngày ca, cặp hiệu lực và adjustment. |
+| `app/src/main/java/vn/chamcong/iot/domain/EmployeeRules.kt` | Tổng ngày nhân viên dùng ca và adjustment, bỏ lượt không được xác minh/chấp nhận. |
+| `app/src/main/java/vn/chamcong/iot/model/PersonnelRules.kt` | Tính giờ lương từ cặp phân giải và adjustment, giữ fallback legacy. |
+| `app/src/main/java/vn/chamcong/iot/data/FirebaseRepository.kt` | Parse metadata/default ca; listener adjustment và batch adjustment/audit có actor, lý do, before/after. |
+| `app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt` | State/listener adjustment theo vai trò, intent lưu và truyền dữ liệu tới các phép tính. |
+| `app/src/main/java/vn/chamcong/iot/ui/ChamCongApp.kt` | Hiển thị nhãn phân giải, giờ Việt Nam và callback điều chỉnh Admin trên lịch sử. |
+| `app/src/main/java/vn/chamcong/iot/ui/PayrollScreen.kt` | Truyền lịch, ca và adjustment khi tính giờ lập phiếu. |
+| `app/src/main/java/vn/chamcong/iot/ui/employee/EmployeeAttendanceScreen.kt` | Tổng chấm công nhân viên dùng lịch, ca và adjustment. |
+| `app/src/main/java/vn/chamcong/iot/ui/attendance/AttendanceScreen.kt` | Nối thao tác/dialog điều chỉnh và tạo giá trị hiệu lực từ state đã tải. |
+| `app/src/main/java/vn/chamcong/iot/ui/attendance/AttendanceAdjustmentDialog.kt` | Tạo dialog lý do/giờ, giữ giá trị hiện tại và xử lý saving/error. |
+| `app/src/main/java/vn/chamcong/iot/ui/attendance/AttendanceAdjustmentInput.kt` | Tạo parser ngày giờ Việt Nam, validate mốc giờ, giờ công và lý do. |
+| `app/src/main/java/vn/chamcong/iot/ui/attendance/AttendanceRowPresentation.kt` | Tạo nhãn phân giải gồm type thực tế từ server và quy tắc ngày mục tiêu điều chỉnh. |
+| `app/src/test/java/vn/chamcong/iot/domain/AttendanceAdjustmentRulesTest.kt` | Tạo test validation, chọn adjustment mới nhất, giữ raw scan và ảnh hưởng tới hiện diện/tổng giờ. |
+| `app/src/test/java/vn/chamcong/iot/domain/AttendanceResolutionRulesTest.kt` | Tạo test ghép cặp, ca qua đêm, grace và ưu tiên adjustment. |
+| `app/src/test/java/vn/chamcong/iot/domain/SchedulingRulesTest.kt` | Bổ sung ca qua đêm, mốc ngày ca và tính giờ hiệu lực. |
+| `app/src/test/java/vn/chamcong/iot/domain/PresenceRulesTest.kt` | Bổ sung hạn checkout, adjustment và loại trừ lượt không hợp lệ. |
+| `app/src/test/java/vn/chamcong/iot/domain/ReportRulesTest.kt` | Bổ sung báo cáo theo ca/adjustment và tránh tính trùng legacy scan. |
+| `app/src/test/java/vn/chamcong/iot/domain/EmployeeRulesTest.kt` | Bổ sung tổng ngày theo cặp hiệu lực và lượt được xác minh. |
+| `app/src/test/java/vn/chamcong/iot/model/PayrollRulesTest.kt` | Bổ sung giờ lương theo ca, adjustment, legacy và loại trừ unverified. |
+| `app/src/test/java/vn/chamcong/iot/ui/attendance/AttendanceAdjustmentInputTest.kt` | Tạo test parser, ca qua đêm, giờ 0 và validation đầu vào. |
+| `app/src/test/java/vn/chamcong/iot/ui/attendance/AttendanceRowPresentationTest.kt` | Tạo test nhãn gồm server-shaped rejection, ngày ca và giá trị hiệu lực khi mở dialog. |
+| `firebase/firestore.rules` | Chỉ cho device tạo raw scan hợp lệ; cấm client sửa attendance/session; tạo adjustment Admin kèm audit và cấm sửa/xóa lịch sử. |
+| `firebase/firestore.indexes.json` | Thêm index adjustment theo nhân viên, ngày ca và thời gian giảm dần. |
+| `firebase/functions/attendanceResolver.js` | Tạo resolver thuần theo ca, múi giờ, cửa sổ trùng, phiên và mapping active. |
+| `firebase/functions/attendanceNotification.js` | Tạo điều kiện thông báo khi chuyển từ trạng thái khác sang accepted, có kiểm tra cấu trúc/trường trạng thái. |
+| `firebase/functions/index.js` | Endpoint tạo raw scan; trigger phân giải transaction in place và trigger thông báo khi update. |
+| `firebase/functions/package.json` | Thêm script `npm test` chạy `node --test`. |
+| `firebase/functions/test/attendanceResolver.test.js` | Tạo test cửa sổ ca/grace, mapping, trùng, thứ tự và đóng phiên. |
+| `firebase/functions/test/attendanceNotification.test.js` | Tạo test chuyển trạng thái được thông báo và từ chối dữ liệu không hợp lệ. |
+| `firmware/esp8266_fingerprint/esp8266_fingerprint.ino` | Gửi `SCAN/PENDING`, bỏ phân loại theo giờ, giữ event ID/outbox/NTP UTC và hiển thị xác nhận gửi lượt. |
+| `README.md` | Sửa kiến trúc/backend, tài liệu workflow theo ca, audit, kiểm chứng và nhật ký đầy đủ. |
+| `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/run-task6-tests.ps1` | Runner JUnit trực tiếp dùng classpath cache trên máy, hỗ trợ `-All` cho kiểm chứng fallback. |
+| `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-6-report.md` | Bằng chứng triển khai và sửa sau review Task 6. |
+| `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-7-report.md` | Bằng chứng UI điều chỉnh và sửa nhãn sự kiện server Task 7. |
+| `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-8-report.md` | Bằng chứng kiểm chứng cuối, commit tài liệu, APK và các bước triển khai cố ý bỏ qua. |
 
 ## Quản lý nhân viên, vân tay và lương
 
