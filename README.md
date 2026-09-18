@@ -6,6 +6,191 @@ MVP quản trị nhân sự và chấm công bằng vân tay gồm:
 - Thiết bị: ESP8266 + cảm biến AS608/R307, LED xanh/đỏ và buzzer.
 - Backend: Firebase Anonymous Auth + Firestore REST dành cho ESP8266; Cloud Functions phân giải chấm công theo lịch ca.
 
+## Tổng quan hệ thống
+
+Đây là hệ thống quản lý nhân sự và chấm công bằng vân tay. Admin sử dụng ứng dụng
+Android để quản lý nhân viên, ca làm, lịch tuần, đơn từ, lương, KPI, báo cáo và
+nhật ký. Nhân viên dùng cùng ứng dụng để xem lịch, xem công, gửi đơn và đăng ký
+tăng ca. Thiết bị ESP8266 đặt tại nơi làm việc nhận dạng vân tay tại chỗ rồi gửi
+lượt quét lên Firebase để hệ thống xử lý.
+
+### Các thành phần chính
+
+| Thành phần | Vai trò |
+| --- | --- |
+| Ứng dụng Android | Giao diện Admin/Nhân viên, nhập dữ liệu, hiển thị realtime và gọi các nghiệp vụ. |
+| ESP8266 + AS608/R307 | Đọc và đối chiếu vân tay cục bộ, điều khiển LED/còi, gửi lượt quét và trạng thái thiết bị. |
+| Firebase Authentication | Đăng nhập tài khoản Admin/Nhân viên; thiết bị dùng Anonymous Auth. |
+| Firestore | Lưu nhân viên, ca, lịch, lượt chấm, đơn từ, lương, thiết bị và audit log. |
+| Cloud Functions | Phân giải lượt quét theo lịch ca, xử lý ca qua đêm, tăng ca và thông báo. |
+| Firestore Rules | Kiểm soát quyền đọc/ghi theo vai trò, bảo vệ dữ liệu chấm công và audit. |
+
+Hệ thống không lưu ảnh hoặc đặc trưng vân tay trên Firestore. Mẫu vân tay được
+giữ trong bộ nhớ cảm biến; Firebase chỉ lưu mã mẫu và thông tin liên kết cần thiết.
+
+### Luồng hoạt động tổng quát
+
+```text
+Admin tạo nhân viên
+        ↓
+Đăng ký mẫu vân tay trên ESP8266
+        ↓
+Admin tạo ca và phân lịch tuần trước 17:00 Chủ nhật
+        ↓
+Nhân viên quét vân tay vào/ra
+        ↓
+ESP8266 gửi SCAN/PENDING lên Firestore
+        ↓
+Cloud Functions đối chiếu lịch, ca và lượt gần nhất
+        ↓
+CHECK_IN / CHECK_OUT / quét trùng / ngoài lịch / sai thứ tự
+        ↓
+Android cập nhật realtime hiện diện, giờ công, báo cáo và lương
+```
+
+### Luồng nghiệp vụ theo thời gian
+
+1. **Chuẩn bị:** Admin thêm nhân viên, thiết lập lương, đăng ký vân tay và tạo ca.
+2. **Phân lịch:** Admin vào `Phân ca → Lịch`, tích chọn nhân viên/ngày, chọn ca sáng
+   hoặc ca chiều và lưu trước 17:00 Chủ nhật.
+3. **Chấm công:** Nhân viên quét vân tay. Hệ thống xác định vào/ra dựa trên cửa sổ
+   ca và lượt hợp lệ gần nhất, không còn dựa vào mốc 12 giờ.
+4. **Tăng ca:** Nhân viên gửi đơn cho khung cố định 17:30–20:30. Admin duyệt hoặc
+   từ chối; đơn chờ duyệt vẫn được giữ lượt quét nhưng chưa tính tiền tăng ca.
+5. **Theo dõi:** Admin xem Tổng quan, Chấm công, Có mặt, Thiết bị và xử lý cảnh báo.
+6. **Cuối kỳ:** Hệ thống tính giờ, tiền tăng ca, thưởng KPI và phạt đi muộn; Admin
+   kiểm tra rồi lưu phiếu lương, xuất báo cáo và tra cứu Nhật ký.
+
+### Vai trò người dùng
+
+| Vai trò | Có thể thực hiện |
+| --- | --- |
+| Admin | Quản lý nhân viên/thiết bị/ca/lịch, duyệt đơn, điều chỉnh công có lý do, lập lương, xem báo cáo và audit. |
+| Nhân viên | Xem lịch và công của mình, gửi đơn thường, gửi đăng ký tăng ca, đổi mật khẩu và đăng xuất. |
+| Thiết bị | Gửi snapshot/tín hiệu, nhận lệnh vân tay và tạo lượt quét; không được tự sửa lịch sử chấm công. |
+
+## Chức năng các nút bấm
+
+Tên dưới đây là tên hiển thị trong ứng dụng. Các thẻ thống kê, dòng trong `Tác vụ`
+và ô giao giữa nhân viên/ngày trên lịch cũng là vùng có thể bấm.
+
+### Điều hướng chung
+
+| Nút | Chức năng |
+| --- | --- |
+| `Đăng nhập` | Xác thực Email/Password và mở giao diện theo vai trò. |
+| `Quên mật khẩu` | Gửi email đặt lại mật khẩu. |
+| `Đổi mật khẩu` → `Lưu` | Đổi mật khẩu hiện tại nếu đủ 6 ký tự và nhập lại trùng nhau. |
+| `Đăng xuất` | Kết thúc phiên và quay về màn hình đăng nhập. |
+| `Tổng quan` | Xem thống kê tuần, thiết bị, cảnh báo, thông báo và lượt chấm mới. |
+| `Tác vụ` | Mở danh mục nhanh: Chấm công, Thiết bị, Có mặt, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Nhật ký, Cài đặt. |
+| `Đơn từ` | Admin duyệt đơn; Nhân viên tạo và xem đơn của mình. |
+| `Phân ca` | Mở Quản lý ca làm hoặc Lịch phân ca. |
+| `Nhân viên` | Thêm, tìm kiếm, lọc, thiết lập lương và quản lý vân tay. |
+
+### Nút nghiệp vụ Admin
+
+| Màn hình | Nút/vùng thao tác | Chức năng |
+| --- | --- | --- |
+| Tổng quan | `‹`, `›`, `Tuần này` | Chuyển tuần trước, tuần sau hoặc quay về tuần hiện tại. |
+| Tổng quan | `Đã đọc` | Đánh dấu thông báo đã xem. |
+| Tổng quan | `Xem tất cả` | Mở danh sách lịch sử chấm công. |
+| Tác vụ | Dòng/card chức năng | Mở đúng màn hình nghiệp vụ được chọn. |
+| Nhân viên | `Thêm` / `+` | Mở form thêm nhân viên. |
+| Nhân viên | Ô tìm kiếm, chip phòng ban | Lọc theo tên/mã hoặc phòng ban. |
+| Nhân viên | `Hiện nhân viên đã nghỉ` | Hiện/ẩn hồ sơ có `active = false`. |
+| Nhân viên | `Thiết lập lương` | Nhập đơn giá lương cơ bản theo giờ. |
+| Nhân viên | `Đăng ký vân tay` → `Gửi lệnh` | Gửi lệnh đến thiết bị để quét cùng một ngón tay hai lần. |
+| Nhân viên | `Xóa vân tay` → `Xác nhận xóa` | Yêu cầu thiết bị xóa mẫu, giữ lại hồ sơ và lịch sử. |
+| Nhân viên | `Xóa nhân viên` → `Xác nhận xóa` | Chuyển nhân viên sang trạng thái đã nghỉ, không xóa lịch sử. |
+| Chấm công | Chip trạng thái/loại lượt | Lọc đúng giờ, đi trễ, về sớm, vào ca hoặc ra ca. |
+| Chấm công | `Điều chỉnh` → `Lưu điều chỉnh` | Sửa giờ/công có lý do; tạo bản ghi điều chỉnh và audit mới. |
+| Đơn từ | `Duyệt` | Duyệt đơn thường hoặc đơn tăng ca. |
+| Đơn từ | `Từ chối` → nhập lý do → `Từ chối` | Từ chối đơn; lý do bắt buộc và được ghi audit. |
+| Ca làm | `Thêm ca` | Tạo ca sáng, ca chiều, ca bổ sung hoặc ca tùy chỉnh. |
+| Ca làm | `Chỉnh sửa` / `Tạo bản tùy chỉnh` | Sửa ca hiện tại hoặc tạo snapshot mới mà không ảnh hưởng lịch sử đã phân. |
+| Ca làm | `Lưu ca` / `Hủy` | Lưu cấu hình ca hoặc đóng form không lưu. |
+| Lịch | `Tuần trước`, `Tuần sau`, `Tuần này` | Chuyển tuần đang xem. |
+| Lịch | `Phân cho nhân viên` | Tích chọn nhiều nhân viên/ngày, chọn ca sáng hoặc ca chiều, rồi lưu hàng loạt. |
+| Lịch | `Phân cho phòng ban` | Gán ca cho các nhân viên thuộc phòng ban ở ngày chọn. |
+| Lịch | `Sao chép tuần trước` | Sao chép lịch tuần trước sang tuần hiện tại. |
+| Lịch | `Lưu phân ca` | Ghi lịch theo transaction; mỗi nhân viên/ngày chỉ có một lịch. |
+| Thiết bị | `Sửa cấu hình` → `Lưu` | Sửa tên và vị trí; tín hiệu/phiên bản phần mềm do thiết bị cập nhật. |
+| Lương | `Lập phiếu lương / thiết lập lương` | Chọn nhân viên để đặt lương hoặc lập phiếu theo tháng. |
+| Lương | `Đặt lương` | Lưu đơn giá lương cơ bản theo giờ. |
+| Lương | `Lập phiếu` → `Lưu phiếu` | Kiểm tra giờ, thưởng, khấu trừ rồi lưu snapshot lương. |
+| Hiệu suất | Ô `Tháng hiệu suất` | Chọn tháng để xem ca tăng ca, đi muộn, Top 3 và thưởng. |
+| Báo cáo | `Tuần đang chọn`, `Tháng này` | Chọn nhanh khoảng ngày. |
+| Báo cáo | Ô ngày/mã nhân viên/phòng ban | Lọc phạm vi dữ liệu. |
+| Báo cáo | Chip loại báo cáo | Chọn Chấm công, Ngày công, Trễ/sớm, Nghỉ phép, Tăng ca hoặc Thiết bị. |
+| Báo cáo | `Xuất CSV và chia sẻ` | Tạo CSV theo bộ lọc và mở chức năng chia sẻ của Android. |
+| Nhật ký | Ô `Lọc hành động/đối tượng` | Tìm audit log; nhật ký chỉ đọc, không có nút sửa/xóa. |
+
+### Nút nghiệp vụ Nhân viên
+
+| Màn hình | Nút/vùng thao tác | Chức năng |
+| --- | --- | --- |
+| Trang chủ | Các thẻ thống kê | Xem ca hôm nay, giờ làm, số ngày công và số lần đi trễ. |
+| Chấm công của tôi | Mũi tên tháng trước/sau | Xem dữ liệu chấm công theo tháng. |
+| Chấm công của tôi | `Gửi yêu cầu điều chỉnh` | Mở khu vực Đơn từ để gửi đơn sửa công. |
+| Đơn từ | `Tạo đơn` / `Đóng form` | Mở hoặc đóng form tạo đơn. |
+| Đơn từ | Chip loại đơn | Chọn nghỉ phép, đi muộn, về sớm, sửa công, ngoài văn phòng hoặc đổi ca. |
+| Đơn từ | `Gửi đơn` | Gửi đơn thường kèm ngày và lý do. |
+| Đơn từ | `Gửi đăng ký tăng ca` | Gửi đơn tăng ca cho hôm nay/tương lai trong khung 17:30–20:30. |
+| Cá nhân | `Đổi mật khẩu` | Đổi mật khẩu tài khoản nhân viên. |
+| Cá nhân | `Đăng xuất` | Kết thúc phiên nhân viên. |
+
+Các nút lưu, duyệt, từ chối, gửi lệnh và xóa sẽ bị khóa trong lúc đang xử lý.
+Nút `Hủy`, mũi tên chuyển ngày/tuần/tháng và chip lọc chỉ thay đổi giao diện,
+không tự ghi dữ liệu nghiệp vụ.
+
+## Cấu trúc file và trách nhiệm từng phần
+
+```text
+ChamcongIoTvaKotlinapp-main/
+├─ app/src/main/java/vn/chamcong/iot/
+│  ├─ data/          Kết nối Firebase Auth/Firestore, đọc ghi và audit.
+│  ├─ domain/        Luật chấm công, phân ca, tăng ca, KPI, hiện diện, báo cáo.
+│  ├─ model/         Model dữ liệu nhân viên, ca, lịch, attendance, lương, thiết bị.
+│  ├─ ui/             Màn hình Compose, điều hướng và MainViewModel.
+│  │  ├─ admin/       Tác vụ Admin và hub Phân ca.
+│  │  ├─ attendance/  Lịch sử chấm công và điều chỉnh công.
+│  │  ├─ employee/    Giao diện Nhân viên.
+│  │  ├─ overtime/    Đăng ký và duyệt tăng ca.
+│  │  ├─ schedule/    Lịch tuần/tháng và form phân ca.
+│  │  ├─ shifts/      Tạo, sửa và hiển thị ca làm.
+│  │  └─ reports/     Báo cáo và xuất CSV.
+│  └─ work/           WorkManager đồng bộ receipt/offline.
+├─ app/src/test/      Unit test cho luật nghiệp vụ và phần trình bày UI.
+├─ firebase/
+│  ├─ firestore.rules Quyền đọc/ghi và ràng buộc dữ liệu Firebase.
+│  ├─ firestore.indexes.json
+│  └─ functions/     Cloud Functions phân giải chấm công, tăng ca, thông báo.
+├─ firmware/esp8266_fingerprint/
+│  └─ esp8266_fingerprint.ino  Firmware đọc vân tay, gửi scan và tín hiệu thiết bị.
+├─ docs/              Spec, kế hoạch và báo cáo kỹ thuật.
+├─ gradle/             Cấu hình Gradle/Android build.
+├─ README.md           Tài liệu tổng quan, luồng vận hành và hướng dẫn nút bấm.
+└─ app/google-services.json  Đặt cục bộ khi cấu hình Firebase Android; không đưa thông tin nhạy cảm mới lên Git.
+```
+
+### Một số file quan trọng
+
+| File | Trách nhiệm |
+| --- | --- |
+| `app/.../ui/ChamCongApp.kt` | Điều hướng, shell Admin/Nhân viên, đăng nhập, menu cá nhân và các hộp thoại chung. |
+| `app/.../ui/MainViewModel.kt` | Giữ trạng thái màn hình, đăng ký listener realtime và gọi thao tác nghiệp vụ. |
+| `app/.../data/FirebaseRepository.kt` | Điểm truy cập Firebase duy nhất; đọc/ghi dữ liệu và tạo audit. |
+| `app/.../domain/AttendanceResolutionRules.kt` | Luật chọn ca, vào/ra, quét trùng, ngoài lịch và sai thứ tự. |
+| `app/.../domain/WeeklyScheduling.kt` | Luật chọn nhân viên/ngày, hạn Chủ nhật và payload phân ca hàng loạt. |
+| `app/.../domain/OvertimeRules.kt` | Luật đơn tăng ca 17:30–20:30 và duyệt/từ chối. |
+| `app/.../domain/KpiBonusRules.kt` | Tính thưởng theo ca, Top 3 và phạt đi muộn. |
+| `app/.../ui/schedule/WeeklyAssignmentDialog.kt` | Giao diện checkbox phân nhiều nhân viên/ngày. |
+| `app/.../ui/attendance/AttendanceAdjustmentDialog.kt` | Form sửa công bắt buộc lý do. |
+| `app/.../ui/overtime/OvertimeRequestScreen.kt` | Form nhân viên gửi và Admin duyệt đơn tăng ca. |
+| `firebase/functions/attendanceResolver.js` | Cloud Function phân giải raw scan trên server. |
+| `firebase/firestore.rules` | Bảo vệ quyền và tính bất biến của attendance/audit/payroll. |
+
 ## Kiến trúc
 
 ### Đơn tăng ca cố định, phân giải chấm công và KPI (Task 6)
