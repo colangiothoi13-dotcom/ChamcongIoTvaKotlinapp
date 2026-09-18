@@ -193,15 +193,15 @@ test("admin approves a pending overtime request", async () => {
   await expectStatus(await reviewOvertime(admin, id, "APPROVED", null), 200, "admin approve");
 
   const stored = await request(`${documents}/overtimeRequests/${id}`, "GET", admin.token);
-  assert.equal(stored.status, 200, await stored.text());
   const body = await stored.json();
+  assert.equal(stored.status, 200, JSON.stringify(body));
   assert.equal(body.fields.status.stringValue, "APPROVED");
   assert.equal(body.fields.reviewerId.stringValue, admin.uid);
   assert.ok(body.fields.reviewedAt.timestampValue);
 
   const audit = await request(`${documents}/audit_logs/${id}_OVERTIME_REVIEW`, "GET", admin.token);
-  assert.equal(audit.status, 200, await audit.text());
   const auditBody = await audit.json();
+  assert.equal(audit.status, 200, JSON.stringify(auditBody));
   assert.equal(auditBody.fields.targetId.stringValue, id);
   assert.equal(auditBody.fields.status.stringValue, "APPROVED");
   assert.equal(auditBody.fields.actorId.stringValue, admin.uid);

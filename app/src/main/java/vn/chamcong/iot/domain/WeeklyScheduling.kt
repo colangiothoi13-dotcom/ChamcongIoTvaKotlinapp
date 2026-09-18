@@ -22,8 +22,7 @@ data class ShiftTemplate(val key: String, val name: String, val category: String
 
 fun defaultShiftTemplates(): List<ShiftTemplate> = listOf(
     ShiftTemplate("morning", "Ca sáng", "MORNING", "08:00", "12:00"),
-    ShiftTemplate("afternoon", "Ca chiều", "EVENING", "13:00", "17:00"),
-    ShiftTemplate("supplemental", "Ca bổ sung/tăng ca", "SUPPLEMENTARY", null, null)
+    ShiftTemplate("afternoon", "Ca chiều", "EVENING", "13:00", "17:00")
 )
 
 data class WeeklyScheduleStatus(val missingEmployeeIds: List<String>, val overdue: Boolean)
@@ -44,7 +43,7 @@ fun weeklyAssignmentPayload(employees: List<Employee>, employeeIds: Set<String>,
     val selected = employees.filter { it.active && it.id in employeeIds }.distinctBy { it.id }
     require(selected.map { it.id }.toSet() == employeeIds && employeeIds.none { it.isBlank() }) { "Nhân viên đã thay đổi; vui lòng chọn lại" }
     require(shift.id.isNotBlank()) { "Chưa chọn ca" }
-    validateShift(shift)
+    validateScheduleShift(shift)
     return selected.flatMap { employee -> dates.sorted().map { date ->
         WorkSchedule(id = "${employee.id}_$date", employeeId = employee.id, employeeName = employee.fullName,
             department = employee.department, shiftId = shift.id, shiftName = shift.name,

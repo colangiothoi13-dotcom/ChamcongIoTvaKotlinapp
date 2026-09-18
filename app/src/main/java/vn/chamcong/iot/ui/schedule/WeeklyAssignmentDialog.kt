@@ -75,7 +75,8 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
                         dates = if (it) dates + date else dates - date
                     }
                 }
-                Text("Ca mặc định")
+                Text("Ca chính")
+                Text("Tăng ca 17:30–20:30 do nhân viên gửi đơn và Admin duyệt trong mục đơn từ.")
                 templates.forEach { item ->
                     FilterChip(selected = template == item, enabled = !state.saving, onClick = { template = item },
                         label = { Text("${item.name} ${item.startTime?.let { "$it–${item.endTime}" } ?: "(nhập giờ)"}") })

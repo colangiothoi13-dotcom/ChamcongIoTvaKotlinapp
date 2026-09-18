@@ -182,6 +182,7 @@ class KpiBonusRulesTest {
         )
         val adjustment = AttendanceAdjustment(
             employeeId = employee.id,
+            employeeName = employee.fullName,
             scheduleDate = date.toString(),
             checkInAt = date.atTime(8, 0).atZone(zone).toInstant(),
             reason = "Corrected device clock",
@@ -200,11 +201,12 @@ class KpiBonusRulesTest {
     @Test
     fun lateMainCheckInCountsWithoutCheckoutAndUsesLatestAdjustment() {
         val date = LocalDate.of(2026, 9, 15)
-        val shift = WorkShift(id = "main", lateGraceMinutes = 5, effectiveFrom = "2026-01-01")
+        val shift = WorkShift(id = "main", name = "Main", lateGraceMinutes = 5, effectiveFrom = "2026-01-01")
         val schedule = WorkSchedule(employeeId = employee.id, date = date.toString(), shiftId = shift.id)
         val rows = listOf(mainAttendance(employee.id, date, AttendanceType.CHECK_IN.name, "08:15"))
         val correction = AttendanceAdjustment(
             employeeId = employee.id,
+            employeeName = employee.fullName,
             scheduleDate = date.toString(),
             checkInAt = date.atTime(8, 5).atZone(zone).toInstant(),
             reason = "Corrected check-in",
@@ -340,7 +342,7 @@ class KpiBonusRulesTest {
     @Test
     fun pendingAndRejectedOvertimeDoNotIncreasePayrollHours() {
         val date = LocalDate.of(2026, 9, 10)
-        val shift = WorkShift(id = "main", endTime = "16:00", effectiveFrom = "2026-01-01")
+        val shift = WorkShift(id = "main", name = "Main", endTime = "16:00", effectiveFrom = "2026-01-01")
         val schedule = WorkSchedule(employeeId = employee.id, date = date.toString(), shiftId = shift.id)
         val rows = listOf(
             mainAttendance(employee.id, date, AttendanceType.CHECK_IN.name, "08:00"),

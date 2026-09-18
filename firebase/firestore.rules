@@ -187,11 +187,20 @@ service cloud.firestore {
         && request.resource.data.active is bool;
       allow delete: if isAdmin();
     }
+    function assignableScheduleShift(shiftId) {
+      let path = /databases/$(database)/documents/shifts/$(shiftId);
+      // Check the resulting document so templates created in the same batch work,
+      // and changing a main template to supplementary in that batch cannot bypass this.
+      return shiftId != 'SUPPLEMENTARY_1730_2030'
+        && existsAfter(path)
+        && getAfter(path).data.category in ['MORNING', 'EVENING'];
+    }
     match /workSchedules/{id} {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create, update: if isAdmin()
         && request.resource.data.employeeId is string
         && request.resource.data.shiftId is string
+        && assignableScheduleShift(request.resource.data.shiftId)
         && request.resource.data.date is string
         && request.resource.data.overtimeHours is int
         && request.resource.data.overtimeHours >= 0

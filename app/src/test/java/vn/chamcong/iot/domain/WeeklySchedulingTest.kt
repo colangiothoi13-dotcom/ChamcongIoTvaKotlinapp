@@ -4,6 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.WorkSchedule
+import vn.chamcong.iot.model.WorkShift
 import java.time.Instant
 import java.time.LocalDate
 
@@ -37,7 +38,7 @@ class WeeklySchedulingTest {
 
     @Test fun templatesResolveToRequiredTimesAndStableDistinctIds() {
         val templates = defaultShiftTemplates()
-        assertEquals(3, templates.size)
+        assertEquals(2, templates.size)
         val morning = templates[0].resolve()
         val afternoon = templates[1].resolve()
         assertEquals("08:00", morning.startTime)
@@ -45,17 +46,29 @@ class WeeklySchedulingTest {
         assertEquals("13:00", afternoon.startTime)
         assertEquals("17:00", afternoon.endTime)
         assertEquals(morning.id, templates[0].resolve().id)
-        assertNull(templates[2].startTime)
-        assertEquals("19:00", templates[2].resolve("18:00", "19:00").endTime)
-        assertNotEquals(templates[2].resolve("18:00", "19:00").id, templates[2].resolve("18:00", "20:00").id)
+        assertNotEquals(morning.id, afternoon.id)
+        assertTrue(templates.all { it.category in setOf("MORNING", "EVENING") })
     }
 
-    @Test fun supplementalRequiresStrictNonEqualTimesAndSupportsOvernight() {
-        val template = defaultShiftTemplates()[2]
-        listOf("" to "", "24:00" to "25:00", "8:00" to "09:00", "18:00" to "18:00").forEach { (start, end) ->
-            assertTrue(runCatching { template.resolve(start, end) }.isFailure)
+    @Test fun callerConstructedSupplementaryAndReservedVirtualShiftsCannotBeAssigned() {
+        val custom = WorkShift(id = "custom-overtime", name = "Overtime", category = "SUPPLEMENTARY",
+            startTime = "18:00", endTime = "21:00", effectiveFrom = "2026-01-01")
+        listOf(custom, custom.copy(id = SUPPLEMENTARY_SHIFT_ID),
+            custom.copy(id = SUPPLEMENTARY_SHIFT_ID, category = "MORNING")).forEach { shift ->
+            assertTrue(runCatching {
+                weeklyAssignmentPayload(employees, setOf("e1"), monday, setOf(monday), shift, "admin")
+            }.exceptionOrNull() is IllegalArgumentException)
         }
-        assertEquals("06:00", template.resolve("22:00", "06:00").endTime)
+    }
+
+    @Test fun scheduleWriteValidationAllowsMainShiftsAndRejectsSupplementaryShifts() {
+        defaultShiftTemplates().forEach { validateScheduleShift(it.resolve()) }
+        val supplementary = WorkShift(id = "legacy-overtime", name = "Legacy overtime",
+            category = "SUPPLEMENTARY", effectiveFrom = "2026-01-01")
+        listOf(supplementary, supplementary.copy(id = SUPPLEMENTARY_SHIFT_ID, category = "MORNING")).forEach {
+            assertFalse(canAssignScheduleShift(it))
+            assertTrue(runCatching { validateScheduleShift(it) }.exceptionOrNull() is IllegalArgumentException)
+        }
     }
 
     @Test fun bulkPayloadIsSelectedEmployeeDateProductWithCanonicalIds() {

@@ -149,6 +149,9 @@ internal fun belongsToScheduleDate(
     shift: WorkShift?,
     zoneId: ZoneId
 ): Boolean {
+    // Explicit shift identity wins even when the event carries the same schedule date.
+    // Untagged legacy rows keep the existing date/window fallback.
+    if (shift != null && row.shiftId != null && row.shiftId != shift.id) return false
     row.scheduleDate?.let { return it == scheduleDate.toString() }
     val eventAt = row.timestamp.toDate().toInstant()
     if (shift == null) return eventAt.atZone(zoneId).toLocalDate() == scheduleDate

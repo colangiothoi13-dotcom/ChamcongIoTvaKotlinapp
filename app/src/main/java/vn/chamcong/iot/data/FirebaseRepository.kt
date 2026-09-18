@@ -19,6 +19,7 @@ import vn.chamcong.iot.domain.validateOvertimeHours
 import vn.chamcong.iot.domain.validateOvertimeRequest
 import vn.chamcong.iot.domain.validateRequest
 import vn.chamcong.iot.domain.validateShift
+import vn.chamcong.iot.domain.validateScheduleShift
 import vn.chamcong.iot.domain.validateWorkedHoursOverride
 import vn.chamcong.iot.domain.validateAuditLog
 import vn.chamcong.iot.domain.validateEmployeeAccountInput
@@ -343,6 +344,7 @@ class FirebaseRepository(
     suspend fun saveSchedule(schedule: WorkSchedule) {
         require(schedule.employeeId.isNotBlank()) { "Chưa chọn nhân viên" }
         require(schedule.shiftId.isNotBlank()) { "Chưa chọn ca" }
+        requireAssignableStoredShift(schedule.shiftId)
         val date = LocalDate.parse(schedule.date).toString()
         validateOvertimeHours(schedule.overtimeHours)
         validateWorkedHoursOverride(schedule.workedHoursOverride)
@@ -362,7 +364,7 @@ class FirebaseRepository(
 
     /** Explicit assignment only. Stable template IDs are create-only, including concurrent saves. */
     suspend fun saveWeeklySchedules(shift: WorkShift, schedules: List<WorkSchedule>) {
-        validateShift(shift)
+        validateScheduleShift(shift)
         require(schedules.isNotEmpty())
         val shiftRef = db.collection("shifts").document(shift.id)
         var saved = 0
@@ -406,7 +408,8 @@ class FirebaseRepository(
     ) {
         require(department.isNotBlank()) { "Chưa chọn phòng ban" }
         require(dates.isNotEmpty()) { "Chưa chọn ngày phân ca" }
-        validateShift(shift)
+        validateScheduleShift(shift)
+        requireAssignableStoredShift(shift.id)
         validateOvertimeHours(overtimeHours)
         val employees = db.collection("employees")
             .whereEqualTo("active", true)
@@ -464,6 +467,8 @@ class FirebaseRepository(
         val source = sourceSnapshot.documents.mapNotNull { it.toObject(WorkSchedule::class.java)?.copy(id = it.id) }
         val existingIds = targetSnapshot.documents.mapTo(mutableSetOf()) { it.id }
         val newSchedules = copyScheduleToNextWeek(source, existingIds).map { it.copy(assignedBy = assignedBy) }
+        // Validate all candidates before writing any copied schedule, including legacy custom IDs.
+        newSchedules.map { it.shiftId }.distinct().forEach { requireAssignableStoredShift(it) }
         val batch = db.batch()
         newSchedules.forEach { schedule ->
             batch.set(db.collection("workSchedules").document(schedule.id), schedule.copy(id = ""))
@@ -478,6 +483,14 @@ class FirebaseRepository(
             details = "Sao chép $sourceMonday sang $targetMonday: ${newSchedules.size} lịch"
         ))
         return newSchedules.size
+    }
+
+    private suspend fun requireAssignableStoredShift(shiftId: String) {
+        require(shiftId.isNotBlank()) { "Chưa chọn ca" }
+        val snapshot = db.collection("shifts").document(shiftId).get(Source.SERVER).await()
+        val shift = snapshot.toObject(WorkShift::class.java)?.copy(id = snapshot.id)
+        require(shift != null) { "Ca không còn tồn tại" }
+        validateScheduleShift(shift)
     }
 
     suspend fun submitLeaveRequest(request: LeaveRequest): String {

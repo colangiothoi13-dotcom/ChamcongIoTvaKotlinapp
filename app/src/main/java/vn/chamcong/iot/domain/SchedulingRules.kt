@@ -60,6 +60,15 @@ fun validateAttendanceAdjustment(adjustment: AttendanceAdjustment) {
     validateWorkedHoursOverride(adjustment.workedHoursOverride)
 }
 
+/** Only main shifts may be assigned; supplementary shifts remain readable for legacy data. */
+fun canAssignScheduleShift(shift: WorkShift): Boolean =
+    shift.id != SUPPLEMENTARY_SHIFT_ID && shift.category != ShiftCategory.SUPPLEMENTARY.name
+
+fun validateScheduleShift(shift: WorkShift) {
+    require(canAssignScheduleShift(shift)) { "Ca bổ sung 17:30–20:30 phải được nhân viên gửi đơn, không phân trước" }
+    validateShift(shift)
+}
+
 fun validateShift(shift: WorkShift) {
     require(shift.name.isNotBlank()) { "Tên ca không được để trống" }
     require(shift.category in ShiftCategory.entries.map { it.name }) { "Loại ca chỉ gồm ca sáng, ca tối hoặc ca bổ sung" }

@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.domain.weekDates
+import vn.chamcong.iot.domain.canAssignScheduleShift
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import java.time.LocalDate
@@ -130,8 +131,10 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
 @Composable
 private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarget, vm: MainViewModel, onDismiss: () -> Unit) {
     val existing = state.schedules.firstOrNull { it.employeeId == target.employee?.id && it.date == target.date.toString() }
-    var selectedShift by remember(target.date, target.employee?.id) { mutableStateOf(state.shifts.firstOrNull { it.id == existing?.shiftId } ?: state.shifts.firstOrNull()) }
-    var selectedOvertime by remember(target.date, target.employee?.id) { mutableStateOf(existing?.overtimeHours ?: 0) }
+    val assignableShifts = state.shifts.filter(::canAssignScheduleShift)
+    var selectedShift by remember(target.date, target.employee?.id, assignableShifts) {
+        mutableStateOf(assignableShifts.firstOrNull { it.id == existing?.shiftId } ?: assignableShifts.firstOrNull())
+    }
     var selectedDepartment by remember(target.date, target.employee?.id) { mutableStateOf(state.employees.map { it.department }.firstOrNull { it.isNotBlank() }.orEmpty()) }
     var selectedEmployee by remember(target.date, target.employee?.id) { mutableStateOf(target.employee ?: state.employees.firstOrNull { it.active }) }
     var overrideHours by remember(target.date, target.employee?.id) { mutableStateOf(existing?.workedHoursOverride?.toString().orEmpty()) }
@@ -159,14 +162,11 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                     }
                 }
                 Text("Ca")
-                OutlinedButton(onClick = { menuExpanded = true }, enabled = state.shifts.isNotEmpty()) { Text(selectedShift?.let(::scheduleShiftLabel) ?: "Chưa có ca") }
+                OutlinedButton(onClick = { menuExpanded = true }, enabled = assignableShifts.isNotEmpty()) { Text(selectedShift?.let(::scheduleShiftLabel) ?: "Chưa có ca") }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    state.shifts.forEach { shift -> DropdownMenuItem(text = { Text(scheduleShiftLabel(shift)) }, onClick = { selectedShift = shift; menuExpanded = false }) }
+                    assignableShifts.forEach { shift -> DropdownMenuItem(text = { Text(scheduleShiftLabel(shift)) }, onClick = { selectedShift = shift; menuExpanded = false }) }
                 }
-                Text("Tăng ca")
-                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    (0..3).forEach { hours -> FilterChip(selected = selectedOvertime == hours, onClick = { selectedOvertime = hours }, label = { Text("$hours giờ") }) }
-                }
+                Text("Tăng ca 17:30–20:30 do nhân viên gửi đơn và Admin duyệt trong mục đơn từ.")
                 if (!target.departmentMode) {
                     androidx.compose.material3.OutlinedTextField(
                         value = overrideHours,
@@ -194,9 +194,9 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
             Button(onClick = {
                 val shift = selectedShift ?: return@Button
                 if (target.departmentMode) {
-                    vm.assignShiftToDepartment(selectedDepartment, listOf(target.date.toString()), shift, selectedOvertime) { onDismiss() }
+                    vm.assignShiftToDepartment(selectedDepartment, listOf(target.date.toString()), shift, 0) { onDismiss() }
                 } else if (selectedEmployee != null) {
-                    vm.assignShift(WorkSchedule(employeeId = selectedEmployee!!.id, employeeName = selectedEmployee!!.fullName, department = selectedEmployee!!.department, shiftId = shift.id, shiftName = shift.name, date = target.date.toString(), overtimeHours = selectedOvertime, workedHoursOverride = overrideHours.replace(',', '.').toDoubleOrNull(), adjustmentNote = adjustmentNote.trim())) { onDismiss() }
+                    vm.assignShift(WorkSchedule(employeeId = selectedEmployee!!.id, employeeName = selectedEmployee!!.fullName, department = selectedEmployee!!.department, shiftId = shift.id, shiftName = shift.name, date = target.date.toString(), overtimeHours = 0, workedHoursOverride = overrideHours.replace(',', '.').toDoubleOrNull(), adjustmentNote = adjustmentNote.trim())) { onDismiss() }
                 }
             }, enabled = !state.saving && selectedShift != null && (target.departmentMode && selectedDepartment.isNotBlank() || !target.departmentMode && selectedEmployee != null && (overrideHours.isBlank() || overrideHours.replace(',', '.').toDoubleOrNull()?.let { it in 0.0..24.0 } == true && adjustmentNote.isNotBlank()))) { Text("Lưu phân ca") }
         },

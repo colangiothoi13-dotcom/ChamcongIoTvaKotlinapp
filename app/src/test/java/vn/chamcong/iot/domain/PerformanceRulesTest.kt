@@ -20,7 +20,7 @@ import java.util.Date
 class PerformanceRulesTest {
     private val month = YearMonth.of(2026, 9)
     private val zone = ZoneId.of("Asia/Ho_Chi_Minh")
-    private val shift = WorkShift(id = "main", startTime = "08:00", endTime = "16:00", effectiveFrom = "2026-01-01")
+    private val shift = WorkShift(id = "main", name = "Main", startTime = "08:00", endTime = "16:00", effectiveFrom = "2026-01-01")
 
     @Test
     fun monthlyPerformanceRanksEligibleEmployeesAndFeedsTheSamePayrollBonus() {
@@ -66,7 +66,7 @@ class PerformanceRulesTest {
         assertEquals(0L, preview(rows, "APPROVED").totalBonus)
         assertEquals(0, preview(rows.dropLast(1), "APPROVED").overtimeShiftCount)
         val adjusted = preview(rows, "APPROVED", listOf(AttendanceAdjustment(
-            employeeId = "e1", scheduleDate = request.workDate,
+            employeeId = "e1", employeeName = "Employee 1", scheduleDate = request.workDate,
             checkInAt = Instant.parse("2026-09-10T01:00:00Z"),
             reason = "Correct check-in", actorId = "admin", actorName = "Admin"
         )))
