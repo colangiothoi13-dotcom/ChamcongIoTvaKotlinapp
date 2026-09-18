@@ -271,9 +271,9 @@ Khi mạng trở lại, ESP8266 tự động đọc lại hàng đợi, gửi t�
 
 Dự án này không chỉ là một ứng dụng chấm công đơn thuần, mà là một hệ thống quản lý nhân sự hiện đại tích hợp thiết bị phần cứng và nền tảng điện toán đám mây. Từ việc đăng nhập, quản lý nhân viên, đăng ký vân tay, chấm công tự động, theo dõi thiết bị, cho đến lương, báo cáo và audit, toàn bộ hệ thống được thiết kế theo hướng tự động hóa và minh bạch. Điều này giúp giảm sai sót thủ công, tăng độ tin cậy và tạo nền tảng để doanh nghiệp quản lý nhân sự hiệu quả hơn trong thời gian dài.
 
-## Báo cáo luồng sử dụng và chức năng các nút
+## Báo cáo luồng hoạt động và chức năng từng tác vụ, nút bấm
 
-Phần này mô tả hệ thống theo góc nhìn người sử dụng. Tên nút bên dưới là tên đang hiển thị trong Android app; một số thẻ/card và ô trên lịch là vùng có thể bấm dù không được vẽ dưới dạng nút.
+Phần này mô tả hệ thống theo góc nhìn người sử dụng. Tên nút bên dưới là tên đang hiển thị trong Android app; một số thẻ/card, dòng tác vụ và ô trên lịch là vùng có thể bấm dù không được vẽ dưới dạng nút. Khi nút đang xử lý, app khóa thao tác ghi trùng và hiển thị thông báo thành công hoặc lỗi ngay trên màn hình.
 
 ### 1. Luồng sử dụng tổng thể
 
@@ -333,7 +333,7 @@ Các dòng trong `Tác vụ` và các card trong `Phân ca` đều có thể b�
 | Mục | Chức năng |
 | --- | --- |
 | `Chấm công` | Xem lịch sử lượt vào/ra, lọc trạng thái/loại lượt và điều chỉnh công. |
-| `Thiết bị` | Xem heartbeat, firmware, trạng thái online/offline, số mẫu vân tay và lệnh gần đây. |
+| `Thiết bị` | Xem tín hiệu cuối, phiên bản phần mềm, trạng thái hoạt động/mất kết nối, số mẫu vân tay và lệnh gần đây. |
 | `Có mặt` | Xem ai đã vào, chưa đến, đang nghỉ, đã ra, chưa chấm ra hoặc bất thường theo ngày. |
 | `Ca làm` | Tạo và quản lý các mẫu ca chính; xem ca sáng 08:00–12:00, ca chiều 13:00–17:00 và cấu hình ca tùy chỉnh. Tăng ca 17:30–20:30 không phân trước ở màn hình này. |
 | `Lịch` | Phân ca cho từng nhân viên, nhiều nhân viên hoặc phòng ban theo tuần/tháng. |
@@ -431,6 +431,40 @@ Hạn nhắc lịch tuần là **17:00 Chủ nhật** theo giờ Việt Nam. Đ�
 | Chip loại báo cáo | Chọn chấm công, nghỉ phép hoặc thiết bị. |
 | `Xuất CSV và chia sẻ` | Tạo file CSV theo bộ lọc ngày/nhân viên/phòng ban rồi mở Android share sheet. |
 | Ô lọc trong `Nhật ký` | Tìm theo hành động hoặc đối tượng; nhật ký chỉ đọc, không có nút sửa/xóa. |
+
+#### 3.9. Chức năng trong từng hộp thoại
+
+| Hộp thoại | Thành phần/nút | Chức năng và điều kiện |
+| --- | --- | --- |
+| `Thêm nhân viên` | `Họ tên`, `Email`, `Phòng ban` | Nhập thông tin hồ sơ. Mã nhân viên được cấp tự động khi lưu, không nhập thủ công. |
+| `Thêm nhân viên` | `Mã thiết bị đăng ký` | Xác định ESP8266 sẽ nhận lệnh đăng ký vân tay nếu Admin chọn lưu kèm vân tay. |
+| `Thêm nhân viên` | `Tạo tài khoản đăng nhập cho nhân viên` | Bật để tạo tài khoản Email/Password cho nhân viên; mật khẩu tối thiểu 6 ký tự và phải nhập lại trùng nhau. |
+| `Thêm nhân viên` | `Lưu & đăng ký vân tay` | Lưu hồ sơ, tạo tài khoản nếu đã bật và gửi lệnh cho thiết bị để quét cùng một ngón tay hai lần. |
+| `Thêm nhân viên` | `Chỉ lưu nhân viên` | Chỉ lưu hồ sơ/tài khoản, chưa gửi lệnh vân tay. |
+| `Đăng ký vân tay` | `Mã thiết bị` → `Gửi lệnh` | Gửi yêu cầu đăng ký mẫu đến thiết bị. Thiết bị phải bật và có Wi-Fi để nhận lệnh. |
+| `Thiết lập lương` | `Lương cơ bản / giờ` → `Lưu đơn giá giờ` | Lưu đơn giá theo giờ; chỉ nhận số không âm trong giới hạn hệ thống. |
+| `Điều chỉnh chấm công` | `Giờ vào`, `Giờ ra`, `Giờ công`, `Lý do điều chỉnh` | Sửa công cho đúng nhân viên/ngày ca. Ít nhất một giá trị công phải thay đổi và lý do không được để trống. |
+| `Điều chỉnh chấm công` | `Lưu điều chỉnh` | Ghi một bản điều chỉnh mới và audit; không ghi đè hoặc xóa lịch sử điều chỉnh cũ. |
+| `Thêm ca`/`Chỉnh sửa ca` | Chip `Ca sáng`, `Ca chiều`, `Ca bổ sung` | Chọn loại ca. Khi đổi loại, tên ca được gợi ý lại nhưng Admin vẫn có thể sửa tên. |
+| `Thêm ca`/`Chỉnh sửa ca` | Các ô giờ và thời gian cho phép | Nhập giờ `HH:mm`, phút chấm sớm/đi trễ/về sớm, thời gian nghỉ và khoảng ngày áp dụng. |
+| `Thêm ca`/`Chỉnh sửa ca` | `Ca này được tính tăng ca` | Đánh dấu thuộc tính tăng ca của mẫu ca; không thay thế đơn tăng ca cố định 17:30–20:30. |
+| `Thêm ca`/`Chỉnh sửa ca` | `Lưu ca` / `Hủy` | Kiểm tra và lưu mẫu ca hoặc đóng hộp thoại không lưu. Ca snapshot từ lịch tuần dùng `Tạo bản tùy chỉnh` để không sửa lịch sử. |
+| `Phân ca cho nhân viên` | Chip phòng ban, nhân viên, ngày trong tuần | Lọc và tích chọn nhanh nhiều nhân viên × nhiều ngày. Có thể bỏ các nhân viên không còn hợp lệ khỏi danh sách chọn. |
+| `Phân ca cho nhân viên` | Chip `Ca sáng` / `Ca chiều`, ô `Điều chỉnh giờ làm`, ô `Lý do điều chỉnh` | Chọn ca chính và tùy chọn ghi nhận số giờ override khi quên chấm/mất mạng. Ca tăng ca không được chọn sẵn ở đây. |
+| `Phân ca cho nhân viên` | `Lưu phân ca` / `Hủy` | Lưu theo transaction; mỗi nhân viên/ngày chỉ có một lịch và vẫn giữ override/lý do hợp lệ đang có. |
+| `Từ chối đơn từ` hoặc `Từ chối đăng ký tăng ca` | `Lý do từ chối` → `Từ chối` | Bắt buộc nhập lý do, sau đó chuyển đơn sang `Từ chối` và ghi audit. |
+| `Từ chối đơn từ` hoặc `Từ chối đăng ký tăng ca` | `Hủy` | Đóng form từ chối, giữ nguyên trạng thái `Chờ duyệt`. |
+| `Lập phiếu lương / thiết lập lương` | `Đặt lương` / `Lập phiếu` | Với nhân viên đang làm, `Đặt lương` mở form đơn giá; `Lập phiếu` mở bản tính lương của tháng. |
+| `Phiếu lương` | `Khấu trừ` → `Lưu phiếu` | Nhập khoản khấu trừ do Admin quyết định, kiểm tra giờ/thưởng tự động và lưu snapshot phiếu lương. |
+| `Đổi mật khẩu` | Mật khẩu mới, nhập lại → `Lưu` / `Hủy` | Đổi mật khẩu tài khoản hiện tại nếu đủ 6 ký tự và hai ô trùng nhau; `Hủy` bỏ thao tác. |
+
+#### 3.10. Quy tắc phản hồi khi bấm nút
+
+- Nút lưu, duyệt, từ chối, gửi lệnh và xóa bị vô hiệu hóa trong lúc Firebase đang xử lý để tránh ghi trùng.
+- Nút lưu chỉ được bật khi dữ liệu bắt buộc hợp lệ: ngày/giờ đúng định dạng, lý do không rỗng, số tiền và số giờ nằm trong giới hạn.
+- Thông báo màu đỏ là lỗi kiểm tra dữ liệu hoặc lỗi quyền Firebase; dữ liệu chưa được ghi nếu thao tác thất bại.
+- Các nút `Hủy`, mũi tên chuyển tuần/tháng và chip lọc chỉ thay đổi giao diện hoặc bộ lọc, không ghi dữ liệu nghiệp vụ.
+- Nhật ký hệ thống chỉ đọc. Mã ID nội bộ được lưu trong Firebase để truy vết nhưng không hiển thị trên giao diện người dùng.
 
 ### 4. Chức năng các nút trên giao diện Nhân viên
 
