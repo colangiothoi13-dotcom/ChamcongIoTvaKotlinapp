@@ -5,6 +5,7 @@ import org.junit.Test
 import vn.chamcong.iot.domain.defaultShiftTemplates
 import vn.chamcong.iot.domain.weeklyAssignmentPayload
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.ShiftCategory
 import vn.chamcong.iot.model.WorkShift
 import java.time.LocalDate
 
@@ -41,5 +42,15 @@ class WeeklySchedulingPresentationTest {
 
     @Test fun ordinaryShiftKeepsItsExistingPickerName() {
         assertEquals("Ca sáng", scheduleShiftLabel(WorkShift(name = "Ca sáng")))
+    }
+
+    @Test fun assignmentPickerKeepsAllAssignableMainShiftsVisible() {
+        val shifts = listOf(
+            WorkShift(id = "morning", name = "Ca sáng", category = ShiftCategory.MORNING.name),
+            WorkShift(id = "evening", name = "Ca chiều", category = ShiftCategory.EVENING.name),
+            WorkShift(id = "overtime", name = "Ca bổ sung", category = ShiftCategory.SUPPLEMENTARY.name)
+        )
+
+        assertEquals(listOf("morning", "evening"), assignableScheduleShifts(shifts).map { it.id })
     }
 }

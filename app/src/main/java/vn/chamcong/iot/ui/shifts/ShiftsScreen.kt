@@ -40,7 +40,7 @@ fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
             editor = WorkShift(name = "Ca sáng", effectiveFrom = LocalDate.now().toString())
         }) { Text("Thêm ca") }
         if (state.shifts.isEmpty()) {
-            Text("Chưa có ca. Hãy tạo ca sáng, ca tối hoặc ca bổ sung.")
+            Text("Chưa có ca. Hãy tạo ca sáng, ca chiều hoặc ca bổ sung.")
         } else {
             state.shifts.forEach { shift ->
                 ShiftRow(shift) {
@@ -66,7 +66,7 @@ private fun ShiftRow(shift: WorkShift, onEdit: () -> Unit) {
     androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(shift.name, style = MaterialTheme.typography.titleMedium)
-            Text("${categoryLabel(shift.category)} • ${shift.startTime}–${shift.endTime}")
+            Text("${shiftCategoryLabel(shift.category)} • ${shift.startTime}–${shift.endTime}")
             Text("Cho phép sớm ${shift.allowEarlyMinutes} phút • Đi trễ ${shift.lateGraceMinutes} phút • Về sớm ${shift.earlyLeaveAllowedMinutes} phút", style = MaterialTheme.typography.bodySmall)
             Text("Nghỉ: ${shift.breakStartTime ?: "-"}–${shift.breakEndTime ?: "-"} • ${if (shift.countsOvertime) "Có tính tăng ca" else "Không tính tăng ca"}", style = MaterialTheme.typography.bodySmall)
             Text("Áp dụng từ ${shift.effectiveFrom}${shift.effectiveTo?.let { " đến $it" } ?: ""}", style = MaterialTheme.typography.bodySmall)
@@ -104,8 +104,11 @@ private fun ShiftEditorDialog(
                     ShiftCategory.entries.forEach { item ->
                         FilterChip(
                             selected = category == item.name,
-                            onClick = { category = item.name },
-                            label = { Text(categoryLabel(item.name)) }
+                            onClick = {
+                                category = item.name
+                                name = shiftNameForCategoryChange(name, item.name)
+                            },
+                            label = { Text(shiftCategoryLabel(item.name)) }
                         )
                     }
                 }
@@ -146,11 +149,4 @@ private fun ShiftEditorDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !state.saving) { Text("Hủy") } }
     )
-}
-
-private fun categoryLabel(category: String): String = when (category) {
-    ShiftCategory.MORNING.name -> "Ca sáng"
-    ShiftCategory.EVENING.name -> "Ca chiều / tối"
-    ShiftCategory.SUPPLEMENTARY.name -> "Ca bổ sung"
-    else -> category
 }

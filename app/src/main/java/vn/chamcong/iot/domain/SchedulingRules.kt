@@ -71,7 +71,7 @@ fun validateScheduleShift(shift: WorkShift) {
 
 fun validateShift(shift: WorkShift) {
     require(shift.name.isNotBlank()) { "Tên ca không được để trống" }
-    require(shift.category in ShiftCategory.entries.map { it.name }) { "Loại ca chỉ gồm ca sáng, ca tối hoặc ca bổ sung" }
+    require(shift.category in ShiftCategory.entries.map { it.name }) { "Loại ca chỉ gồm ca sáng, ca chiều hoặc ca bổ sung" }
     parseTime(shift.startTime, "Giờ bắt đầu")
     parseTime(shift.endTime, "Giờ kết thúc")
     require(shift.allowEarlyMinutes >= 0) { "Thời gian cho phép chấm sớm không hợp lệ" }

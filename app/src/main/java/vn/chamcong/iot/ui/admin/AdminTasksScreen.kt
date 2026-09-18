@@ -55,7 +55,7 @@ val adminTaskGroups = listOf(
     AdminTaskGroup(
         "Lịch & ca",
         listOf(
-            AdminTaskItem(AppDestination.SHIFTS, "Tạo ca sáng, ca tối và ca bổ sung", Icons.Default.Schedule),
+            AdminTaskItem(AppDestination.SHIFTS, "Tạo ca sáng, ca chiều và ca bổ sung", Icons.Default.Schedule),
             AdminTaskItem(AppDestination.SCHEDULE, "Phân ca theo tuần/tháng và sao chép lịch", Icons.Default.Event)
         )
     ),

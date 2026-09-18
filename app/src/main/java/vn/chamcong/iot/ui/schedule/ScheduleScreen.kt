@@ -8,15 +8,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.domain.weekDates
-import vn.chamcong.iot.domain.canAssignScheduleShift
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import java.time.LocalDate
@@ -51,10 +48,18 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
             TextButton(onClick = { vm.moveWeek(1) }) { Text("Tuần sau ›") }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { vm.selectWeek(LocalDate.now()) }) { Text("Tuần này") }
-            Button(onClick = { vm.clearError(); bulkAssignment = true }, enabled = !state.saving) { Text("Phân cho nhân viên") }
-            Button(onClick = { vm.clearError(); assignment = AssignmentTarget(null, dates.first(), true) }) { Text("Phân cho phòng ban") }
-            Button(onClick = { vm.clearError(); vm.copyPreviousWeek {} }) { Text("Sao chép tuần trước") }
+            Button(onClick = { vm.selectWeek(LocalDate.now()) }, modifier = Modifier.widthIn(min = 112.dp)) {
+                Text("Tuần này", maxLines = 1, softWrap = false)
+            }
+            Button(onClick = { vm.clearError(); bulkAssignment = true }, enabled = !state.saving, modifier = Modifier.widthIn(min = 176.dp)) {
+                Text("Phân cho nhân viên", maxLines = 1, softWrap = false)
+            }
+            Button(onClick = { vm.clearError(); assignment = AssignmentTarget(null, dates.first(), true) }, modifier = Modifier.widthIn(min = 184.dp)) {
+                Text("Phân cho phòng ban", maxLines = 1, softWrap = false)
+            }
+            Button(onClick = { vm.clearError(); vm.copyPreviousWeek {} }, modifier = Modifier.widthIn(min = 172.dp)) {
+                Text("Sao chép tuần trước", maxLines = 1, softWrap = false)
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !monthMode, onClick = { monthMode = false }, label = { Text("Tuần") })
@@ -131,7 +136,7 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
 @Composable
 private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarget, vm: MainViewModel, onDismiss: () -> Unit) {
     val existing = state.schedules.firstOrNull { it.employeeId == target.employee?.id && it.date == target.date.toString() }
-    val assignableShifts = state.shifts.filter(::canAssignScheduleShift)
+    val assignableShifts = assignableScheduleShifts(state.shifts)
     var selectedShift by remember(target.date, target.employee?.id, assignableShifts) {
         mutableStateOf(assignableShifts.firstOrNull { it.id == existing?.shiftId } ?: assignableShifts.firstOrNull())
     }
@@ -139,7 +144,6 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
     var selectedEmployee by remember(target.date, target.employee?.id) { mutableStateOf(target.employee ?: state.employees.firstOrNull { it.active }) }
     var overrideHours by remember(target.date, target.employee?.id) { mutableStateOf(existing?.workedHoursOverride?.toString().orEmpty()) }
     var adjustmentNote by remember(target.date, target.employee?.id) { mutableStateOf(existing?.adjustmentNote.orEmpty()) }
-    var menuExpanded by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (target.departmentMode) "Phân ca cho phòng ban" else "Phân ca cho nhân viên") },
@@ -162,9 +166,27 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                     }
                 }
                 Text("Ca")
-                OutlinedButton(onClick = { menuExpanded = true }, enabled = assignableShifts.isNotEmpty()) { Text(selectedShift?.let(::scheduleShiftLabel) ?: "Chưa có ca") }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    assignableShifts.forEach { shift -> DropdownMenuItem(text = { Text(scheduleShiftLabel(shift)) }, onClick = { selectedShift = shift; menuExpanded = false }) }
+                if (assignableShifts.isEmpty()) {
+                    Text("Chưa có ca chính để phân")
+                } else {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        assignableShifts.forEach { shift ->
+                            FilterChip(
+                                selected = selectedShift?.id == shift.id,
+                                onClick = { selectedShift = shift },
+                                label = {
+                                    Text(
+                                        "${scheduleShiftLabel(shift)} • ${shift.startTime}–${shift.endTime}",
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            )
+                        }
+                    }
                 }
                 Text("Tăng ca 17:30–20:30 do nhân viên gửi đơn và Admin duyệt trong mục đơn từ.")
                 if (!target.departmentMode) {
