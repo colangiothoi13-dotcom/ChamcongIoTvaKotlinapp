@@ -8,6 +8,55 @@ MVP quản trị nhân sự và chấm công bằng vân tay gồm:
 
 ## Kiến trúc
 
+### Đơn tăng ca cố định, phân giải chấm công và KPI (Task 6)
+
+Luồng tăng ca dùng collection `overtimeRequests` với document ID xác định:
+`overtimeRequests/{employeeId}_{workDate}`. Schema gồm `employeeId`,
+`employeeName`, `department`, `workDate`, `startTime`, `endTime`, `status`,
+`createdAt`, `reviewerId`, `reviewerName`, `reviewedAt` và
+`rejectionReason`. `startTime`/`endTime` luôn là `17:30`/`20:30` theo
+`Asia/Ho_Chi_Minh`, tương đương đúng **3 giờ**; request có trạng thái
+`PENDING`, `APPROVED` hoặc `REJECTED`.
+
+- Nhân viên gửi tối đa một request cho mỗi nhân viên/ngày; request được audit
+  khi Admin duyệt hoặc từ chối. Review ghi request và
+  `audit_logs/{employeeId}_{workDate}_OVERTIME_REVIEW` trong cùng transaction;
+  từ chối bắt buộc có `rejectionReason`, còn xóa request bị cấm.
+- Khi request `PENDING`, các lượt quét trong khung vẫn được giữ nguyên raw,
+  vẫn có thể check-in/check-out, mang `overtimeRequestId` và trạng thái
+  `OVERTIME_PENDING`; chúng không được tính là tăng ca trả lương.
+- Khi request `APPROVED`, Cloud Function đọc lại các lượt quét gắn request,
+  sắp theo timestamp và resolve tuần tự vào session tăng ca độc lập
+  `..._SUPPLEMENTARY_1730_2030`; chỉ cặp `CHECK_IN`/`CHECK_OUT` hợp lệ mới
+  được tính là một ca hoàn thành.
+- Khi request `REJECTED`, raw scans vẫn được giữ để audit/tra cứu, được đánh
+  dấu `OVERTIME_REJECTED` và không tạo giờ hoặc tiền tăng ca phải trả.
+- Lịch tuần do Admin phân chỉ mô tả ca chính. Tăng ca là request của nhân
+  viên, không được seed trước vào `workSchedules`; việc duyệt và thay đổi
+  trạng thái được ghi audit.
+
+KPI tháng dùng dữ liệu attendance đã resolve và request đã duyệt: mỗi ca tăng
+  ca hoàn thành cộng **50.000 VND**, Top 3 nhân viên đủ điều kiện (không đi
+  muộn) nhận **500.000 VND/người**, mỗi lần đi muộn ca chính trừ
+  **100.000 VND**. Tổng bonus bị chặn sàn ở 0; `deduction` trên phiếu payroll
+  vẫn là khoản Admin nhập riêng, không bị công thức KPI tự động thay đổi.
+  Payroll cộng thêm 3 giờ cho mỗi ca tăng ca hoàn thành và vẫn lưu snapshot
+  khi phiếu được tạo.
+
+Query request của Admin đọc collection rồi sort `createdAt` ở local; query của
+nhân viên chỉ dùng `whereEqualTo("employeeId", employeeId)` rồi sort local.
+Resolver tra request theo document ID và re-resolve attendance bằng
+`whereEqualTo("overtimeRequestId", requestId)`. Vì vậy Task 6 không thêm
+composite index mới; file `firebase/firestore.indexes.json` hiện có index cho
+`attendanceAdjustments`, còn các query tăng ca dùng single-field indexes mặc
+định/runtime hiện có.
+
+Kiểm tra tích hợp đã ghi nhận `npm test --prefix firebase/functions` với
+**25/25 pass**. Gradle chưa thể chạy vì thiếu `gradle/wrapper/gradle-wrapper.jar`;
+Firestore emulator chưa thể chạy vì môi trường có Java 17 trong khi Firebase
+CLI yêu cầu Java 21. Task này chỉ cập nhật tài liệu và bàn giao local: không
+deploy Firebase, không seed production và không `git push`.
+
 ### Weekly scheduling: reviewer fix round 1
 
 The weekly dialog now explains unavailable selected employees and offers an explicit removal action; validation errors remain visible when Save is disabled. The legacy picker and its selected value show supplemental start/end times, including a next-day marker for overnight shifts. Bulk audit entries now target the first canonical workSchedule ID in each chunk and retain all affected IDs in details.
@@ -442,7 +491,7 @@ Chạy kiểm tra rules riêng bằng `node --test firebase/test/shiftRules.test
 - **Xóa nhân viên** chuyển hồ sơ sang `active=false`, ẩn khỏi danh sách đang làm; bật **Hiện nhân viên đã nghỉ** để tra cứu. Không xóa chấm công hoặc phiếu lương.
 - **Xóa vân tay** gửi `DELETE_FINGERPRINT` đến thiết bị đã đăng ký, vô hiệu liên kết chấm công và chờ cảm biến xác nhận xóa. Lệnh thất bại giữ vị trí mẫu để có thể gửi lại, tránh cấp nhầm cho nhân viên khác. Chỉ tái sử dụng vị trí sau khi xóa thành công.
 - Giữ app mở/kết nối mạng để đồng bộ kết quả thiết bị; nếu đóng app, mở lại để hoàn tất. Lệnh đang xử lý không được ghi đè. Thiết bị khởi động lại giữa đăng ký sẽ báo thất bại; xóa mẫu đang chờ trước khi đăng ký lại.
-- KPI chưa tự tính. Công thức chuyên cần đề xuất được giải thích trong tab Hiệu suất; chưa có lịch làm theo tháng để áp dụng.
+- KPI tăng ca và đi muộn được tính tự động theo tháng trong Payroll/Performance: chỉ ca tăng ca `APPROVED` hoàn thành mới được tính, còn `deduction` vẫn do Admin nhập riêng.
 
 ## Nhật ký triển khai tạo tài khoản nhân viên (14/09/2026)
 
