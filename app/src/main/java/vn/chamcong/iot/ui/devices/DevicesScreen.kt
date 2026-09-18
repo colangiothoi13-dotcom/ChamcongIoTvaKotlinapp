@@ -41,6 +41,7 @@ import vn.chamcong.iot.model.commandStatusLabel
 import vn.chamcong.iot.model.isOnline
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.deviceStatusLabel
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Locale
@@ -55,7 +56,7 @@ fun DevicesScreen(state: MainUiState, vm: MainViewModel) {
     ) {
         item {
             Text("Quản lý thiết bị", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Theo dõi heartbeat và trạng thái lệnh vân tay", style = MaterialTheme.typography.bodyMedium)
+            Text("Theo dõi tín hiệu thiết bị và trạng thái lệnh vân tay", style = MaterialTheme.typography.bodyMedium)
         }
         if (state.devices.isEmpty()) {
             item {
@@ -98,19 +99,19 @@ private fun DeviceCard(device: DeviceSnapshot, saving: Boolean, vm: MainViewMode
                     Text(device.name.ifBlank { device.id }, fontWeight = FontWeight.Bold)
                     Text(device.location.ifBlank { "Chưa cập nhật vị trí" }, style = MaterialTheme.typography.bodySmall)
                 }
-                Text(if (online) "Online" else if (device.status.equals("OFFLINE", true)) "Offline" else "Chưa rõ", color = statusColor)
+                Text(deviceStatusLabel(if (online) "ONLINE" else device.status), color = statusColor)
                 IconButton({ editing = true }, enabled = !saving) { Icon(Icons.Default.Edit, "Sửa cấu hình") }
             }
             Text("Mã: ${device.id}")
-            Text("Firmware: ${device.firmwareVersion.ifBlank { "Chưa có dữ liệu" }}")
+            Text("Phiên bản phần mềm: ${device.firmwareVersion.ifBlank { "Chưa có dữ liệu" }}")
             Text("Vân tay: ${device.fingerprintCount?.toString() ?: "?"}/${device.capacity?.toString() ?: "?"}")
             device.lastHeartbeat?.let {
-                Text("Heartbeat: ${SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).format(it.toDate())}", style = MaterialTheme.typography.bodySmall)
-            } ?: Text("Chưa nhận heartbeat", style = MaterialTheme.typography.bodySmall)
+                Text("Tín hiệu cuối: ${SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).format(it.toDate())}", style = MaterialTheme.typography.bodySmall)
+            } ?: Text("Chưa nhận tín hiệu", style = MaterialTheme.typography.bodySmall)
             val capabilities = device.capabilities
             Text(
-                if (capabilities.isEmpty()) "Firmware hiện tại chưa công bố capability test LED/còi"
-                else "Capability: ${capabilities.sorted().joinToString()}",
+                if (capabilities.isEmpty()) "Phần mềm thiết bị chưa công bố khả năng kiểm tra đèn/còi"
+                else "Khả năng thiết bị: ${capabilities.sorted().joinToString()}",
                 style = MaterialTheme.typography.bodySmall
             )
         }

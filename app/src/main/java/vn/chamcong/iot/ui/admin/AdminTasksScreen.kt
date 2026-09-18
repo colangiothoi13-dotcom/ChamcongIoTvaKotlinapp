@@ -48,7 +48,7 @@ val adminTaskGroups = listOf(
         "Chấm công & thiết bị",
         listOf(
             AdminTaskItem(AppDestination.ATTENDANCE, "Theo dõi lượt vào/ra và lọc bất thường", Icons.Default.FactCheck),
-            AdminTaskItem(AppDestination.DEVICES, "Heartbeat, trạng thái và lệnh vân tay", Icons.Default.Devices),
+            AdminTaskItem(AppDestination.DEVICES, "Tín hiệu, trạng thái và lệnh vân tay", Icons.Default.Devices),
             AdminTaskItem(AppDestination.PRESENCE, "Biết nhanh ai đang có mặt", Icons.Default.HowToReg)
         )
     ),

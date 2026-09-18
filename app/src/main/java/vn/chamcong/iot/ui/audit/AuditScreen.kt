@@ -18,6 +18,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.ui.MainUiState
+import vn.chamcong.iot.ui.auditActionLabel
+import vn.chamcong.iot.ui.auditTargetTypeLabel
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Composable
 fun AuditScreen(state: MainUiState) {
@@ -36,11 +40,11 @@ fun AuditScreen(state: MainUiState) {
         items(logs, key = { it.id }) { log ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("${log.action} • ${log.targetType}/${log.targetId}", style = MaterialTheme.typography.titleMedium)
+                    Text("${auditActionLabel(log.action)} • ${auditTargetTypeLabel(log.targetType)}/${log.targetId}", style = MaterialTheme.typography.titleMedium)
                     Text("${log.actorName} (${log.actorId})")
                     Text(log.details)
                     if (log.reason.isNotBlank()) Text("Lý do: ${log.reason}")
-                    Text(log.createdAt.toDate().toInstant().toString(), style = MaterialTheme.typography.bodySmall)
+                    Text(SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("vi", "VN")).format(log.createdAt.toDate()), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

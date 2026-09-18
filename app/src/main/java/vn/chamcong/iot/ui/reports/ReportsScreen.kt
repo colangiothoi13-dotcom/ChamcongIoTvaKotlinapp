@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -29,6 +31,8 @@ import vn.chamcong.iot.model.ReportFilter
 import vn.chamcong.iot.model.ReportType
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.attendanceStatusLabel
+import vn.chamcong.iot.ui.deviceStatusLabel
 import java.io.File
 import java.time.LocalDate
 
@@ -94,9 +98,16 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 ReportType.entries.forEach { option ->
-                    FilterChip(selected = option == type, onClick = { type = option }, label = { Text(reportTypeTitle(option)) })
+                    FilterChip(
+                        selected = option == type,
+                        onClick = { type = option },
+                        label = { Text(reportTypeTitle(option), maxLines = 1, softWrap = false) }
+                    )
                 }
             }
         }
@@ -123,8 +134,8 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(row.deviceId, style = MaterialTheme.typography.titleMedium)
-                        Text("${row.status} • Firmware ${row.firmwareVersion.ifBlank { "?" }}")
-                        Text("Heartbeat: ${row.lastHeartbeat.ifBlank { "chưa có" }}")
+                        Text("${deviceStatusLabel(row.status)} • Phần mềm ${row.firmwareVersion.ifBlank { "?" }}")
+                        Text("Tín hiệu cuối: ${row.lastHeartbeat.ifBlank { "chưa có" }}")
                         Text("Vân tay: ${row.fingerprintCount ?: "?"}/${row.capacity ?: "?"} • Lệnh lỗi: ${row.failedCommandCount}")
                     }
                 }
@@ -134,7 +145,7 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text("${row.date} • ${row.employeeName}", style = MaterialTheme.typography.titleMedium)
-                        Text("${row.department.ifBlank { "Chưa có phòng ban" }} • ${row.status}")
+                        Text("${row.department.ifBlank { "Chưa có phòng ban" }} • ${attendanceStatusLabel(row.status)}")
                         Text("Vào ${row.checkIn.ifBlank { "--:--" }} • Ra ${row.checkOut.ifBlank { "--:--" }}")
                         Text("Giờ làm ${row.workedHours}h • Tăng ca ${row.overtimeHours}h")
                     }

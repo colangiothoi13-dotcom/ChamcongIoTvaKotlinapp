@@ -26,6 +26,8 @@ import vn.chamcong.iot.model.LeaveRequest
 import vn.chamcong.iot.model.RequestStatus
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.requestStatusLabel
+import vn.chamcong.iot.ui.requestTypeLabel
 import vn.chamcong.iot.ui.overtime.AdminOvertimeRequestSection
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -76,10 +78,10 @@ fun RequestsScreen(state: MainUiState, vm: MainViewModel) {
 private fun RequestCard(request: LeaveRequest, state: MainUiState, onApprove: () -> Unit, onReject: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text("${request.employeeName.ifBlank { request.employeeId }} • ${request.type}", style = MaterialTheme.typography.titleMedium)
+            Text("${request.employeeName.ifBlank { request.employeeId }} • ${requestTypeLabel(request.type)}", style = MaterialTheme.typography.titleMedium)
             Text("${request.startDate} – ${request.endDate} • ${request.reason}")
             request.attachmentUrl?.takeIf(String::isNotBlank)?.let { Text("Tệp đính kèm: $it", style = MaterialTheme.typography.bodySmall) }
-            Text("Trạng thái: ${request.status}")
+            Text("Trạng thái: ${requestStatusLabel(request.status)}")
             if (request.reviewerName != null) Text("Người duyệt: ${request.reviewerName} • ${request.reviewedAt?.let { formatTimestamp(it.toDate().time) } ?: ""}", style = MaterialTheme.typography.bodySmall)
             request.reviewNote?.let { Text("Ghi chú: $it", style = MaterialTheme.typography.bodySmall) }
             if (request.status == RequestStatus.PENDING.name) {

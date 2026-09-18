@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -39,11 +41,22 @@ fun PresenceScreen(state: MainUiState, vm: MainViewModel) {
             Text(state.selectedPresenceDate.toString(), modifier = Modifier.padding(top = 12.dp))
             TextButton(onClick = { vm.selectPresenceDate(state.selectedPresenceDate.plusDays(1)) }) { Text("Ngày sau ›") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(selected = selected == null, onClick = { selected = null }, label = { Text("Tất cả ${records.size}") })
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            FilterChip(
+                selected = selected == null,
+                onClick = { selected = null },
+                label = { Text("Tất cả ${records.size}", maxLines = 1, softWrap = false) }
+            )
             PresenceStatus.entries.forEach { status ->
                 val count = records.count { it.status == status }
-                FilterChip(selected = selected == status, onClick = { selected = status }, label = { Text("${statusLabel(status)} $count") })
+                FilterChip(
+                    selected = selected == status,
+                    onClick = { selected = status },
+                    label = { Text("${statusLabel(status)} $count", maxLines = 1, softWrap = false) }
+                )
             }
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {

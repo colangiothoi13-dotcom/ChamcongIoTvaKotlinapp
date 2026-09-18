@@ -40,6 +40,7 @@ import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.isOnline
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.attendanceStatusLabel
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Locale
@@ -115,7 +116,7 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
                         val online = state.devices.count { it.isOnline(Instant.now()) }
                         Text("${online}/${state.devices.size} thiết bị đang online")
                     }
-                    Text("Thiết bị offline hoặc thiếu heartbeat sẽ được hiển thị là cần kiểm tra.", style = MaterialTheme.typography.bodySmall)
+                    Text("Thiết bị mất kết nối hoặc thiếu tín hiệu sẽ được hiển thị là cần kiểm tra.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -223,7 +224,7 @@ private fun DashboardAttendanceRow(item: Attendance) {
                 Text(item.employeeName.ifBlank { item.employeeId }, fontWeight = FontWeight.Bold)
                 Text("$time • ${item.deviceId}", style = MaterialTheme.typography.bodySmall)
             }
-            AssistChip(onClick = {}, label = { Text(item.status) })
+            AssistChip(onClick = {}, label = { Text(attendanceStatusLabel(item.status)) })
         }
     }
 }

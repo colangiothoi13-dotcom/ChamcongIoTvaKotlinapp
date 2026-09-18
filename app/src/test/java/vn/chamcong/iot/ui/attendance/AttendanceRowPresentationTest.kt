@@ -27,14 +27,19 @@ class AttendanceRowPresentationTest {
             row.copy(resolutionStatus = "unknown"), row.copy(scheduleDate = "bad-date"),
             row.copy(status = "unknown")).forEach {
             assertFalse(attendanceResolutionPresentation(it).accepted)
-            assertTrue(attendanceResolutionPresentation(it).label.contains("ABNORMAL"))
+            assertTrue(attendanceResolutionPresentation(it).label.contains("Bất thường"))
         }
     }
 
     @Test fun serverResolutionTypesUseTheirDedicatedLabels() {
         listOf("DUPLICATE", "UNSCHEDULED", "OUT_OF_ORDER").forEach { status ->
             val presentation = attendanceResolutionPresentation(row.copy(type = status, resolutionStatus = status, status = "ABNORMAL"))
-            assertTrue("Expected $status label, got ${presentation.label}", presentation.label.startsWith("$status •"))
+            val expected = mapOf(
+                "DUPLICATE" to "Quét trùng",
+                "UNSCHEDULED" to "Chưa có ca",
+                "OUT_OF_ORDER" to "Sai thứ tự"
+            ).getValue(status)
+            assertTrue("Expected $expected label, got ${presentation.label}", presentation.label.startsWith(expected))
             assertFalse(presentation.accepted)
         }
     }
@@ -45,7 +50,7 @@ class AttendanceRowPresentationTest {
             listOf(resolved.copy(verified = false), resolved.copy(scheduleDate = "bad-date"),
                 resolved.copy(type = "unknown"), resolved.copy(resolutionStatus = "unknown")).forEach {
                 val presentation = attendanceResolutionPresentation(it)
-                assertTrue(presentation.label.startsWith("ABNORMAL"))
+                assertTrue(presentation.label.startsWith("Bất thường"))
                 assertFalse(presentation.accepted)
             }
         }
