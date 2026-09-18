@@ -1,4 +1,45 @@
-# Chấm công IoT
+# BÁO CÁO HỆ THỐNG CHẤM CÔNG IoT
+
+> Báo cáo tổng quan hệ thống, luồng hoạt động, chức năng giao diện và cấu trúc mã nguồn.
+
+| Hạng mục | Nội dung |
+| --- | --- |
+| Tên dự án | Chấm công IoT bằng vân tay |
+| Loại tài liệu | Báo cáo mô tả hệ thống và hướng dẫn sử dụng |
+| Đối tượng sử dụng | Admin, Nhân viên, người vận hành thiết bị |
+| Nền tảng | Android Kotlin, Firebase, ESP8266, cảm biến AS608/R307 |
+| Trạng thái | MVP mở rộng, có xử lý ca, tăng ca, KPI, lương và audit |
+| Phạm vi tài liệu | Nghiệp vụ, giao diện, dữ liệu, file mã nguồn và cách vận hành |
+
+## Tóm tắt điều hành
+
+Hệ thống thay thế việc chấm công thủ công bằng quy trình nhận dạng vân tay,
+phân ca theo lịch và xử lý dữ liệu tập trung trên Firebase. Thiết bị ESP8266
+nhận dạng vân tay tại nơi làm việc; ứng dụng Android cung cấp giao diện quản trị
+và giao diện nhân viên; Cloud Functions chịu trách nhiệm phân giải lượt quét
+theo ca, tính giờ và cập nhật trạng thái.
+
+Điểm trọng tâm của phiên bản hiện tại là không quyết định vào/ra theo mốc 12 giờ.
+Hệ thống dùng lịch làm, cửa sổ ca và lượt chấm gần nhất để hỗ trợ ca qua đêm,
+chống quét trùng, phát hiện quên chấm ra, xử lý tăng ca có duyệt và ghi audit
+cho các thay đổi công.
+
+## Mục lục báo cáo
+
+1. [Tổng quan hệ thống](#1-tổng-quan-hệ-thống)
+2. [Chức năng các nút bấm](#2-chức-năng-các-nút-bấm)
+3. [Cấu trúc file và trách nhiệm](#3-cấu-trúc-file-và-trách-nhiệm-từng-phần)
+4. [Kiến trúc và nghiệp vụ kỹ thuật](#4-kiến-trúc-và-nghiệp-vụ-kỹ-thuật)
+5. [Luồng hoạt động chi tiết](#5-luồng-hoạt-động-chi-tiết)
+6. [Hướng dẫn thao tác chi tiết](#6-hướng-dẫn-thao-tác-chi-tiết)
+7. [Cài đặt và chạy Android](#7-chạy-android)
+8. [Kiểm thử và kiểm chứng](#8-backend-firebase-và-kiểm-chứng-cục-bộ)
+9. [Nạp firmware và đăng ký vân tay](#9-nạp-firmware)
+10. [Cấu trúc Firestore](#11-cấu-trúc-firestore)
+11. [Định hướng phát triển](#12-phần-tiếp-theo-nên-làm)
+12. [Phụ lục A–C](#phụ-lục-a-thiết-kế-mvvm-và-nhật-ký-file)
+
+## Công nghệ và phạm vi triển khai
 
 MVP quản trị nhân sự và chấm công bằng vân tay gồm:
 
@@ -6,7 +47,7 @@ MVP quản trị nhân sự và chấm công bằng vân tay gồm:
 - Thiết bị: ESP8266 + cảm biến AS608/R307, LED xanh/đỏ và buzzer.
 - Backend: Firebase Anonymous Auth + Firestore REST dành cho ESP8266; Cloud Functions phân giải chấm công theo lịch ca.
 
-## Tổng quan hệ thống
+## 1. Tổng quan hệ thống
 
 Đây là hệ thống quản lý nhân sự và chấm công bằng vân tay. Admin sử dụng ứng dụng
 Android để quản lý nhân viên, ca làm, lịch tuần, đơn từ, lương, KPI, báo cáo và
@@ -69,7 +110,7 @@ Android cập nhật realtime hiện diện, giờ công, báo cáo và lương
 | Nhân viên | Xem lịch và công của mình, gửi đơn thường, gửi đăng ký tăng ca, đổi mật khẩu và đăng xuất. |
 | Thiết bị | Gửi snapshot/tín hiệu, nhận lệnh vân tay và tạo lượt quét; không được tự sửa lịch sử chấm công. |
 
-## Chức năng các nút bấm
+## 2. Chức năng các nút bấm
 
 Tên dưới đây là tên hiển thị trong ứng dụng. Các thẻ thống kê, dòng trong `Tác vụ`
 và ô giao giữa nhân viên/ngày trên lịch cũng là vùng có thể bấm.
@@ -144,7 +185,7 @@ Các nút lưu, duyệt, từ chối, gửi lệnh và xóa sẽ bị khóa tron
 Nút `Hủy`, mũi tên chuyển ngày/tuần/tháng và chip lọc chỉ thay đổi giao diện,
 không tự ghi dữ liệu nghiệp vụ.
 
-## Cấu trúc file và trách nhiệm từng phần
+## 3. Cấu trúc file và trách nhiệm từng phần
 
 ```text
 ChamcongIoTvaKotlinapp-main/
@@ -191,7 +232,7 @@ ChamcongIoTvaKotlinapp-main/
 | `firebase/functions/attendanceResolver.js` | Cloud Function phân giải raw scan trên server. |
 | `firebase/firestore.rules` | Bảo vệ quyền và tính bất biến của attendance/audit/payroll. |
 
-## Kiến trúc
+## 4. Kiến trúc và nghiệp vụ kỹ thuật
 
 ### Đơn tăng ca cố định, phân giải chấm công và KPI (Task 6)
 
@@ -283,7 +324,7 @@ ESP8266 --Anonymous Auth/HTTPS--> Firestore <--realtime--> Android
 
 Không lưu ảnh hay đặc trưng vân tay trên Firestore. Module cảm biến giữ template; Firestore chỉ giữ số `fingerprintTemplateId` gắn với nhân viên. Bản production cần xin đồng ý xử lý dữ liệu sinh trắc học, phân quyền, nhật ký truy cập và chính sách xóa dữ liệu.
 
-## Bản mô tả luồng hoạt động hệ thống
+## 5. Luồng hoạt động chi tiết
 
 Dự án này là một hệ thống chấm công thông minh kết hợp giữa ứng dụng Android, Firebase và thiết bị ESP8266 cảm biến vân tay. Mục tiêu là thay thế hình thức chấm công thủ công bằng một mô hình tự động, có thể theo dõi thời gian làm việc, quản lý nhân viên, thiết bị chấm công và báo cáo doanh nghiệp theo thời gian thực.
 
@@ -456,7 +497,7 @@ Khi mạng trở lại, ESP8266 tự động đọc lại hàng đợi, gửi t�
 
 Dự án này không chỉ là một ứng dụng chấm công đơn thuần, mà là một hệ thống quản lý nhân sự hiện đại tích hợp thiết bị phần cứng và nền tảng điện toán đám mây. Từ việc đăng nhập, quản lý nhân viên, đăng ký vân tay, chấm công tự động, theo dõi thiết bị, cho đến lương, báo cáo và audit, toàn bộ hệ thống được thiết kế theo hướng tự động hóa và minh bạch. Điều này giúp giảm sai sót thủ công, tăng độ tin cậy và tạo nền tảng để doanh nghiệp quản lý nhân sự hiệu quả hơn trong thời gian dài.
 
-## Báo cáo luồng hoạt động và chức năng từng tác vụ, nút bấm
+## 6. Hướng dẫn thao tác chi tiết
 
 Phần này mô tả hệ thống theo góc nhìn người sử dụng. Tên nút bên dưới là tên đang hiển thị trong Android app; một số thẻ/card, dòng tác vụ và ô trên lịch là vùng có thể bấm dù không được vẽ dưới dạng nút. Khi nút đang xử lý, app khóa thao tác ghi trùng và hiển thị thông báo thành công hoặc lỗi ngay trên màn hình.
 
@@ -713,7 +754,7 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 - Kiểm tra cục bộ hiện có `npm test --prefix firebase/functions` đạt 26/26; Gradle và Firestore Emulator còn phụ thuộc môi trường JDK/wrapper được nêu ở phần kiểm chứng bên dưới.
 - Các thay đổi trong tài liệu này chỉ được thực hiện local trong worktree; chưa deploy Firebase và chưa `git push`.
 
-## Chạy Android
+## 7. Chạy Android
 
 1. Mở thư mục `ChamCongIoT` bằng Android Studio (JDK 17).
 2. Tạo Firebase project, thêm Android app package `vn.chamcong.iot`.
@@ -724,7 +765,7 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 
 Repository hiện có script `gradlew`/`gradlew.bat` nhưng chưa kèm `gradle-wrapper.jar`. Android Studio có thể đồng bộ bằng Gradle đã cấu hình; nếu cần build từ terminal, tạo wrapper bằng `gradle wrapper --gradle-version 8.9`.
 
-## Backend Firebase và kiểm chứng cục bộ
+## 8. Backend Firebase và kiểm chứng cục bộ
 
 `firebase/functions/package.json` khai báo runtime Node.js 22. Luồng chấm công hiện yêu cầu Cloud Functions hoạt động; chỉ cấu hình Auth/Firestore như bản Spark prototype cũ sẽ để lượt mới ở `SCAN/PENDING`. Firmware gửi Firestore REST trực tiếp; các endpoint HTTPS cũ trong `index.js` vẫn khai báo secret `DEVICE_API_KEY`. Khi chuẩn bị triển khai, người vận hành cần kiểm tra cấu hình Functions, secret cho endpoint dùng đến và yêu cầu dịch vụ của project đích.
 
@@ -744,7 +785,7 @@ APK debug: `app/build/outputs/apk/debug/app-debug.apk`. `npm test` kiểm thử 
 
 Task 8 chỉ cập nhật tài liệu và kiểm chứng cục bộ; không deploy, flash thiết bị hoặc thay đổi dữ liệu production. Việc triển khai Functions, Rules/indexes trong `firebase/`, cấu hình project và nạp firmware được để lại cho người vận hành sau khi kiểm chứng môi trường phù hợp. Bằng chứng và giới hạn của lần chạy này được ghi tại `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-8-report.md`.
 
-## Nạp firmware
+## 9. Nạp firmware
 
 Mở `firmware/esp8266_fingerprint/esp8266_fingerprint.ino` trong Arduino IDE, cài:
 
@@ -763,7 +804,7 @@ Mở `firmware/esp8266_fingerprint/esp8266_fingerprint.ino` trong Arduino IDE, c
 
 Nguồn cảm biến phải đúng thông số module và chung GND với ESP8266. Không kéo buzzer công suất trực tiếp từ GPIO; dùng transistor và diode bảo vệ.
 
-## Đăng ký vân tay từ app
+## 10. Đăng ký vân tay từ app
 
 1. Deploy lại Functions và Firestore Rules sau mỗi lần cập nhật backend.
 2. Nạp firmware mới và bảo đảm `DEVICE_ID` trên ESP trùng mã thiết bị trong app (mặc định `GATE-01`).
@@ -775,7 +816,7 @@ App tạo lệnh tại `deviceCommands/{deviceId}`; ESP đọc và cập nhật 
 
 Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi triển khai thật, thay bằng CA certificate pinning, đổi API key định kỳ, giới hạn tốc độ theo `deviceId`, và tốt hơn là ký HMAC từng request kèm timestamp/nonce.
 
-## Cấu trúc Firestore
+## 11. Cấu trúc Firestore
 
 - `employees/{id}`: mã, họ tên, phòng ban, email, `fingerprintTemplateId`, trạng thái.
 - `attendance/{eventId}`: giữ nguyên định danh sự kiện, thiết bị, thời điểm quét NTP UTC và provenance raw scan; Cloud Function cập nhật in place kết quả phân giải theo ca (`CHECK_IN`/`CHECK_OUT`, `scheduleDate`, `resolutionStatus`) trên cùng document.
@@ -791,11 +832,11 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi
 - `settings/{id}`: cấu hình dùng chung do admin quản lý.
 - `audit_logs/{id}`: nhật ký bất biến của các thao tác quản trị.
 
-## Phần tiếp theo nên làm
+## 12. Phần tiếp theo nên làm
 
 MVP đã có đăng nhập, dashboard, danh sách/thêm nhân viên, feed chấm công realtime, mô hình lương–hiệu suất, FCM và firmware nhận dạng/gửi kết quả. Các module ca/lịch, báo cáo, audit, bảo mật role, offline outbox và KPI tăng ca/đi muộn đã được bổ sung. Phần còn có thể mở rộng là tích hợp email/Zalo, tự động gửi báo cáo cuối tháng và hoàn thiện khu cấu hình doanh nghiệp trong `Cài đặt`.
 
-## Thiết kế MVVM và nhật ký file
+## Phụ lục A. Thiết kế MVVM và nhật ký file
 
 App được triển khai bằng Kotlin + Jetpack Compose theo MVVM:
 
@@ -925,7 +966,7 @@ Các file thay đổi so với `80b5d36` trong đợt sửa cuối:
 
 Chạy kiểm tra rules riêng bằng `node --test firebase/test/shiftRules.test.js` sau khi khởi động Firestore emulator tại `127.0.0.1:8085`, project `demo-attendance-final-fix`, nạp `firebase/firestore.rules`. Script chỉ dùng endpoint local cố định. `npm test` trong `firebase/functions` vẫn chạy độc lập, không cần emulator. Lệnh khởi động emulator, kết quả chính xác và giới hạn được ghi trong báo cáo cuối.
 
-## Quản lý nhân viên, vân tay và lương
+## Phụ lục B. Quản lý nhân viên, vân tay và lương
 
 - Khi thêm nhân viên, app tự cấp mã `NV0001`, `NV0002`… trong giao dịch Firestore. Cả “Chỉ lưu nhân viên” và “Lưu & đăng ký vân tay” đều dùng cùng bộ đếm. Mã cũ được giữ nguyên; mã NV có sẵn và nhân viên đã nghỉ vẫn được xét để tránh cấp lại. Cập nhật toàn bộ app quản trị sang bản mới trước khi thêm nhân viên; bản cũ còn nhập mã thủ công không tham gia bộ đếm.
 - Nhân viên → **Thiết lập lương** để đặt đơn giá lương cơ bản theo giờ.
@@ -936,7 +977,7 @@ Chạy kiểm tra rules riêng bằng `node --test firebase/test/shiftRules.test
 - Giữ app mở/kết nối mạng để đồng bộ kết quả thiết bị; nếu đóng app, mở lại để hoàn tất. Lệnh đang xử lý không được ghi đè. Thiết bị khởi động lại giữa đăng ký sẽ báo thất bại; xóa mẫu đang chờ trước khi đăng ký lại.
 - KPI tăng ca và đi muộn được tính tự động theo tháng trong Payroll/Performance: chỉ ca tăng ca `APPROVED` hoàn thành mới được tính, còn `deduction` vẫn do Admin nhập riêng.
 
-## Nhật ký triển khai tạo tài khoản nhân viên (14/09/2026)
+## Phụ lục C. Nhật ký triển khai tạo tài khoản nhân viên (14/09/2026)
 
 - Form **Thêm nhân viên** đã có tùy chọn **Tạo tài khoản đăng nhập cho nhân viên**. Admin nhập email, mật khẩu và xác nhận mật khẩu ngay khi lưu hồ sơ.
 - Khi bật tùy chọn này, app lưu hồ sơ nhân viên trước, tạo tài khoản Email/Password trong Firebase Auth bằng Firebase App phụ để không đăng xuất phiên Admin, sau đó tạo `users/{uid}` với `role=EMPLOYEE`, `active=true` và `employeeId` trỏ đúng ID document trong `employees`.
