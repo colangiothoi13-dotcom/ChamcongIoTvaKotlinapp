@@ -77,3 +77,20 @@ internal fun auditTargetTypeLabel(targetType: String): String = when (targetType
     "device" -> "Thiết bị"
     else -> targetType
 }
+
+internal fun auditLogTitle(action: String, targetType: String): String =
+    "${auditActionLabel(action)} • ${auditTargetTypeLabel(targetType)}"
+
+internal fun auditActorLabel(actorName: String): String =
+    actorName.ifBlank { "Người dùng không xác định" }
+
+internal fun userFacingErrorMessage(error: Throwable): String {
+    val raw = error.localizedMessage.orEmpty()
+    return if (raw.contains("PERMISSION_DENIED", ignoreCase = true)
+        || raw.contains("Missing or insufficient permissions", ignoreCase = true)
+    ) {
+        "Tài khoản chưa có quyền đọc dữ liệu. Hãy kiểm tra vai trò ADMIN, trạng thái active và Firestore Rules."
+    } else {
+        raw.ifBlank { "Đã xảy ra lỗi, vui lòng thử lại." }
+    }
+}

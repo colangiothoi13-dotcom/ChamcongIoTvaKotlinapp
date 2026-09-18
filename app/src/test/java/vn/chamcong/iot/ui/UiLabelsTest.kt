@@ -27,4 +27,19 @@ class UiLabelsTest {
         assertEquals("Đang hoạt động", deviceStatusLabel("ONLINE"))
         assertEquals("Mất kết nối", deviceStatusLabel("OFFLINE"))
     }
+
+    @Test
+    fun auditPresentationDoesNotExposeInternalIdentifiers() {
+        assertEquals("Cập nhật ca • Ca làm", auditLogTitle("SHIFT_UPDATE", "shift"))
+        assertEquals("colangio", auditActorLabel("colangio"))
+        assertEquals("Người dùng không xác định", auditActorLabel(""))
+    }
+
+    @Test
+    fun permissionErrorsAreTranslatedForTheAdminScreen() {
+        assertEquals(
+            "Tài khoản chưa có quyền đọc dữ liệu. Hãy kiểm tra vai trò ADMIN, trạng thái active và Firestore Rules.",
+            userFacingErrorMessage(Throwable("PERMISSION_DENIED: Missing or insufficient permissions."))
+        )
+    }
 }

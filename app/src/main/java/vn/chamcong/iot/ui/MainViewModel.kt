@@ -147,7 +147,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(signedIn = true, loading = false) }
                 subscribe()
             }
-            .onFailure { e -> _state.update { it.copy(loading = false, error = e.localizedMessage) } }
+            .onFailure { e -> _state.update { it.copy(loading = false, error = userFacingErrorMessage(e)) } }
     }
 
     private val dataSubscriptions = mutableListOf<Job>()
@@ -327,7 +327,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(saving=false, message=message) }
             onSuccess()
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { _state.update { it.copy(saving=false, error=e.localizedMessage) } }
+        catch (e: Exception) { _state.update { it.copy(saving=false, error=userFacingErrorMessage(e)) } }
     }
     fun adjustAttendance(adjustment: AttendanceAdjustment, done: () -> Unit) = perform(done) {
         repository.saveAttendanceAdjustment(adjustment)
@@ -447,7 +447,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearError() = _state.update { it.copy(error = null) }
-    private fun setError(error: Throwable) = _state.update { it.copy(error = error.localizedMessage) }
+    private fun setError(error: Throwable) = _state.update { it.copy(error = userFacingErrorMessage(error)) }
 
     fun hasAdminAccess(): Boolean = canAccessAdmin("password", _state.value.userProfile)
     fun hasEmployeeAccess(): Boolean = canAccessEmployee("password", _state.value.userProfile)
