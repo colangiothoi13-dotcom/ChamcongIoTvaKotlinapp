@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.employees
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,7 +33,7 @@ fun EmployeesScreen(
         .filter(String::isNotBlank)
         .distinct()
         .sorted()
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Danh sách nhân sự", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             Button(onClick = onAdd) { Text("Thêm") }
@@ -44,7 +45,7 @@ fun EmployeesScreen(
             label = { Text("Tìm theo tên hoặc mã nhân viên") },
             singleLine = true
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             departments.forEach { department ->
                 FilterChip(
                     selected = (state.departmentFilter ?: "Tất cả") == department,

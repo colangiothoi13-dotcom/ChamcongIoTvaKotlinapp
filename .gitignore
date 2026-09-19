@@ -4,6 +4,7 @@
 *.dex
 *.class
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 build/
 app/build/
 .gradle/

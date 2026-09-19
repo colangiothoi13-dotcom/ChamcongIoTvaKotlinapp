@@ -369,7 +369,9 @@ service cloud.firestore {
     }
     match /system/{id} { allow read, write: if isAdmin(); }
     match /payroll/{id} {
-      allow read, create: if isAdmin();
+      allow read: if isAdmin()
+        || (resource.data.employeeId is string && isOwnEmployee(resource.data.employeeId));
+      allow create: if isAdmin();
       // Phieu luong da luu la anh chup lich su, khong ghi de/xoa.
       allow update, delete: if false;
     }

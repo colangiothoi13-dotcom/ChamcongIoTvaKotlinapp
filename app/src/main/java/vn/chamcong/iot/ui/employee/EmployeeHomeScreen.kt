@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.employee
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,14 +38,14 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
     val totalHours = summaries.sumOf { it.workedHours }
     val lateCount = summaries.count { it.status == EmployeeAttendanceStatus.LATE || it.status == EmployeeAttendanceStatus.ABNORMAL }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item {
             Text("Xin chào, ${employee.fullName}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(today.format(dateFormatter).replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyLarge)
         }
         item {
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     Text("Hôm nay", style = MaterialTheme.typography.titleLarge)
                     Text("Ca làm: ${todaySummary?.shiftName?.ifBlank { "Chưa được phân ca" } ?: "Chưa được phân ca"}")
                     Text("Khung giờ: ${todaySummary?.shiftStartTime?.takeIf(String::isNotBlank) ?: "—"} – ${todaySummary?.shiftEndTime?.takeIf(String::isNotBlank) ?: "—"}")
@@ -55,7 +56,7 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 MiniStat("Giờ làm tháng", "%.2f".format(totalHours), Modifier.weight(1f))
                 MiniStat("Ngày đi làm", workedDays.toString(), Modifier.weight(1f))
                 MiniStat("Lần đi trễ", lateCount.toString(), Modifier.weight(1f))
@@ -67,7 +68,7 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun MiniStat(label: String, value: String, modifier: Modifier) {
     Card(modifier) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(AppSpacing.medium), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
             Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(label, style = MaterialTheme.typography.bodySmall)
         }
@@ -77,7 +78,7 @@ private fun MiniStat(label: String, value: String, modifier: Modifier) {
 @Composable
 private fun EmptyEmployeeLinkState() {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text("Chưa liên kết hồ sơ nhân viên", style = MaterialTheme.typography.titleLarge)
             Text("Hãy liên hệ Admin để gán users/{uid}.employeeId vào hồ sơ của bạn.")
         }

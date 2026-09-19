@@ -161,6 +161,18 @@ class FirebaseRepository(
         }
         awaitClose { listener.remove() }
     }
+    fun observeEmployeePayroll(employeeId: String): Flow<List<Payroll>> = callbackFlow {
+        require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+        val listener = db.collection("payroll")
+            .whereEqualTo("employeeId", employeeId)
+            .addSnapshotListener { value, error ->
+                if (error != null) close(error)
+                else trySend(value?.documents.orEmpty()
+                    .mapNotNull { it.toObject(Payroll::class.java) }
+                    .sortedByDescending { it.month })
+            }
+        awaitClose { listener.remove() }
+    }
     fun observeDevices(): Flow<List<DeviceSnapshot>> = callbackFlow {
         val listener = db.collection("devices").addSnapshotListener { value, error ->
             if (error != null) close(error)

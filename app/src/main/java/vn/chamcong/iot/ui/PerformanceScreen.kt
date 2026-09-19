@@ -31,7 +31,7 @@ internal fun PerformanceScreen(state: MainUiState, vm: MainViewModel) {
     val selectedMonth = if (validMonth) YearMonth.parse(month) else null
     val breakdowns = selectedMonth?.let(vm::kpiBonusBreakdowns).orEmpty()
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         OutlinedTextField(
             value = month,
             onValueChange = { month = it },
@@ -47,7 +47,7 @@ internal fun PerformanceScreen(state: MainUiState, vm: MainViewModel) {
             "Top 3 chỉ dành cho nhân viên không đi muộn; thứ hạng dùng số ca tăng ca hoàn thành.",
             style = MaterialTheme.typography.bodySmall
         )
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             if (state.employees.isEmpty()) {
                 item { Text("Chưa có nhân viên để tính hiệu suất") }
             }
@@ -62,7 +62,7 @@ internal fun PerformanceScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun PerformanceCard(name: String, code: String, breakdown: KpiBonusBreakdown) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text("${code.ifBlank { "—" }} • $name", style = MaterialTheme.typography.titleMedium)
             Text(
                 breakdown.top3Rank?.let { "Top 3: hạng $it" }

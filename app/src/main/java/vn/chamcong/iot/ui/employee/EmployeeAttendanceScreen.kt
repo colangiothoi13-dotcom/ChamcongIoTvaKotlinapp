@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.employee
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,19 +34,25 @@ private val monthFormatter = DateTimeFormatter.ofPattern("MM/yyyy")
 private val zone = java.time.ZoneId.of("Asia/Ho_Chi_Minh")
 
 @Composable
-fun EmployeeAttendanceScreen(state: MainUiState, vm: MainViewModel, onOpenRequests: () -> Unit = {}) {
+fun EmployeeAttendanceScreen(
+    state: MainUiState,
+    vm: MainViewModel,
+    onOpenRequests: () -> Unit = {},
+    onOpenPayroll: () -> Unit = {}
+) {
     var month by remember { mutableStateOf(LocalDate.now(zone).withDayOfMonth(1)) }
     val summaries = vm.employeeMonthSummaries(month).filter { summary ->
         summary.workedHours > 0.0 || summary.checkIn != null || summary.checkOut != null || summary.shiftName.isNotBlank() || summary.status.name in listOf("LEAVE", "ABNORMAL")
     }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             IconButton({ month = month.minusMonths(1) }) { Icon(Icons.Default.ChevronLeft, "Tháng trước") }
-            Text("Lịch sử chấm công • ${month.format(monthFormatter)}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 12.dp))
+            Text("Lịch sử chấm công • ${month.format(monthFormatter)}", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = AppSpacing.medium))
             IconButton({ month = month.plusMonths(1) }) { Icon(Icons.Default.ChevronRight, "Tháng sau") }
         }
         Button(onClick = onOpenRequests, modifier = Modifier.fillMaxWidth()) { Text("Gửi yêu cầu điều chỉnh") }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onOpenPayroll, modifier = Modifier.fillMaxWidth()) { Text("Xem phiếu lương") }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             if (summaries.isEmpty()) item { Text("Chưa có lịch hoặc lượt chấm công trong tháng này") }
             items(summaries, key = { it.date.toString() }) { summary -> EmployeeDayCard(summary) }
         }
@@ -55,7 +62,7 @@ fun EmployeeAttendanceScreen(state: MainUiState, vm: MainViewModel, onOpenReques
 @Composable
 private fun EmployeeDayCard(summary: EmployeeDaySummary) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text(summary.date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), style = MaterialTheme.typography.titleMedium)
             Text("Ca: ${summary.shiftName.ifBlank { "Chưa phân ca" }}")
             Text("Vào: ${summary.checkIn?.let(::formatTime) ?: "—"}    Ra: ${summary.checkOut?.let(::formatTime) ?: "—"}")

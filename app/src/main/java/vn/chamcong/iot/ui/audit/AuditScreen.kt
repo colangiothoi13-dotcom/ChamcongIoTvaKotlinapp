@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.audit
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,7 +32,7 @@ fun AuditScreen(state: MainUiState) {
         normalized.isBlank() || listOf(log.action, log.targetType, log.targetId, log.actorName, log.details)
             .any { it.lowercase().contains(normalized) }
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item {
             Text("Nhật ký hệ thống", style = MaterialTheme.typography.titleLarge)
             Text("Nhật ký chỉ đọc; mỗi dòng lưu người thực hiện, đối tượng, thời gian và nội dung.", style = MaterialTheme.typography.bodySmall)
@@ -39,7 +40,7 @@ fun AuditScreen(state: MainUiState) {
         }
         items(logs, key = { it.id }) { log ->
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.padding(AppSpacing.medium), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
                     Text(auditLogTitle(log.action, log.targetType), style = MaterialTheme.typography.titleMedium)
                     Text(auditActorLabel(log.actorName))
                     Text(log.details)

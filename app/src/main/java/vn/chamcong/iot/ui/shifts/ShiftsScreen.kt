@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.shifts
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,7 +33,7 @@ import java.time.LocalDate
 @Composable
 fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
     var editor by remember { mutableStateOf<WorkShift?>(null) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Quản lý ca làm", style = MaterialTheme.typography.titleLarge)
         Text("Phân lịch có sẵn: Ca sáng 08:00–12:00, Ca chiều 13:00–17:00, Ca bổ sung/tăng ca nhập giờ mỗi lần. Các ca cũ vẫn được giữ.", style = MaterialTheme.typography.bodySmall)
         Button(onClick = {
@@ -64,7 +65,7 @@ fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun ShiftRow(shift: WorkShift, onEdit: () -> Unit) {
     androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
             Text(shift.name, style = MaterialTheme.typography.titleMedium)
             Text("${shiftCategoryLabel(shift.category)} • ${shift.startTime}–${shift.endTime}")
             Text("Cho phép sớm ${shift.allowEarlyMinutes} phút • Đi trễ ${shift.lateGraceMinutes} phút • Về sớm ${shift.earlyLeaveAllowedMinutes} phút", style = MaterialTheme.typography.bodySmall)
@@ -98,9 +99,9 @@ private fun ShiftEditorDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial.id.isBlank()) "Thêm ca làm" else "Chỉnh sửa ca") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("Loại ca")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     ShiftCategory.entries.forEach { item ->
                         FilterChip(
                             selected = category == item.name,

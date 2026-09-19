@@ -1,4 +1,4 @@
-# BÁO CÁO HỆ THỐNG CHẤM CÔNG IoT
+# BÁO CÁO HỆ THỐNG Quản lý nhân sự IoT
 
 > Báo cáo tổng quan hệ thống, luồng hoạt động, chức năng giao diện và cấu trúc mã nguồn.
 

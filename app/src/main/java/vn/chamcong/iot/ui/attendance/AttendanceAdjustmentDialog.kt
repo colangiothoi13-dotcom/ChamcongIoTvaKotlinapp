@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.attendance
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,7 +45,7 @@ fun AttendanceAdjustmentDialog(
         onDismissRequest = { if (!state.saving) onDismiss() },
         title = { Text("Điều chỉnh chấm công") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("${target.employeeName} (${target.employeeId})")
                 Text("Ngày ca: ${target.scheduleDate}")
                 Text("Hiện tại — Vào: ${currentTime(target.currentCheckIn)}\nRa: ${currentTime(target.currentCheckOut)}\nGiờ công: ${target.currentWorkedHours ?: "Chưa có"}")

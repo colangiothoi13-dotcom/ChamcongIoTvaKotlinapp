@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.admin
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,8 +34,8 @@ private val shiftHubItems = listOf(
 @Composable
 fun ShiftManagementScreen(onOpen: (AppDestination) -> Unit) {
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(bottom = AppSpacing.large),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
             Text("Phân ca", style = MaterialTheme.typography.headlineSmall)

@@ -1,10 +1,12 @@
 package vn.chamcong.iot.ui.admin
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,7 +30,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import vn.chamcong.iot.ui.AppTouchTarget
 import vn.chamcong.iot.ui.AppDestination
 import vn.chamcong.iot.ui.adminTaskDestinations
 
@@ -83,8 +87,8 @@ val adminTaskGroups = listOf(
 @Composable
 fun AdminTasksScreen(onOpen: (AppDestination) -> Unit) {
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(bottom = AppSpacing.large),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
             Text("Tác vụ", style = MaterialTheme.typography.headlineSmall)
@@ -96,7 +100,7 @@ fun AdminTasksScreen(onOpen: (AppDestination) -> Unit) {
                     Text(
                         group.title,
                         style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(start = 20.dp, top = 18.dp, end = 20.dp, bottom = 8.dp)
+                        modifier = Modifier.padding(start = AppSpacing.xLarge, top = AppSpacing.large, end = AppSpacing.xLarge, bottom = AppSpacing.small)
                     )
                     group.items.forEachIndexed { index, item ->
                         ListItem(
@@ -105,9 +109,10 @@ fun AdminTasksScreen(onOpen: (AppDestination) -> Unit) {
                             leadingContent = { Icon(item.icon, contentDescription = null) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onOpen(item.destination) }
+                                .heightIn(min = AppTouchTarget.minimum)
+                                .clickable(role = Role.Button) { onOpen(item.destination) }
                         )
-                        if (index < group.items.lastIndex) HorizontalDivider(Modifier.padding(horizontal = 20.dp))
+                        if (index < group.items.lastIndex) HorizontalDivider(Modifier.padding(horizontal = AppSpacing.xLarge))
                     }
                 }
             }

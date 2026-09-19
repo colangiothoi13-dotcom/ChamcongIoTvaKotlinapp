@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.overtime
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,10 +43,10 @@ fun EmployeeOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
     var workDate by remember { mutableStateOf(today.toString()) }
     val validDate = isValidOvertimeWorkDate(workDate, today)
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Đăng ký ca tăng ca", style = MaterialTheme.typography.titleMedium)
         Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("Khung giờ cố định: 17:30–20:30")
                 Text(
                     "Bạn chỉ có thể đăng ký cho hôm nay hoặc một ngày trong tương lai.",
@@ -90,13 +91,13 @@ fun AdminOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
         statusFilter == null || request.status == statusFilter
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Đăng ký tăng ca", style = MaterialTheme.typography.titleLarge)
         Text(
             "Ca cố định 17:30–20:30 • Đơn chờ duyệt vẫn hiển thị sau ngày làm việc.",
             style = MaterialTheme.typography.bodySmall
         )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             items(overtimeFilters, key = { it.second }) { (value, label) ->
                 FilterChip(
                     selected = statusFilter == value,
@@ -131,7 +132,7 @@ fun AdminOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
             onDismissRequest = { if (!state.saving) rejecting = null },
             title = { Text("Từ chối đăng ký tăng ca") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     Text("${request.employeeName.ifBlank { request.employeeId }} • ${request.workDate}")
                     Text("Khung giờ: ${overtimeWindowLabel(request)}")
                     OutlinedTextField(
@@ -170,7 +171,7 @@ fun AdminOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun EmployeeOvertimeRequestCard(request: OvertimeRequest) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text(request.workDate, style = MaterialTheme.typography.titleMedium)
             Text("Khung giờ: ${overtimeWindowLabel(request)}")
             Text("Trạng thái: ${overtimeStatusLabel(request.status)}")
@@ -189,7 +190,7 @@ private fun AdminOvertimeRequestCard(
     onReject: () -> Unit
 ) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text(
                 request.employeeName.ifBlank { request.employeeId },
                 style = MaterialTheme.typography.titleMedium
@@ -200,7 +201,7 @@ private fun AdminOvertimeRequestCard(
                 Text("Lý do từ chối: $reason", style = MaterialTheme.typography.bodySmall)
             }
             if (request.status == OvertimeRequestStatus.PENDING.name) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     Button(onClick = onApprove, enabled = !saving) { Text("Duyệt") }
                     TextButton(onClick = onReject, enabled = !saving) { Text("Từ chối") }
                 }

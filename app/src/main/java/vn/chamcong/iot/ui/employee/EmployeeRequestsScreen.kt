@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.employee
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,7 +41,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
     var reason by remember { mutableStateOf("") }
     val supportedTypes = listOf(RequestType.LEAVE, RequestType.LATE, RequestType.EARLY_LEAVE, RequestType.ATTENDANCE_ADJUSTMENT, RequestType.REMOTE, RequestType.SHIFT_CHANGE)
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Đơn từ của tôi", style = MaterialTheme.typography.titleLarge)
@@ -50,9 +51,9 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
         if (showForm) {
             item {
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                         Text("Tạo đơn mới", style = MaterialTheme.typography.titleMedium)
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                             items(supportedTypes, key = { it.name }) { candidate ->
                                 FilterChip(selected = type == candidate, onClick = { type = candidate }, label = { Text(candidate.toVietnamese()) })
                             }
@@ -79,7 +80,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun EmployeeRequestCard(request: LeaveRequest) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text(request.type.toVietnamese(), style = MaterialTheme.typography.titleMedium)
             Text("${request.startDate} – ${request.endDate}")
             Text(request.reason)

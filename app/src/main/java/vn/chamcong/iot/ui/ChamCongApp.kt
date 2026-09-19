@@ -12,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -42,9 +41,7 @@ import vn.chamcong.iot.ui.employee.EmployeeHomeScreen
 import vn.chamcong.iot.ui.employee.EmployeeAttendanceScreen
 import vn.chamcong.iot.ui.employee.EmployeeRequestsScreen
 import vn.chamcong.iot.ui.employee.EmployeeProfileScreen
-
-private val Brand = Color(0xFF147D64)
-private val Background = Color(0xFFF5F8F6)
+import vn.chamcong.iot.ui.employee.EmployeePayrollScreen
 
 enum class AppDestination(val title: String) {
     DASHBOARD("Tổng quan"),
@@ -68,6 +65,7 @@ enum class EmployeeDestination(val title: String) {
     HOME("Trang chủ"),
     ATTENDANCE("Chấm công của tôi"),
     REQUESTS("Đơn từ"),
+    PAYROLL("Lương"),
     PROFILE("Cá nhân")
 }
 
@@ -96,13 +94,14 @@ val employeePrimaryDestinations = listOf(
     EmployeeDestination.HOME,
     EmployeeDestination.ATTENDANCE,
     EmployeeDestination.REQUESTS,
+    EmployeeDestination.PAYROLL,
     EmployeeDestination.PROFILE
 )
 
 @Composable
 fun ChamCongApp(vm: MainViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-    MaterialTheme(colorScheme = lightColorScheme(primary = Brand, background = Background)) {
+    ChamCongTheme {
         if (!state.signedIn) LoginScreen(state.loading, state.error, state.message, vm::signIn, vm::sendPasswordReset)
         else if (!state.profileResolved) RoleLoading()
         else if (vm.hasEmployeeAccess()) EmployeeHomeShell(state, vm)
@@ -113,10 +112,10 @@ fun ChamCongApp(vm: MainViewModel = viewModel()) {
 
 @Composable
 private fun RoleLoading() {
-    Surface(Modifier.fillMaxSize(), color = Background) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator()
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(AppSpacing.medium))
             Text("Đang kiểm tra quyền truy cập…")
         }
     }
@@ -126,17 +125,17 @@ private fun RoleLoading() {
 private fun LoginScreen(loading: Boolean, error: String?, message: String?, onLogin: (String, String) -> Unit, onReset: (String) -> Unit) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    Surface(Modifier.fillMaxSize(), color = Background) {
-        Box(Modifier.padding(28.dp), contentAlignment = Alignment.Center) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Box(Modifier.padding(AppSpacing.xLarge), contentAlignment = Alignment.Center) {
             Card(Modifier.widthIn(max = 440.dp), shape = RoundedCornerShape(24.dp)) {
-                Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Icon(Icons.Default.Fingerprint, null, tint = Brand, modifier = Modifier.size(48.dp))
+                Column(Modifier.padding(AppSpacing.xLarge), verticalArrangement = Arrangement.spacedBy(AppSpacing.large)) {
+                    Icon(Icons.Default.Fingerprint, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
                     Text("Chấm công IoT", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("Đăng nhập tài khoản của bạn")
                     OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true)
                     OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Mật khẩu") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    message?.let { Text(it, color = Brand) }
+                    message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                     Button({ onLogin(email, password) }, Modifier.fillMaxWidth(), enabled = !loading && email.isNotBlank() && password.isNotBlank()) {
                         if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Đăng nhập")
                     }
@@ -149,8 +148,8 @@ private fun LoginScreen(loading: Boolean, error: String?, message: String?, onLo
 
 @Composable
 private fun AccessBlocked(onSignOut: () -> Unit) {
-    Surface(Modifier.fillMaxSize(), color = Background) {
-        Column(Modifier.padding(28.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.padding(AppSpacing.xLarge), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Tài khoản chưa được cấp quyền", style = MaterialTheme.typography.titleLarge)
             Text("Admin cần kiểm tra role, active và employeeId trong users/{uid} trên Firebase.")
             Button(onSignOut) { Text("Đăng xuất") }
@@ -196,9 +195,9 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
         } },
         floatingActionButton = { if (selected == AppDestination.EMPLOYEES) FloatingActionButton({ vm.clearError(); showAdd = true }) { Icon(Icons.Default.PersonAdd, "Thêm nhân viên") } }
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
+        Column(Modifier.padding(padding).fillMaxSize().padding(AppSpacing.large)) {
             state.error?.let { Text(it, color=MaterialTheme.colorScheme.error) }
-            state.message?.let { Text(it, color=Brand, modifier=Modifier.padding(bottom=8.dp)) }
+            state.message?.let { Text(it, color=MaterialTheme.colorScheme.primary, modifier=Modifier.padding(bottom=AppSpacing.small)) }
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (selected) {
                 AppDestination.DASHBOARD -> DashboardScreen(state, vm) { selected = AppDestination.ATTENDANCE }
@@ -258,7 +257,7 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(EmployeeDestination.HOME) }
     var showAccountMenu by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
-    val icons = listOf(Icons.Default.Home, Icons.Default.FactCheck, Icons.Default.Description, Icons.Default.Person)
+    val icons = listOf(Icons.Default.Home, Icons.Default.FactCheck, Icons.Default.Description, Icons.Default.Payments, Icons.Default.Person)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -293,14 +292,20 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
             }
         }
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
+        Column(Modifier.padding(padding).fillMaxSize().padding(AppSpacing.large)) {
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            state.message?.let { Text(it, color = Brand, modifier = Modifier.padding(bottom = 8.dp)) }
+            state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = AppSpacing.small)) }
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (selected) {
                 EmployeeDestination.HOME -> EmployeeHomeScreen(state, vm)
-                EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(state, vm)
+                EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(
+                    state = state,
+                    vm = vm,
+                    onOpenRequests = { selected = EmployeeDestination.REQUESTS },
+                    onOpenPayroll = { selected = EmployeeDestination.PAYROLL }
+                )
                 EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)
+                EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state)
                 EmployeeDestination.PROFILE -> EmployeeProfileScreen(state, vm) { showChangePassword = true }
             }
         }
@@ -316,7 +321,7 @@ private fun ChangePasswordDialog(state: MainUiState, vm: MainViewModel, onDismis
         onDismissRequest = { if (!state.saving) onDismiss() },
         title = { Text("Đổi mật khẩu") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 OutlinedTextField(password, { password = it }, label = { Text("Mật khẩu mới") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                 OutlinedTextField(confirm, { confirm = it }, label = { Text("Nhập lại mật khẩu") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                 if (confirm.isNotBlank() && confirm != password) Text("Mật khẩu nhập lại chưa khớp", color = MaterialTheme.colorScheme.error)
@@ -333,35 +338,35 @@ private fun ChangePasswordDialog(state: MainUiState, vm: MainViewModel, onDismis
 }
 @Composable
 private fun Dashboard(state: MainUiState) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item { Text("Hôm nay", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
                 Metric("Nhân viên", state.employees.count { it.active }.toString(), Icons.Default.Groups, Modifier.weight(1f))
                 Metric("Lượt gần đây", state.attendance.size.toString(), Icons.Default.Fingerprint, Modifier.weight(1f))
             }
         }
-        item { Text("Chấm công mới nhất", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp)) }
+        item { Text("Chấm công mới nhất", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = AppSpacing.small)) }
         items(state.attendance.take(8), key = { it.id }) { AttendanceRow(it) }
     }
 }
 
 @Composable private fun Metric(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier) {
-    Card(modifier) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Icon(icon, null, tint = Brand); Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label) } }
+    Card(modifier) { Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary); Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label) } }
 }
 
 @Composable internal fun EmployeeList(employees: List<Employee>, commands: List<Map<String,Any>>, onEnroll: (Employee)->Unit, onSalary: (Employee)->Unit, onRemove: (Employee,Boolean)->Unit) {
-    LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    LazyColumn(verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
         if(employees.isEmpty()) item { Text("Chưa có nhân viên trong danh sách này") }
         items(employees,key={it.id}) { e ->
             val command=commands.firstOrNull { it["employeeId"] == e.id }
             val busy=command?.get("status") in listOf("REQUESTED","PROCESSING") || (command?.get("status")=="COMPLETED" && command["applied"]!=true)
             val hasTemplate=e.fingerprintTemplateId!=null || e.pendingTemplateId!=null || (command?.get("type")=="ENROLL_FINGERPRINT" && command["status"]=="FAILED")
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(AppSpacing.large),verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
                 Text(e.fullName,fontWeight=FontWeight.Bold)
                 Text("${e.code} • ${e.department}${if(!e.active) " • Đã nghỉ" else ""}")
                 Text("Lương cơ bản: ${money(e.baseSalary)}")
-                e.fingerprintTemplateId?.let { Text("Mẫu vân tay #$it",color=Brand) }
+                e.fingerprintTemplateId?.let { Text("Mẫu vân tay #$it",color=MaterialTheme.colorScheme.primary) }
                 command?.let { c ->
                     val label=when(c["status"]) {
                         "REQUESTED" -> "Đang chờ thiết bị — hãy bật máy và kết nối Wi-Fi"
@@ -385,7 +390,7 @@ private fun Dashboard(state: MainUiState) {
 
 @Composable private fun EnrollFingerprintDialog(employee: Employee, state: MainUiState, onDismiss: ()->Unit, onConfirm: (String)->Unit) {
     var deviceId by remember { mutableStateOf(employee.fingerprintDeviceId) }
-    AlertDialog(onDismissRequest=onDismiss,title={ Text("Đăng ký vân tay") },text={ Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+    AlertDialog(onDismissRequest=onDismiss,title={ Text("Đăng ký vân tay") },text={ Column(verticalArrangement=Arrangement.spacedBy(AppSpacing.medium)) {
         Text("${employee.code} • ${employee.fullName}")
         OutlinedTextField(deviceId,{deviceId=it},label={Text("Mã thiết bị")},singleLine=true)
         Text("Sau khi gửi, đặt cùng một ngón tay lên cảm biến 2 lần.")
@@ -397,7 +402,7 @@ private fun Dashboard(state: MainUiState) {
     modifier: Modifier = Modifier,
     adjustmentEnabled: Boolean = true,
     onAdjust: ((Attendance) -> Unit)? = null
-) = LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+) = LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
     if (attendance.isEmpty()) item { Text("Chưa có lượt chấm phù hợp") }
     items(attendance, key = { it.id }) { AttendanceRow(it, adjustmentEnabled, onAdjust) }
 }
@@ -410,14 +415,14 @@ private fun Dashboard(state: MainUiState) {
     }
     val resolution = attendanceResolutionPresentation(item)
     val tint = when {
-        resolution.accepted -> Color(0xFF16835F)
+        resolution.accepted -> MaterialTheme.colorScheme.primary
         resolution.label.startsWith("SCAN/PENDING") -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.error
     }
-    Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically) {
         Icon(if (resolution.accepted) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = tint)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Spacer(Modifier.width(AppSpacing.medium))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
             Text(item.employeeName.ifBlank { item.employeeId }, fontWeight = FontWeight.Bold)
             Text("$time • ${item.deviceId} • ${item.type}", style = MaterialTheme.typography.bodySmall)
             Text(resolution.label, color = tint, style = MaterialTheme.typography.labelLarge)
@@ -431,7 +436,7 @@ private fun Dashboard(state: MainUiState) {
 }
 
 @Composable private fun Placeholder(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Icon(icon, null, tint = Brand, modifier = Modifier.size(64.dp)); Spacer(Modifier.height(16.dp)); Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(subtitle, modifier = Modifier.padding(12.dp)) }
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp)); Spacer(Modifier.height(AppSpacing.large)); Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(subtitle, modifier = Modifier.padding(AppSpacing.medium)) }
 }
 
 @Composable private fun EmployeeDialog(
@@ -449,7 +454,7 @@ private fun Dashboard(state: MainUiState) {
     val accountReady = !createAccount || (
         email.trim().contains("@") && password.length >= 6 && password == passwordConfirmation
     )
-    AlertDialog(onDismissRequest=onDismiss,title={Text("Thêm nhân viên")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    AlertDialog(onDismissRequest=onDismiss,title={Text("Thêm nhân viên")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
         Text("Mã nhân viên được cấp tự động khi lưu (NV0001, NV0002…).")
         OutlinedTextField(name,{name=it},label={Text("Họ tên")},singleLine=true)
         OutlinedTextField(email,{email=it},label={Text("Email")},singleLine=true)

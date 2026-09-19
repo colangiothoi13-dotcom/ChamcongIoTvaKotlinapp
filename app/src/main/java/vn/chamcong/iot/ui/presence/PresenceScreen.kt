@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.presence
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,16 +35,16 @@ fun PresenceScreen(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf<PresenceStatus?>(null) }
     val records = state.presenceRecords
     val visible = records.filter { selected == null || it.status == selected }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Theo dõi trạng thái có mặt", style = MaterialTheme.typography.titleLarge)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = { vm.selectPresenceDate(state.selectedPresenceDate.minusDays(1)) }) { Text("‹ Ngày trước") }
-            Text(state.selectedPresenceDate.toString(), modifier = Modifier.padding(top = 12.dp))
+            Text(state.selectedPresenceDate.toString(), modifier = Modifier.padding(top = AppSpacing.medium))
             TextButton(onClick = { vm.selectPresenceDate(state.selectedPresenceDate.plusDays(1)) }) { Text("Ngày sau ›") }
         }
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
         ) {
             FilterChip(
                 selected = selected == null,
@@ -59,7 +60,7 @@ fun PresenceScreen(state: MainUiState, vm: MainViewModel) {
                 )
             }
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             if (visible.isEmpty()) item { Text("Không có nhân viên trong nhóm này") }
             items(visible, key = { it.employee.id }) { PresenceCard(it) }
         }
@@ -69,7 +70,7 @@ fun PresenceScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun PresenceCard(record: PresenceRecord) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
             Text("${record.employee.code} • ${record.employee.fullName}", style = MaterialTheme.typography.titleMedium)
             Text(statusLabel(record.status), color = statusColor(record.status))
             record.latestAttendance?.let { attendance ->
@@ -89,10 +90,11 @@ private fun statusLabel(status: PresenceStatus): String = when (status) {
     PresenceStatus.ABNORMAL -> "Có mặt bất thường"
 }
 
+@Composable
 private fun statusColor(status: PresenceStatus) = when (status) {
-    PresenceStatus.PRESENT -> androidx.compose.ui.graphics.Color(0xFF147D64)
-    PresenceStatus.ON_LEAVE -> androidx.compose.ui.graphics.Color(0xFF6D4C41)
-    PresenceStatus.LEFT -> androidx.compose.ui.graphics.Color(0xFF546E7A)
-    PresenceStatus.MISSING_CHECK_OUT, PresenceStatus.ABNORMAL -> androidx.compose.ui.graphics.Color(0xFFB3261E)
-    PresenceStatus.NOT_CHECKED_IN -> androidx.compose.ui.graphics.Color(0xFF6D7470)
+    PresenceStatus.PRESENT -> MaterialTheme.colorScheme.primary
+    PresenceStatus.ON_LEAVE -> MaterialTheme.colorScheme.secondary
+    PresenceStatus.LEFT -> MaterialTheme.colorScheme.onSurfaceVariant
+    PresenceStatus.MISSING_CHECK_OUT, PresenceStatus.ABNORMAL -> MaterialTheme.colorScheme.error
+    PresenceStatus.NOT_CHECKED_IN -> MaterialTheme.colorScheme.outline
 }

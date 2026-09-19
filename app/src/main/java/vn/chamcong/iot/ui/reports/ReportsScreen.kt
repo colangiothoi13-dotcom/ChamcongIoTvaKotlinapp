@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.reports
 
+import vn.chamcong.iot.ui.AppSpacing
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
@@ -66,14 +67,14 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
             Text("Báo cáo", style = MaterialTheme.typography.titleLarge)
             Text("Lọc theo ngày, nhân viên hoặc phòng ban; ngày dùng định dạng yyyy-MM-dd.", style = MaterialTheme.typography.bodySmall)
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 TextButton({
                     startText = state.selectedWeekStart.toString()
                     endText = state.selectedWeekStart.plusDays(6).toString()
@@ -86,13 +87,13 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 OutlinedTextField(startText, { startText = it }, Modifier.weight(1f), label = { Text("Từ ngày") }, singleLine = true)
                 OutlinedTextField(endText, { endText = it }, Modifier.weight(1f), label = { Text("Đến ngày") }, singleLine = true)
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 OutlinedTextField(employeeId, { employeeId = it }, Modifier.weight(1f), label = { Text("Mã nhân viên") }, singleLine = true)
                 OutlinedTextField(department, { department = it }, Modifier.weight(1f), label = { Text("Phòng ban") }, singleLine = true)
             }
@@ -100,7 +101,7 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
         item {
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
             ) {
                 ReportType.entries.forEach { option ->
                     FilterChip(
@@ -132,7 +133,7 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
         if (type == ReportType.DEVICE_ACTIVITY) {
             items(deviceRows, key = { it.deviceId }) { row ->
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
+                    Column(Modifier.padding(AppSpacing.medium)) {
                         Text(row.deviceId, style = MaterialTheme.typography.titleMedium)
                         Text("${deviceStatusLabel(row.status)} • Phần mềm ${row.firmwareVersion.ifBlank { "?" }}")
                         Text("Tín hiệu cuối: ${row.lastHeartbeat.ifBlank { "chưa có" }}")
@@ -143,7 +144,7 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
         } else {
             items(attendanceRows.take(200), key = { "${it.date}_${it.employeeId}" }) { row ->
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
+                    Column(Modifier.padding(AppSpacing.medium)) {
                         Text("${row.date} • ${row.employeeName}", style = MaterialTheme.typography.titleMedium)
                         Text("${row.department.ifBlank { "Chưa có phòng ban" }} • ${attendanceStatusLabel(row.status)}")
                         Text("Vào ${row.checkIn.ifBlank { "--:--" }} • Ra ${row.checkOut.ifBlank { "--:--" }}")

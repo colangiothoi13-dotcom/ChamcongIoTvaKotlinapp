@@ -1,12 +1,15 @@
 package vn.chamcong.iot.ui.schedule
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.domain.weekDates
+import vn.chamcong.iot.ui.AppTouchTarget
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import java.time.LocalDate
@@ -39,15 +43,15 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
     var bulkAssignment by remember { mutableStateOf(false) }
     val dates = weekDates(state.selectedWeekStart)
     val activeEmployees = state.employees.filter { it.active }
-    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Lịch phân ca", style = MaterialTheme.typography.titleLarge)
         WeeklyScheduleWarning(state)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             TextButton(onClick = { vm.moveWeek(-1) }) { Text("‹ Tuần trước") }
-            Text("Tuần ${state.selectedWeekStart} – ${dates.last()}", modifier = Modifier.padding(top = 12.dp))
+            Text("Tuần ${state.selectedWeekStart} – ${dates.last()}", modifier = Modifier.padding(top = AppSpacing.medium))
             TextButton(onClick = { vm.moveWeek(1) }) { Text("Tuần sau ›") }
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Button(onClick = { vm.selectWeek(LocalDate.now()) }, modifier = Modifier.widthIn(min = 112.dp)) {
                 Text("Tuần này", maxLines = 1, softWrap = false)
             }
@@ -61,7 +65,7 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
                 Text("Sao chép tuần trước", maxLines = 1, softWrap = false)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             FilterChip(selected = !monthMode, onClick = { monthMode = false }, label = { Text("Tuần") })
             FilterChip(selected = monthMode, onClick = { monthMode = true }, label = { Text("Tháng") })
         }
@@ -87,18 +91,24 @@ private data class AssignmentTarget(val employee: vn.chamcong.iot.model.Employee
 
 @Composable
 private fun WeeklyScheduleGrid(state: MainUiState, dates: List<LocalDate>, employees: List<vn.chamcong.iot.model.Employee>, onCell: (vn.chamcong.iot.model.Employee, LocalDate) -> Unit) {
-    Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
         Row {
-            Text("Nhân viên", Modifier.width(150.dp).padding(8.dp))
-            dates.forEach { date -> Text("${date.dayOfWeek.name.take(3)}\n${date.dayOfMonth}/${date.monthValue}", Modifier.width(92.dp).padding(8.dp), style = MaterialTheme.typography.labelSmall) }
+            Text("Nhân viên", Modifier.width(150.dp).padding(AppSpacing.small))
+            dates.forEach { date -> Text("${date.dayOfWeek.name.take(3)}\n${date.dayOfMonth}/${date.monthValue}", Modifier.width(92.dp).padding(AppSpacing.small), style = MaterialTheme.typography.labelSmall) }
         }
         employees.forEach { employee ->
             Row {
-                Text("${employee.code}\n${employee.fullName}", Modifier.width(150.dp).padding(8.dp), style = MaterialTheme.typography.bodySmall)
+                Text("${employee.code}\n${employee.fullName}", Modifier.width(150.dp).padding(AppSpacing.small), style = MaterialTheme.typography.bodySmall)
                 dates.forEach { date ->
                     val schedule = state.schedules.firstOrNull { it.employeeId == employee.id && it.date == date.toString() }
-                    Card(onClick = { onCell(employee, date) }, modifier = Modifier.width(92.dp).padding(2.dp)) {
-                        Column(Modifier.padding(6.dp)) {
+                    Card(
+                        onClick = { onCell(employee, date) },
+                        modifier = Modifier
+                            .width(92.dp)
+                            .padding(AppSpacing.xSmall)
+                            .heightIn(min = AppTouchTarget.minimum)
+                    ) {
+                        Column(Modifier.padding(AppSpacing.small)) {
                             Text(schedule?.shiftName ?: "Chưa phân", style = MaterialTheme.typography.labelSmall)
                             if (schedule != null && schedule.overtimeHours > 0) Text("+${schedule.overtimeHours} giờ", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
                         }
@@ -115,19 +125,38 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
     val first = month.atDay(1)
     val days = (0 until month.lengthOfMonth()).map { first.plusDays(it.toLong()) }
     val cells: List<LocalDate?> = List(first.dayOfWeek.value - 1) { null } + days
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    val weekWidth = AppTouchTarget.minimum * 7f + AppTouchTarget.gap * 6f
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
         Text("Tháng ${month.monthValue}/${month.year}", style = MaterialTheme.typography.titleMedium)
-        cells.chunked(7).forEach { week ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                week.forEach { date ->
-                    if (date == null) {
-                        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-                    } else {
-                        val count = state.schedules.count { it.date == date.toString() }
-                        Card(onClick = { onDay(date) }, modifier = Modifier.weight(1f)) { Column(Modifier.padding(6.dp)) { Text(date.dayOfMonth.toString()); Text("$count ca", style = MaterialTheme.typography.labelSmall) } }
+        Column(
+            Modifier.horizontalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)
+        ) {
+            cells.chunked(7).forEach { week ->
+                Row(
+                    Modifier.width(weekWidth),
+                    horizontalArrangement = Arrangement.spacedBy(AppTouchTarget.gap)
+                ) {
+                    week.forEach { date ->
+                        if (date == null) {
+                            androidx.compose.foundation.layout.Spacer(Modifier.size(AppTouchTarget.minimum))
+                        } else {
+                            val count = state.schedules.count { it.date == date.toString() }
+                            Card(
+                                onClick = { onDay(date) },
+                                modifier = Modifier.size(AppTouchTarget.minimum)
+                            ) {
+                                Column(Modifier.padding(AppSpacing.xSmall)) {
+                                    Text(date.dayOfMonth.toString())
+                                    Text("$count ca", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                    repeat(7 - week.size) {
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(AppTouchTarget.minimum))
                     }
                 }
-                repeat(7 - week.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
             }
         }
     }
@@ -148,7 +177,7 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
         onDismissRequest = onDismiss,
         title = { Text(if (target.departmentMode) "Phân ca cho phòng ban" else "Phân ca cho nhân viên") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
                 Text(if (target.departmentMode) "Ngày: ${target.date}" else "${target.employee?.code} • ${target.employee?.fullName}\nNgày: ${target.date}")
                 if (target.departmentMode) {
                     Text("Phòng ban")
@@ -171,7 +200,7 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                 } else {
                     Row(
                         Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
                     ) {
                         assignableShifts.forEach { shift ->
                             FilterChip(

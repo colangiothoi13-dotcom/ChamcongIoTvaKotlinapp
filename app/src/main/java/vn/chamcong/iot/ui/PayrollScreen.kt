@@ -35,7 +35,7 @@ internal fun SalaryDialog(e: Employee, state: MainUiState, dismiss: () -> Unit, 
         onDismissRequest = { if (!state.saving) dismiss() },
         title = { Text("Thiết lập lương") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("${e.code} • ${e.fullName}")
                 MoneyField("Lương cơ bản / giờ (đ)", value) { value = it }
                 Text("Phiếu lương = lương cơ bản/giờ × số giờ làm + thưởng − khấu trừ.")
@@ -74,16 +74,16 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
     val rows = state.payroll.filter { it.month == month }
     val candidates = payrollCandidates(state.employees, state.payroll, month)
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         OutlinedTextField(month, { month = it }, label = { Text("Tháng lương (yyyy-MM)") }, singleLine = true, isError = !validMonth)
         Text("Thực lĩnh = (lương cơ bản/giờ × số giờ làm) + thưởng − khấu trừ.", style = MaterialTheme.typography.bodySmall)
         Button({ vm.clearError(); picker = true }, enabled = validMonth && !state.saving) { Text("Lập phiếu lương / thiết lập lương") }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             if (rows.isEmpty()) item { Text("Chưa có phiếu lương đã lưu trong tháng này") }
             items(rows, key = { it.employeeId + it.month }) { p ->
                 val e = state.employees.firstOrNull { it.id == p.employeeId }
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                         Text("${p.employeeCode.ifBlank { e?.code.orEmpty() }} • ${p.employeeName.ifBlank { e?.fullName ?: p.employeeId }}${if (e?.active == false) " • Đã nghỉ" else ""}")
                         Text("Lương cơ bản: ${money(p.baseSalary)}")
                         if (p.hourlyRate > 0 || p.hoursWorked > 0) {
@@ -145,7 +145,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
             onDismissRequest = { if (!state.saving) selected = null },
             title = { Text("Phiếu lương $month") },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     Text("${current.code} • ${current.fullName}")
                     Text("Đơn giá lương cơ bản: ${money(current.baseSalary)}/giờ")
                     Text("Giờ ca chính: ${hoursText(regularHours)} giờ")

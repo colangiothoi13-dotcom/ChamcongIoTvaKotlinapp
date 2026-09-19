@@ -21,9 +21,9 @@ class NavigationStructureTest {
     }
 
     @Test
-    fun employeePrimaryNavigationHasExactlyFourItemsInApprovedOrder() {
+    fun employeePrimaryNavigationHasExactlyFiveItemsInApprovedOrder() {
         assertEquals(
-            listOf("Trang chủ", "Chấm công của tôi", "Đơn từ", "Cá nhân"),
+            listOf("Trang chủ", "Chấm công của tôi", "Đơn từ", "Lương", "Cá nhân"),
             employeePrimaryDestinations.map { it.title }
         )
     }

@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.attendance
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,9 +33,9 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
     var target by remember { mutableStateOf<AttendanceAdjustmentTarget?>(null) }
     val statuses = listOf("Tất cả" to null, "Đúng giờ" to "NORMAL", "Đi trễ" to "LATE", "Về sớm" to "EARLY_LEAVE")
     val types = listOf("Tất cả loại" to null, "Vào ca" to "CHECK_IN", "Ra ca" to "CHECK_OUT")
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Lịch sử chấm công", style = MaterialTheme.typography.titleLarge)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             statuses.forEach { (label, value) ->
                 FilterChip(
                     selected = state.attendanceStatusFilter == value,
@@ -43,7 +44,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 )
             }
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             types.forEach { (label, value) ->
                 FilterChip(
                     selected = state.attendanceTypeFilter == value,
@@ -52,7 +53,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 )
             }
         }
-        Text("${state.visibleAttendance.size} lượt chấm", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
+        Text("${state.visibleAttendance.size} lượt chấm", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = AppSpacing.xSmall))
         AttendanceList(state.visibleAttendance, Modifier.weight(1f),
             adjustmentEnabled = !state.saving,
             onAdjust = if (vm.hasAdminAccess()) { row ->

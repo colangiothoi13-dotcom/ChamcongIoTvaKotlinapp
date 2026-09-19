@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.schedule
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -11,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import vn.chamcong.iot.ui.AppTouchTarget
 import vn.chamcong.iot.domain.*
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
@@ -53,7 +55,7 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
         onDismissRequest = { if (!state.saving) onDismiss() },
         title = { Text("Phân ca tuần cho nhân viên") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("${weekDates(week).first()} – ${weekDates(week).last()} (Thứ hai – Chủ nhật)")
                 Text("Chọn nhân viên (${employees.size})")
                 if (unavailableEmployees.isNotEmpty()) {
@@ -106,9 +108,9 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
 
 @Composable
 private fun SelectionRow(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = checked, enabled = enabled,
+    Row(Modifier.fillMaxWidth().heightIn(min = AppTouchTarget.minimum).toggleable(value = checked, enabled = enabled,
         role = Role.Checkbox, onValueChange = onChange), verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
-        Text(label, Modifier.padding(start = 8.dp))
+        Text(label, Modifier.padding(start = AppSpacing.small))
     }
 }

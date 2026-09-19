@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.requests
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,10 +37,10 @@ import java.util.Locale
 fun RequestsScreen(state: MainUiState, vm: MainViewModel) {
     var rejecting by remember { mutableStateOf<LeaveRequest?>(null) }
     val filters = listOf(null to "Tất cả", RequestStatus.PENDING.name to "Chờ duyệt", RequestStatus.APPROVED.name to "Đã duyệt", RequestStatus.REJECTED.name to "Từ chối")
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item { Text("Đơn từ", style = MaterialTheme.typography.titleLarge) }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 filters.forEach { (value, label) -> FilterChip(selected = state.selectedRequestFilter == value, onClick = { vm.setRequestFilter(value) }, label = { Text(label) }) }
             }
         }
@@ -60,7 +61,7 @@ fun RequestsScreen(state: MainUiState, vm: MainViewModel) {
             onDismissRequest = { if (!state.saving) rejecting = null },
             title = { Text("Từ chối đơn từ") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     Text("${request.employeeName.ifBlank { request.employeeId }} • ${request.startDate} – ${request.endDate}")
                     OutlinedTextField(note, { note = it }, label = { Text("Lý do từ chối") }, modifier = Modifier.fillMaxWidth())
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -77,7 +78,7 @@ fun RequestsScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun RequestCard(request: LeaveRequest, state: MainUiState, onApprove: () -> Unit, onReject: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text("${request.employeeName.ifBlank { request.employeeId }} • ${requestTypeLabel(request.type)}", style = MaterialTheme.typography.titleMedium)
             Text("${request.startDate} – ${request.endDate} • ${request.reason}")
             request.attachmentUrl?.takeIf(String::isNotBlank)?.let { Text("Tệp đính kèm: $it", style = MaterialTheme.typography.bodySmall) }
@@ -85,7 +86,7 @@ private fun RequestCard(request: LeaveRequest, state: MainUiState, onApprove: ()
             if (request.reviewerName != null) Text("Người duyệt: ${request.reviewerName} • ${request.reviewedAt?.let { formatTimestamp(it.toDate().time) } ?: ""}", style = MaterialTheme.typography.bodySmall)
             request.reviewNote?.let { Text("Ghi chú: $it", style = MaterialTheme.typography.bodySmall) }
             if (request.status == RequestStatus.PENDING.name) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     Button(onClick = onApprove, enabled = !state.saving) { Text("Duyệt") }
                     TextButton(onClick = onReject, enabled = !state.saving) { Text("Từ chối") }
                 }

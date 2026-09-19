@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui.dashboard
 
+import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,11 +23,11 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,15 +46,13 @@ import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Locale
 
-private val Brand = Color(0xFF147D64)
-
 @Composable
 fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () -> Unit) {
     val summary = state.dashboard
     val maxDailyCount = summary.weeklyAttendance.maxOfOrNull { it.count }?.coerceAtLeast(1) ?: 1
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
             Text("Tổng quan tuần", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -66,20 +65,20 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
                 DashboardMetric("Nhân viên", summary.activeEmployees.toString(), Icons.Default.Groups, Modifier.weight(1f))
                 DashboardMetric("Đã chấm", summary.checkedEmployees.toString(), Icons.Default.Fingerprint, Modifier.weight(1f))
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                DashboardMetric("Đi trễ", summary.lateEmployees.toString(), Icons.Default.WarningAmber, Modifier.weight(1f), Color(0xFFB66A00))
-                DashboardMetric("Chưa chấm", summary.unmarkedEmployees.toString(), Icons.Default.EventBusy, Modifier.weight(1f), Color(0xFF6D7470))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
+                DashboardMetric("Đi trễ", summary.lateEmployees.toString(), Icons.Default.WarningAmber, Modifier.weight(1f), MaterialTheme.colorScheme.tertiary)
+                DashboardMetric("Chưa chấm", summary.unmarkedEmployees.toString(), Icons.Default.EventBusy, Modifier.weight(1f), MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item {
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
                     Text("Lượt chấm trong tuần", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Row(
                         Modifier.fillMaxWidth().height(140.dp),
@@ -90,11 +89,11 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
                             val barHeight = (day.count.toFloat() / maxDailyCount * 96f).coerceAtLeast(8f)
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
                                 Text(day.count.toString(), style = MaterialTheme.typography.labelSmall)
-                                Spacer(Modifier.height(4.dp))
+                                Spacer(Modifier.height(AppSpacing.xSmall))
                                 Box(
-                                    Modifier.width(22.dp).height(barHeight.dp).background(Brand, RoundedCornerShape(10.dp))
+                                    Modifier.width(22.dp).height(barHeight.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
                                 )
-                                Spacer(Modifier.height(4.dp))
+                                Spacer(Modifier.height(AppSpacing.xSmall))
                                 Text("${day.date.dayOfMonth}/${day.date.monthValue}", style = MaterialTheme.typography.labelSmall)
                             }
                         }
@@ -104,14 +103,14 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
         }
         item {
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Devices, null, tint = Brand)
-                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Default.Devices, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(AppSpacing.small))
                         Text("Thiết bị", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                     if (state.devices.isEmpty()) {
-                        Text("Chưa có snapshot thiết bị trên Firebase", color = Color(0xFF6D7470))
+                        Text("Chưa có snapshot thiết bị trên Firebase", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         val online = state.devices.count { it.isOnline(Instant.now()) }
                         Text("${online}/${state.devices.size} thiết bị đang online")
@@ -128,7 +127,7 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
             val offlineDevices = state.devices.count { !it.isOnline(Instant.now()) }
             if (pending + missing + abnormal + failedCommands + offlineDevices > 0) {
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
                         Text("Cảnh báo cần xử lý", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         if (pending > 0) Text("$pending đơn từ đang chờ duyệt")
                         if (missing > 0) Text("$missing người chưa chấm ra")
@@ -142,7 +141,7 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
         item {
             if (state.notifications.isNotEmpty()) {
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                         Text("Thông báo trong app", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         state.notifications.take(5).forEach { notification ->
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -172,9 +171,9 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
             val failedCommands = state.commands.count { it["status"] == "FAILED" }
             if (failedCommands > 0) {
                 Card(Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.WarningAmber, null, tint = Color(0xFFB3261E))
-                        Spacer(Modifier.width(8.dp))
+                    Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.WarningAmber, null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(AppSpacing.small))
                         Text("Có $failedCommands lệnh thiết bị thất bại cần kiểm tra.")
                     }
                 }
@@ -189,10 +188,10 @@ private fun DashboardMetric(
     value: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     modifier: Modifier,
-    tint: Color = Brand
+    tint: Color = MaterialTheme.colorScheme.primary
 ) {
     Card(modifier) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
             Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(label, style = MaterialTheme.typography.bodySmall)
@@ -203,9 +202,9 @@ private fun DashboardMetric(
 @Composable
 private fun EmptyDashboardState() {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.CheckCircle, null, tint = Brand, modifier = Modifier.size(32.dp))
-            Spacer(Modifier.height(8.dp))
+        Column(Modifier.padding(AppSpacing.xLarge), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.height(AppSpacing.small))
             Text("Chưa có lượt chấm công hôm nay")
         }
     }
@@ -217,14 +216,24 @@ private fun DashboardAttendanceRow(item: Attendance) {
         SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).format(item.timestamp.toDate())
     }
     Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Fingerprint, null, tint = Brand)
-            Spacer(Modifier.width(10.dp))
+        Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Fingerprint, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(AppSpacing.medium))
             Column(Modifier.weight(1f)) {
                 Text(item.employeeName.ifBlank { item.employeeId }, fontWeight = FontWeight.Bold)
                 Text("$time • ${item.deviceId}", style = MaterialTheme.typography.bodySmall)
             }
-            AssistChip(onClick = {}, label = { Text(attendanceStatusLabel(item.status)) })
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = attendanceStatusLabel(item.status),
+                    modifier = Modifier.padding(horizontal = AppSpacing.small, vertical = AppSpacing.xSmall),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
         }
     }
 }

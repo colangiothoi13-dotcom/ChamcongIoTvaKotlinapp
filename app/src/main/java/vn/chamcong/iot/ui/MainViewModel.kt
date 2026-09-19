@@ -68,6 +68,7 @@ data class MainUiState(
     val attendance: List<Attendance> = emptyList(),
     val attendanceAdjustments: List<AttendanceAdjustment> = emptyList(),
     val payroll: List<Payroll> = emptyList(),
+    val employeePayroll: List<Payroll> = emptyList(),
     val commands: List<Map<String, Any>> = emptyList(),
     val devices: List<DeviceSnapshot> = emptyList(),
     val selectedWeekStart: LocalDate = mondayOfWeek(LocalDate.now()),
@@ -164,6 +165,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(profileResolved = false) }
         profileSubscription = viewModelScope.launch {
             repository.observeUserProfile().catch { e -> setError(e) }.collect { profile ->
+                if (profile != _state.value.userProfile) {
+                    cancelDataSubscriptions()
+                    subscriptionMode = null
+                }
                 _state.update { it.copy(userProfile = profile, profileResolved = true) }
                 if (profile?.role == "EMPLOYEE") {
                     if (canAccessEmployee("password", profile)) subscribeEmployee(profile)
@@ -184,6 +189,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 attendanceAdjustments = emptyList(),
+                payroll = emptyList(),
+                employeePayroll = emptyList(),
                 overtimeRequests = emptyList(),
                 employeeOvertimeRequests = emptyList()
             )
@@ -267,6 +274,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 currentEmployee = null,
                 employeeAttendance = emptyList(),
                 employeeSchedules = emptyList(),
+                employeePayroll = emptyList(),
                 employeeRequests = emptyList(),
                 employeeOvertimeRequests = emptyList()
             )
@@ -280,6 +288,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dataSubscriptions += viewModelScope.launch {
             repository.observeEmployee(employeeId).catch { e -> setError(e) }.collect { employee ->
                 _state.update { it.copy(currentEmployee = employee) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeePayroll(employeeId).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(employeePayroll = rows) }
             }
         }
         dataSubscriptions += viewModelScope.launch {
