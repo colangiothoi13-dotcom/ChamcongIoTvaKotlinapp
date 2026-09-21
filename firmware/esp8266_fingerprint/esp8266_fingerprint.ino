@@ -33,6 +33,10 @@ SoftwareSerial mySerial(D5, D6);
 Adafruit_Fingerprint finger(&mySerial);
 LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
 
+// Thay hai gia tri mau bang thong tin Wi-Fi cua ban truoc khi nap.
+#define DEVICE_WIFI_SSID "YOUR_WIFI_SSID"
+#define DEVICE_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+
 const char* WIFI_SSID = DEVICE_WIFI_SSID;
 const char* WIFI_PASSWORD = DEVICE_WIFI_PASSWORD;
 // Lay current_key trong app/google-services.json. Firebase API key khong phai mat khau.
