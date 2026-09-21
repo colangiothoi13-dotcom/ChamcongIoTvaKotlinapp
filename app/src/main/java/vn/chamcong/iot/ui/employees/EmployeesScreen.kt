@@ -25,6 +25,7 @@ fun EmployeesScreen(
     state: MainUiState,
     vm: MainViewModel,
     onAdd: () -> Unit,
+    onEdit: (Employee) -> Unit,
     onEnroll: (Employee) -> Unit,
     onSalary: (Employee) -> Unit,
     onRemove: (Employee, Boolean) -> Unit
@@ -63,6 +64,7 @@ fun EmployeesScreen(
             employees = state.visibleEmployees,
             commands = state.commands,
             onEnroll = onEnroll,
+            onEdit = onEdit,
             onSalary = onSalary,
             onRemove = onRemove
         )

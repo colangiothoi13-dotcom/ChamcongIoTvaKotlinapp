@@ -20,7 +20,10 @@ internal fun attendanceResolutionPresentation(row: Attendance): AttendanceResolu
         row.resolutionStatus !in listOf("PENDING", "ACCEPTED", "DUPLICATE", "UNSCHEDULED", "OUT_OF_ORDER") -> "Bất thường • Trạng thái không hợp lệ"
         row.type == "SCAN" || row.resolutionStatus == "PENDING" -> "${attendanceResolutionLabel("PENDING")} • Chờ hệ thống xử lý"
         row.type == "DUPLICATE" || row.resolutionStatus == "DUPLICATE" -> attendanceResolutionLabel("DUPLICATE")
-        row.type == "UNSCHEDULED" || row.resolutionStatus == "UNSCHEDULED" -> attendanceResolutionLabel("UNSCHEDULED")
+        row.type == "UNSCHEDULED" || row.resolutionStatus == "UNSCHEDULED" -> when (row.offScheduleReviewStatus) {
+            "REJECTED" -> "Ngoài lịch • Admin đã từ chối"
+            else -> "Ngoài lịch • Chờ Admin duyệt"
+        }
         row.type == "OUT_OF_ORDER" || row.resolutionStatus == "OUT_OF_ORDER" -> attendanceResolutionLabel("OUT_OF_ORDER")
         row.status !in AttendanceStatus.entries.map { it.name } -> "Bất thường • Trạng thái chấm không hợp lệ"
         else -> return AttendanceResolutionPresentation(attendanceStatusLabel(row.status), accepted = true)

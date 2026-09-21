@@ -17,6 +17,15 @@ fun validateRequest(request: LeaveRequest) {
     require(!end.isBefore(start)) { "Ngày kết thúc phải từ ngày bắt đầu trở đi" }
     require(request.reason.isNotBlank()) { "Lý do không được để trống" }
     require(request.status in RequestStatus.entries.map { it.name }) { "Trạng thái đơn không hợp lệ" }
+    request.leaveShiftsByDate?.let { scope ->
+        require(request.type == RequestType.LEAVE.name) { "Chỉ đơn nghỉ phép được khai báo ca nghỉ" }
+        require(scope.isNotEmpty() && scope.size <= 31) { "Chọn ít nhất một ngày nghỉ (tối đa 31 ngày)" }
+        require(scope.all { (dateText, shiftIds) ->
+            val date = runCatching { LocalDate.parse(dateText) }.getOrNull()
+            date != null && date in start..end && shiftIds.isNotEmpty() &&
+                shiftIds.size <= 2 && shiftIds.all(String::isNotBlank) && shiftIds.distinct().size == shiftIds.size
+        }) { "Phạm vi ca nghỉ không hợp lệ" }
+    }
 }
 
 fun reviewRequest(
@@ -29,7 +38,7 @@ fun reviewRequest(
 ): LeaveRequest {
     validateRequest(request)
     require(request.status == RequestStatus.PENDING.name) { "Đơn này đã được xử lý" }
-    require(status != RequestStatus.PENDING) { "Phải chọn duyệt hoặc từ chối" }
+    require(status == RequestStatus.APPROVED || status == RequestStatus.REJECTED) { "Phải chọn duyệt hoặc từ chối" }
     require(reviewerId.isNotBlank() && reviewerName.isNotBlank()) { "Thiếu thông tin người duyệt" }
     if (status == RequestStatus.REJECTED) require(note.isNotBlank()) { "Cần nhập lý do từ chối" }
     return request.copy(

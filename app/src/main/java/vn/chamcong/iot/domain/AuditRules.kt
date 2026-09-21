@@ -15,5 +15,5 @@ fun validateAuditLog(log: AuditLog) {
 
 fun canAccessAdmin(provider: String, profile: UserProfile?): Boolean {
     if (provider.equals("anonymous", ignoreCase = true)) return false
-    return profile == null || (profile.active && profile.role == UserRole.ADMIN.name)
+    return profile?.active == true && profile.role == UserRole.ADMIN.name
 }

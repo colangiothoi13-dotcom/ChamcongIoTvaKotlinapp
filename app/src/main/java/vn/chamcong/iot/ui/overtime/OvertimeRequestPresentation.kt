@@ -4,6 +4,7 @@ import java.time.LocalDate
 import vn.chamcong.iot.domain.SUPPLEMENTARY_END_TIME
 import vn.chamcong.iot.domain.SUPPLEMENTARY_START_TIME
 import vn.chamcong.iot.domain.SUPPLEMENTARY_ZONE_ID
+import vn.chamcong.iot.domain.isOvertimeRequestWithinDeadline
 import vn.chamcong.iot.model.OvertimeRequest
 import vn.chamcong.iot.model.OvertimeRequestStatus
 
@@ -18,13 +19,11 @@ fun overtimeStatusLabel(status: String): String = when (status) {
 
 fun overtimeWindowLabel(request: OvertimeRequest): String {
     val fixedWindow = "$SUPPLEMENTARY_START_TIME$FIXED_WINDOW_SEPARATOR$SUPPLEMENTARY_END_TIME"
-    val hasStaleTimes = request.startTime != SUPPLEMENTARY_START_TIME ||
-        request.endTime != SUPPLEMENTARY_END_TIME
-    return if (hasStaleTimes) {
-        "$fixedWindow • Dữ liệu giờ đã lưu không hợp lệ"
-    } else {
-        fixedWindow
+    if (request.startTime == SUPPLEMENTARY_START_TIME && request.endTime == SUPPLEMENTARY_END_TIME) {
+        return fixedWindow
     }
+    if (request.startTime == "17:30" && request.endTime == "20:30") return "17:30–20:30 • Đơn cũ"
+    return "$fixedWindow • Dữ liệu giờ đã lưu không hợp lệ"
 }
 
 fun isValidOvertimeWorkDate(
@@ -34,3 +33,5 @@ fun isValidOvertimeWorkDate(
     val date = runCatching { LocalDate.parse(value.trim()) }.getOrNull() ?: return false
     return !date.isBefore(today)
 }
+
+fun isOpenOvertimeSubmissionDate(value: String): Boolean = isOvertimeRequestWithinDeadline(value)

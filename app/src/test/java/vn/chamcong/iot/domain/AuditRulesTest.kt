@@ -68,7 +68,7 @@ class AuditRulesTest {
 
     @Test
     fun adminAccessRequiresActiveAdminProfileWhenProfileExists() {
-        assertTrue(canAccessAdmin("password", null))
+        assertFalse(canAccessAdmin("password", null))
         assertTrue(canAccessAdmin("password", UserProfile(role = "ADMIN", active = true)))
         assertFalse(canAccessAdmin("password", UserProfile(role = "EMPLOYEE", active = true)))
         assertFalse(canAccessAdmin("password", UserProfile(role = "ADMIN", active = false)))

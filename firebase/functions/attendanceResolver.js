@@ -1,8 +1,8 @@
 const DUPLICATE_WINDOW_MS = 180000;
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
 const SUPPLEMENTARY_SHIFT_ID = "SUPPLEMENTARY_1730_2030";
-const SUPPLEMENTARY_START_TIME = "17:30";
-const SUPPLEMENTARY_END_TIME = "20:30";
+const SUPPLEMENTARY_START_TIME = "18:00";
+const SUPPLEMENTARY_END_TIME = "22:00";
 
 function formatParts(timestampMs, timeZone) {
   return Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
@@ -42,17 +42,18 @@ function buildSupplementarySchedule(workDate, request) {
     overtimeRequestId: request && request.id ? request.id : null,
     shift: {
       id: SUPPLEMENTARY_SHIFT_ID,
-      startTime: SUPPLEMENTARY_START_TIME,
-      endTime: SUPPLEMENTARY_END_TIME,
+      startTime: request && request.startTime ? request.startTime : SUPPLEMENTARY_START_TIME,
+      endTime: request && request.endTime ? request.endTime : SUPPLEMENTARY_END_TIME,
       allowEarlyMinutes: 0,
-      missingCheckOutGraceMinutes: 0
+      missingCheckOutGraceMinutes: 120
     }
   };
 }
 
-function attendanceSessionId(employeeId, scheduleDate, shiftId) {
+function attendanceSessionId(employeeId, scheduleDate, shiftId, separateRegularShiftSession = false) {
   const legacyId = `${employeeId}_${scheduleDate}`;
-  return shiftId === SUPPLEMENTARY_SHIFT_ID ? `${legacyId}_${SUPPLEMENTARY_SHIFT_ID}` : legacyId;
+  if (shiftId === SUPPLEMENTARY_SHIFT_ID) return `${legacyId}_${SUPPLEMENTARY_SHIFT_ID}`;
+  return separateRegularShiftSession ? `${legacyId}_${shiftId}` : legacyId;
 }
 
 function normalizeSchedule(schedule) {
@@ -66,9 +67,21 @@ function normalizeSchedule(schedule) {
 
 function pickSchedule(scanMs, schedules) {
   const candidates = schedules.map(normalizeSchedule).filter(candidate => {
-    const opensAt = candidate.startMs - Number(candidate.shift.allowEarlyMinutes || 0) * 60000;
-    const closesAt = candidate.endMs + Number(candidate.shift.missingCheckOutGraceMinutes ?? 60) * 60000;
-    return scanMs >= opensAt && scanMs <= closesAt;
+    const shift = candidate.shift;
+    const standardMorning = shift.category === "MORNING" && shift.startTime === "08:00" && shift.endTime === "12:00";
+    const standardAfternoon = shift.category === "EVENING" && shift.startTime === "13:00" && shift.endTime === "17:00";
+    const opensEarlyMinutes = standardMorning
+      ? Math.max(120, Number(shift.allowEarlyMinutes || 0))
+      : Number(shift.allowEarlyMinutes || 0);
+    const opensAt = candidate.startMs - opensEarlyMinutes * 60000;
+    const strictCheckoutWindow = candidate.shift.id === SUPPLEMENTARY_SHIFT_ID || standardMorning || standardAfternoon;
+    const checkoutGrace = candidate.shift.id === SUPPLEMENTARY_SHIFT_ID
+      ? 120 * 60000
+      : standardMorning || standardAfternoon
+        ? 30 * 60000
+        : Number(candidate.shift.missingCheckOutGraceMinutes ?? 60) * 60000;
+    const closesAt = candidate.endMs + checkoutGrace;
+    return scanMs >= opensAt && (strictCheckoutWindow ? scanMs < closesAt : scanMs <= closesAt);
   });
   if (!candidates.length) return null;
   return candidates.sort((left, right) => {
@@ -116,8 +129,7 @@ function resolveScan({ scan, schedules, session, latestAccepted, requestStatus }
   if (session && session.closed) return unchanged("UNSCHEDULED", "UNSCHEDULED", schedule, session);
 
   const opensSession = session && session.openCheckInAt != null;
-  const type = opensSession ? "CHECK_OUT" :
-    Math.abs(scan.timestampMs - schedule.startMs) <= Math.abs(scan.timestampMs - schedule.endMs) ? "CHECK_IN" : "CHECK_OUT";
+  const type = opensSession || scan.timestampMs >= schedule.endMs ? "CHECK_OUT" : "CHECK_IN";
   if (opensSession && scan.timestampMs <= session.openCheckInAt) {
     return unchanged("OUT_OF_ORDER", "OUT_OF_ORDER", schedule, session);
   }

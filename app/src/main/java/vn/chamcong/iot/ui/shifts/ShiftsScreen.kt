@@ -35,7 +35,7 @@ fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
     var editor by remember { mutableStateOf<WorkShift?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Quản lý ca làm", style = MaterialTheme.typography.titleLarge)
-        Text("Phân lịch có sẵn: Ca sáng 08:00–12:00, Ca chiều 13:00–17:00, Ca bổ sung/tăng ca nhập giờ mỗi lần. Các ca cũ vẫn được giữ.", style = MaterialTheme.typography.bodySmall)
+        Text("Ca mặc định: sáng 08:00–12:00, chiều 13:00–17:00. Ca mới tối đa 4 giờ, không qua ngày; tăng ca gửi đơn riêng 18:00–22:00. Các ca cũ vẫn được giữ.", style = MaterialTheme.typography.bodySmall)
         Button(onClick = {
             vm.clearError()
             editor = WorkShift(name = "Ca sáng", effectiveFrom = LocalDate.now().toString())
@@ -115,7 +115,14 @@ private fun ShiftEditorDialog(
                 }
                 OutlinedTextField(name, { name = it }, label = { Text("Tên ca") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(start, { start = it }, label = { Text("Giờ bắt đầu (HH:mm)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(end, { end = it }, label = { Text("Giờ kết thúc (HH:mm)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    end,
+                    { end = it },
+                    label = { Text("Giờ kết thúc (HH:mm)") },
+                    supportingText = { Text("Giờ kết thúc phải sau giờ bắt đầu; ca không qua ngày") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 OutlinedTextField(early, { if (it.all(Char::isDigit)) early = it }, label = { Text("Cho phép chấm sớm (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(late, { if (it.all(Char::isDigit)) late = it }, label = { Text("Cho phép đi trễ (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(earlyLeave, { if (it.all(Char::isDigit)) earlyLeave = it }, label = { Text("Cho phép về sớm (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth())

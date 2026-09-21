@@ -13,6 +13,7 @@ data class DeviceSnapshot(
     val firmwareVersion: String = "",
     val fingerprintCount: Int? = null,
     val capacity: Int? = null,
+    val pendingAttendanceCount: Int = 0,
     val capabilities: Set<String> = emptySet()
 )
 
@@ -29,6 +30,7 @@ fun deviceSnapshotFromFields(id: String, fields: Map<String, Any?>): DeviceSnaps
     firmwareVersion = fields["firmwareVersion"] as? String ?: "",
     fingerprintCount = (fields["fingerprintCount"] as? Number)?.toInt(),
     capacity = (fields["capacity"] as? Number)?.toInt(),
+    pendingAttendanceCount = ((fields["pendingAttendanceCount"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
     capabilities = (fields["capabilities"] as? List<*>)
         .orEmpty()
         .filterIsInstance<String>()

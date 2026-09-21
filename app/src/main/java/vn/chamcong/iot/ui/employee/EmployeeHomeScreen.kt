@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -34,9 +35,20 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
     val today = LocalDate.now(zone)
     val summaries = vm.employeeMonthSummaries(today)
     val todaySummary = summaries.firstOrNull { it.date == today }
-    val workedDays = summaries.count { it.workedHours > 0.0 }
-    val totalHours = summaries.sumOf { it.workedHours }
+    val workedDays = summaries.count { it.workedHours > 0.0 || it.overtimeHours > 0.0 }
+    val totalHours = summaries.sumOf {
+        if (it.workedSeconds > 0L) it.workedSeconds / 3600.0 else it.workedHours
+    }
+    val totalOvertimeHours = summaries.sumOf {
+        if (it.overtimeSeconds > 0L) it.overtimeSeconds / 3600.0 else it.overtimeHours
+    }
     val lateCount = summaries.count { it.status == EmployeeAttendanceStatus.LATE || it.status == EmployeeAttendanceStatus.ABNORMAL }
+    val leaveDays = summaries.count { it.status == EmployeeAttendanceStatus.LEAVE }
+    val reviewDays = summaries.count {
+        (it.shiftName.isNotBlank() &&
+            (it.status == EmployeeAttendanceStatus.MISSING_CHECK_IN || it.status == EmployeeAttendanceStatus.MISSING_CHECK_OUT)) ||
+            it.status == EmployeeAttendanceStatus.ABNORMAL
+    }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item {
@@ -57,9 +69,36 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
         }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                MiniStat("Giờ làm tháng", "%.2f".format(totalHours), Modifier.weight(1f))
+                MiniStat("Giờ thường tháng", "%.2f".format(totalHours), Modifier.weight(1f))
+                MiniStat("Giờ tăng ca tháng", "%.2f".format(totalOvertimeHours), Modifier.weight(1f))
                 MiniStat("Ngày đi làm", workedDays.toString(), Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                MiniStat("Ng\u00e0y ngh\u1ec9", leaveDays.toString(), Modifier.weight(1f))
+                MiniStat("Ng\u00e0y c\u1ea7n ki\u1ec3m tra", reviewDays.toString(), Modifier.weight(1f))
                 MiniStat("Lần đi trễ", lateCount.toString(), Modifier.weight(1f))
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                Text("Th\u00f4ng b\u00e1o c\u00e1 nh\u00e2n", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                if (state.employeeNotifications.isEmpty()) {
+                    Text("B\u1ea1n ch\u01b0a c\u00f3 th\u00f4ng b\u00e1o m\u1edbi.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    state.employeeNotifications.take(5).forEach { notification ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
+                                Text(notification.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(notification.body, style = MaterialTheme.typography.bodyMedium)
+                                if (!notification.read) TextButton(onClick = { vm.markEmployeeNotificationRead(notification.id) }) {
+                                    Text("\u0110\u00e1nh d\u1ea5u \u0111\u00e3 xem")
+                                } else Text("\u0110\u00e3 xem", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
             }
         }
     }

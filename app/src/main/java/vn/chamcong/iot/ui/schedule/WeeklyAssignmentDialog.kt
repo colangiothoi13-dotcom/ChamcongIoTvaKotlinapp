@@ -18,6 +18,8 @@ import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import vn.chamcong.iot.model.WeeklyScheduleRequestStatus
 
 @Composable
 internal fun WeeklyScheduleWarning(state: MainUiState) {
@@ -25,14 +27,26 @@ internal fun WeeklyScheduleWarning(state: MainUiState) {
     LaunchedEffect(Unit) {
         while (true) { now = Instant.now(); delay(1000) }
     }
-    val status = weeklyScheduleStatus(state.selectedWeekStart, state.employees, state.schedules, now)
-    val deadline = mondayOfWeek(state.selectedWeekStart).minusDays(1)
-    Text("Hạn đăng ký: Chủ nhật $deadline, 17:00 (giờ Việt Nam). Admin vẫn có thể cập nhật bất kỳ lúc nào.", style = MaterialTheme.typography.bodySmall)
-    if (status.missingEmployeeIds.isNotEmpty()) {
-        Text("${if (status.overdue) "Quá hạn" else "Chưa hoàn tất"}: ${status.missingEmployeeIds.size} nhân viên chưa có lịch nào trong tuần.",
-            color = MaterialTheme.colorScheme.error)
-    } else Text("Mỗi nhân viên đang làm đã có lịch trong tuần.", style = MaterialTheme.typography.bodySmall)
-    Text("Kiểm tra các ngày cần làm trong bảng; ngày trống không được coi là ngày nghỉ đã duyệt.", style = MaterialTheme.typography.bodySmall)
+    val weekStart = mondayOfWeek(state.selectedWeekStart)
+    val requests = state.weeklyScheduleRequests.filter { it.weekStart == weekStart.toString() }
+    val missingCount = state.employees.count { employee -> employee.active && requests.none { it.employeeId == employee.id } }
+    val pendingCount = requests.count { it.status == WeeklyScheduleRequestStatus.PENDING }
+    val revisionCount = requests.count { it.status == WeeklyScheduleRequestStatus.NEEDS_REVISION }
+    val employeeDeadline = weekStart.minusDays(2).atTime(12, 0).atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant()
+    val adminDeadline = weekStart.minusDays(2).atTime(17, 0).atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant()
+    val overdueEmployee = now.isAfter(employeeDeadline)
+    val overdueAdmin = now.isAfter(adminDeadline)
+    Text("Nhân viên gửi trước thứ Bảy ${weekStart.minusDays(2)} 12:00; Admin duyệt trước 17:00 (giờ Việt Nam).", style = MaterialTheme.typography.bodySmall)
+    if (missingCount > 0) {
+        Text("${if (overdueEmployee) "Quá hạn gửi" else "Chưa đăng ký"}: $missingCount nhân viên.",
+            color = if (overdueEmployee) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+    } else Text("Tất cả nhân viên đang hoạt động đã gửi đăng ký.", style = MaterialTheme.typography.bodySmall)
+    if (pendingCount > 0) {
+        Text("Đơn đang chờ Admin duyệt: $pendingCount${if (overdueAdmin) " • ĐÃ QUÁ HẠN" else ""}.",
+            color = if (overdueAdmin) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (revisionCount > 0) Text("Đơn cần nhân viên chỉnh sửa: $revisionCount.", color = MaterialTheme.colorScheme.error)
+    Text("Đơn quá hạn vẫn giữ trạng thái chờ xử lý; hệ thống không tự duyệt.", style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
@@ -56,7 +70,7 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
         title = { Text("Phân ca tuần cho nhân viên") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                Text("${weekDates(week).first()} – ${weekDates(week).last()} (Thứ hai – Chủ nhật)")
+                Text("${weekDates(week).first()} – ${weekDates(week).last()} (Thứ Hai – Thứ Bảy)")
                 Text("Chọn nhân viên (${employees.size})")
                 if (unavailableEmployees.isNotEmpty()) {
                     Text("${unavailableEmployees.size} nhân viên đã chọn không còn hoạt động hoặc không còn trong danh sách. Bỏ các lựa chọn này để tiếp tục.",
@@ -73,12 +87,12 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
                 if (state.employees.none { it.active }) Text("Chưa có nhân viên đang làm")
                 Text("Chọn ngày (${dates.size})")
                 weekDates(week).forEachIndexed { index, date ->
-                    SelectionRow("${if (index == 6) "Chủ nhật" else "Thứ ${index + 2}"} • $date", date in dates, !state.saving) {
+                    SelectionRow("Thứ ${index + 2} • $date", date in dates, !state.saving) {
                         dates = if (it) dates + date else dates - date
                     }
                 }
                 Text("Ca chính")
-                Text("Tăng ca 17:30–20:30 do nhân viên gửi đơn và Admin duyệt trong mục đơn từ.")
+                Text("Tăng ca 18:00–22:00 do nhân viên gửi đơn và Admin duyệt trong mục đơn từ.")
                 templates.forEach { item ->
                     FilterChip(selected = template == item, enabled = !state.saving, onClick = { template = item },
                         label = { Text("${item.name} ${item.startTime?.let { "$it–${item.endTime}" } ?: "(nhập giờ)"}") })
@@ -88,7 +102,6 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
                         label = { Text("Giờ bắt đầu (HH:mm)") }, isError = validation != null)
                     OutlinedTextField(end, { end = it }, enabled = !state.saving, singleLine = true,
                         label = { Text("Giờ kết thúc (HH:mm)") }, isError = validation != null)
-                    Text("Giờ kết thúc sớm hơn giờ bắt đầu: ca qua đêm, kết thúc ngày hôm sau.")
                     validation?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
                 Text("${employees.size * dates.size} lịch sẽ được lưu. Lịch cùng nhân viên/ngày sẽ được cập nhật; mỗi ngày chỉ có một ca.")

@@ -1,19 +1,26 @@
 package vn.chamcong.iot.domain
 
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.OvertimeRequest
 import vn.chamcong.iot.model.OvertimeRequestStatus
+import vn.chamcong.iot.model.WorkShift
+import vn.chamcong.iot.model.WorkTimeSummary
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.DayOfWeek
 import java.time.ZoneId
 
 const val SUPPLEMENTARY_SHIFT_ID = "SUPPLEMENTARY_1730_2030"
-const val SUPPLEMENTARY_START_TIME = "17:30"
-const val SUPPLEMENTARY_END_TIME = "20:30"
-const val SUPPLEMENTARY_HOURS = 3.0
+const val SUPPLEMENTARY_START_TIME = "18:00"
+const val SUPPLEMENTARY_END_TIME = "22:00"
+const val SUPPLEMENTARY_HOURS = 4.0
+private const val LEGACY_SUPPLEMENTARY_START_TIME = "17:30"
+private const val LEGACY_SUPPLEMENTARY_END_TIME = "20:30"
 val SUPPLEMENTARY_ZONE_ID: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh")
 
-fun createOvertimeRequest(employee: Employee, workDate: LocalDate): OvertimeRequest {
+fun createOvertimeRequest(employee: Employee, workDate: LocalDate, reason: String = ""): OvertimeRequest {
     val request = OvertimeRequest(
         employeeId = employee.id,
         employeeName = employee.fullName,
@@ -21,6 +28,7 @@ fun createOvertimeRequest(employee: Employee, workDate: LocalDate): OvertimeRequ
         workDate = workDate.toString(),
         startTime = SUPPLEMENTARY_START_TIME,
         endTime = SUPPLEMENTARY_END_TIME,
+        reason = reason.trim(),
         status = OvertimeRequestStatus.PENDING.name
     )
     validateOvertimeRequest(request)
@@ -30,13 +38,53 @@ fun createOvertimeRequest(employee: Employee, workDate: LocalDate): OvertimeRequ
 fun validateOvertimeRequest(request: OvertimeRequest) {
     require(request.employeeId.isNotBlank()) { "Employee is required" }
     require(runCatching { LocalDate.parse(request.workDate) }.isSuccess) { "Work date is required" }
-    require(request.startTime == SUPPLEMENTARY_START_TIME && request.endTime == SUPPLEMENTARY_END_TIME) {
+    val currentWindow = request.startTime == SUPPLEMENTARY_START_TIME && request.endTime == SUPPLEMENTARY_END_TIME
+    val legacyWindow = request.startTime == LEGACY_SUPPLEMENTARY_START_TIME && request.endTime == LEGACY_SUPPLEMENTARY_END_TIME
+    require(currentWindow || legacyWindow) {
         "Overtime must use the fixed supplementary shift"
     }
     require(request.status in OvertimeRequestStatus.entries.map { it.name }) { "Invalid overtime status" }
     if (request.status == OvertimeRequestStatus.REJECTED.name) {
         require(!request.rejectionReason.isNullOrBlank()) { "Rejection reason is required" }
     }
+}
+
+fun isOvertimeRequestWithinDeadline(workDate: String, now: Instant = Instant.now()): Boolean {
+    val requestedDate = runCatching { LocalDate.parse(workDate) }.getOrNull() ?: return false
+    if (requestedDate.dayOfWeek == DayOfWeek.SUNDAY) return false
+    val localNow = now.atZone(SUPPLEMENTARY_ZONE_ID)
+    val today = localNow.toLocalDate()
+    return requestedDate.isAfter(today) ||
+        (requestedDate == today && localNow.toLocalTime().isBefore(LocalTime.of(18, 0)))
+}
+
+fun approvedOvertimeSummary(
+    employeeId: String,
+    workDate: LocalDate,
+    attendance: List<Attendance>,
+    request: OvertimeRequest,
+    zoneId: ZoneId
+): WorkTimeSummary? {
+    if (request.employeeId != employeeId || request.status != OvertimeRequestStatus.APPROVED.name) return null
+    if (runCatching { validateOvertimeRequest(request) }.isFailure) return null
+    if (runCatching { LocalDate.parse(request.workDate) }.getOrNull() != workDate) return null
+    val shift = WorkShift(
+        id = SUPPLEMENTARY_SHIFT_ID,
+        name = "Tăng ca",
+        category = "SUPPLEMENTARY",
+        startTime = request.startTime,
+        endTime = request.endTime,
+        countsOvertime = true,
+        missingCheckOutGraceMinutes = 120
+    )
+    val rows = attendance.filter {
+        it.employeeId == employeeId && it.shiftId == SUPPLEMENTARY_SHIFT_ID &&
+            (it.scheduleDate == null || it.scheduleDate == workDate.toString())
+    }
+    val pair = resolveAttendancePair(rows, workDate, shift, zoneId = zoneId)
+    val checkIn = pair.checkIn ?: return null
+    val checkOut = pair.checkOut ?: return null
+    return calculateWorkTime(checkIn, checkOut, shift, 4, zoneId, workDate)
 }
 
 fun reviewOvertimeRequest(

@@ -1,13 +1,17 @@
 package vn.chamcong.iot.model
 
+import com.google.firebase.Timestamp
+
 enum class ShiftCategory { MORNING, EVENING, SUPPLEMENTARY }
+
+enum class WeeklyScheduleRequestStatus { PENDING, NEEDS_REVISION, APPROVED }
 
 data class WorkShift(
     val id: String = "",
     val name: String = "",
     val category: String = ShiftCategory.MORNING.name,
     val startTime: String = "08:00",
-    val endTime: String = "17:00",
+    val endTime: String = "12:00",
     val allowEarlyMinutes: Int = 0,
     val lateGraceMinutes: Int = 0,
     val earlyLeaveAllowedMinutes: Int = 0,
@@ -26,6 +30,8 @@ data class WorkSchedule(
     val employeeName: String = "",
     val department: String = "",
     val shiftId: String = "",
+    /** All main shifts registered for the date; shiftId remains the legacy first-shift value. */
+    val shiftIds: List<String> = emptyList(),
     val shiftName: String = "",
     val date: String = "",
     val overtimeHours: Int = 0,
@@ -36,7 +42,32 @@ data class WorkSchedule(
     val note: String = ""
 )
 
+data class WeeklyScheduleRequest(
+    val id: String = "",
+    val employeeId: String = "",
+    val employeeName: String = "",
+    val department: String = "",
+    val weekStart: String = "",
+    val shiftsByDate: Map<String, List<String>> = emptyMap(),
+    val status: WeeklyScheduleRequestStatus = WeeklyScheduleRequestStatus.PENDING,
+    val reason: String = "",
+    val reviewNote: String? = null,
+    val reviewerId: String? = null,
+    val reviewerName: String? = null,
+    val createdAt: Timestamp = Timestamp.now(),
+    val reviewedAt: Timestamp? = null
+)
+
 data class WorkTimeSummary(
+    /** Original scan instants, before any schedule-boundary adjustments. */
+    val rawCheckInAt: java.time.Instant? = null,
+    val rawCheckOutAt: java.time.Instant? = null,
+    /** Instants used for paid-time calculation after schedule/grace clipping. */
+    val paidCheckInAt: java.time.Instant? = null,
+    val paidCheckOutAt: java.time.Instant? = null,
+    /** Exact whole seconds credited to regular work and overtime, before hour rounding. */
+    val workedSeconds: Long = 0L,
+    val overtimeSeconds: Long = 0L,
     val workedHours: Double = 0.0,
     val overtimeHours: Double = 0.0,
     val lateMinutes: Int = 0,

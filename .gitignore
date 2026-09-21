@@ -12,6 +12,7 @@ local.properties
 
 # ESP8266/IoT
 firmware/build/
+/firmware/esp8266_fingerprint/secrets.h
 *.bin
 *.elf
 *.map

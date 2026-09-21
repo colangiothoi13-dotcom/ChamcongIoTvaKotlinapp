@@ -18,6 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,13 +27,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
+import vn.chamcong.iot.model.WeeklyScheduleRequest
+import vn.chamcong.iot.model.WeeklyScheduleRequestStatus
 import vn.chamcong.iot.domain.weekDates
 import vn.chamcong.iot.ui.AppTouchTarget
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -41,6 +46,7 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
     var monthMode by remember { mutableStateOf(false) }
     var assignment by remember { mutableStateOf<AssignmentTarget?>(null) }
     var bulkAssignment by remember { mutableStateOf(false) }
+    var reviewRequest by remember { mutableStateOf<WeeklyScheduleRequest?>(null) }
     val dates = weekDates(state.selectedWeekStart)
     val activeEmployees = state.employees.filter { it.active }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
@@ -80,11 +86,143 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
                 assignment = AssignmentTarget(employee, date, false)
             }
         }
+        WeeklyScheduleRequestReviewSection(state, vm) { reviewRequest = it }
     }
     assignment?.let { target ->
         ScheduleAssignmentDialog(state, target, vm) { assignment = null }
     }
     if (bulkAssignment) WeeklyAssignmentDialog(state, vm) { bulkAssignment = false }
+    reviewRequest?.let { request ->
+        WeeklyScheduleRequestReviewDialog(request, state.saving, vm) { reviewRequest = null }
+    }
+}
+
+@Composable
+private fun WeeklyScheduleRequestReviewSection(
+    state: MainUiState,
+    vm: MainViewModel,
+    onReview: (WeeklyScheduleRequest) -> Unit
+) {
+    val weekStart = state.selectedWeekStart
+    val weekRequests = state.weeklyScheduleRequests.filter { it.weekStart == weekStart.toString() }
+        .sortedWith(compareBy<WeeklyScheduleRequest> { it.status != WeeklyScheduleRequestStatus.PENDING }.thenBy { it.employeeName })
+    val activeEmployees = state.employees.filter { it.active }
+    val submittedEmployeeIds = weekRequests.map { it.employeeId }.toSet()
+    val missingEmployees = activeEmployees.filter { it.id !in submittedEmployeeIds }
+    val pending = weekRequests.filter { it.status == WeeklyScheduleRequestStatus.PENDING }
+    val saturdayDeadline = weekStart.minusDays(2).atTime(17, 0).atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).toInstant()
+    val overdue = java.time.Instant.now().isAfter(saturdayDeadline)
+    val shiftsById = state.shifts.associateBy(WorkShift::id)
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+            Text("Đăng ký lịch tuần • ${weekStart}", style = MaterialTheme.typography.titleMedium)
+            if (overdue && pending.isNotEmpty()) {
+                Text("Đã quá hạn duyệt thứ Bảy 17:00. Các đơn vẫn đang chờ xử lý.", color = MaterialTheme.colorScheme.error)
+            } else {
+                Text("Hạn nhân viên gửi: thứ Bảy 12:00 • Admin duyệt trước 17:00.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (missingEmployees.isNotEmpty()) {
+                Text(
+                    "Chưa đăng ký: ${missingEmployees.joinToString { it.fullName }}",
+                    color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (activeEmployees.isNotEmpty()) {
+                Text("Tất cả nhân viên đang hoạt động đã gửi đăng ký.", color = MaterialTheme.colorScheme.primary)
+            }
+            val shiftCounts = buildMap<String, Int> {
+                weekRequests.filter { it.status != WeeklyScheduleRequestStatus.NEEDS_REVISION }.forEach { request ->
+                    request.shiftsByDate.forEach { (date, ids) ->
+                        ids.distinct().forEach { id ->
+                            val key = "${date}_$id"
+                            put(key, (get(key) ?: 0) + 1)
+                        }
+                    }
+                }
+            }
+            if (shiftCounts.isNotEmpty()) {
+                Text("Số người theo ca đã gửi/duyệt:", style = MaterialTheme.typography.labelLarge)
+                shiftCounts.toSortedMap().forEach { (key, count) ->
+                    val parts = key.split('_')
+                    val date = parts.firstOrNull().orEmpty()
+                    val shiftId = parts.drop(1).joinToString("_")
+                    val shift = shiftsById[shiftId]
+                    Text("$date • ${shift?.name ?: shiftId}: $count người", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (pending.isNotEmpty()) {
+                Button(
+                    onClick = { vm.approveWeeklySchedulesForWeek(weekStart.toString()) },
+                    enabled = !state.saving
+                ) { Text("Duyệt hàng loạt ${pending.size} đơn đang chờ") }
+            }
+            if (weekRequests.isEmpty()) {
+                Text("Chưa có đăng ký lịch tuần này.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                weekRequests.forEach { request ->
+                    val status = when (request.status) {
+                        WeeklyScheduleRequestStatus.PENDING -> "Chờ duyệt"
+                        WeeklyScheduleRequestStatus.NEEDS_REVISION -> "Cần sửa"
+                        WeeklyScheduleRequestStatus.APPROVED -> "Đã duyệt"
+                    }
+                    Column(Modifier.fillMaxWidth().padding(top = AppSpacing.xSmall), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
+                        Text("${request.employeeName} • ${request.department.ifBlank { "Chưa có phòng ban" }} — $status", fontWeight = FontWeight.Medium)
+                        request.shiftsByDate.toSortedMap().forEach { (date, ids) ->
+                            val labels = ids.map { id -> shiftsById[id]?.let { "${it.name} ${it.startTime}–${it.endTime}" } ?: id }
+                            Text("$date: ${labels.ifEmpty { listOf("Nghỉ") }.joinToString(" + ")}", style = MaterialTheme.typography.bodySmall)
+                        }
+                        request.reason.takeIf(String::isNotBlank)?.let { Text("Ghi chú nhân viên: $it", style = MaterialTheme.typography.bodySmall) }
+                        request.reviewNote?.takeIf(String::isNotBlank)?.let { Text("Phản hồi: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                        if (request.status == WeeklyScheduleRequestStatus.PENDING) {
+                            TextButton(onClick = { onReview(request) }, enabled = !state.saving) { Text("Xử lý đơn") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeeklyScheduleRequestReviewDialog(
+    request: WeeklyScheduleRequest,
+    saving: Boolean,
+    vm: MainViewModel,
+    onDismiss: () -> Unit
+) {
+    var note by remember(request.id) { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Xử lý đăng ký lịch tuần") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                Text("${request.employeeName} • tuần bắt đầu ${request.weekStart}")
+                Text("Duyệt để chuyển các ca đăng ký thành lịch làm việc. Nếu cần sửa, ghi rõ lý do để nhân viên gửi lại.")
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { if (it.length <= 1000) note = it },
+                    label = { Text("Phản hồi / lý do yêu cầu sửa") },
+                    minLines = 2,
+                    maxLines = 4
+                )
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                TextButton(
+                    onClick = {
+                        vm.reviewWeeklyScheduleRequest(request.id, WeeklyScheduleRequestStatus.NEEDS_REVISION, note) { onDismiss() }
+                    },
+                    enabled = !saving && note.isNotBlank()
+                ) { Text("Yêu cầu sửa") }
+                Button(
+                    onClick = { vm.reviewWeeklyScheduleRequest(request.id, WeeklyScheduleRequestStatus.APPROVED, note) { onDismiss() } },
+                    enabled = !saving
+                ) { Text("Duyệt") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("Đóng") } }
+    )
 }
 
 private data class AssignmentTarget(val employee: vn.chamcong.iot.model.Employee?, val date: LocalDate, val departmentMode: Boolean)
@@ -109,7 +247,9 @@ private fun WeeklyScheduleGrid(state: MainUiState, dates: List<LocalDate>, emplo
                             .heightIn(min = AppTouchTarget.minimum)
                     ) {
                         Column(Modifier.padding(AppSpacing.small)) {
-                            Text(schedule?.shiftName ?: "Chưa phân", style = MaterialTheme.typography.labelSmall)
+                            val assignedNames = schedule?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
+                                .mapNotNull { shiftId -> state.shifts.firstOrNull { it.id == shiftId }?.name?.takeIf(String::isNotBlank) }
+                            Text(assignedNames.joinToString(" + ").ifBlank { schedule?.shiftName ?: "Chưa phân" }, style = MaterialTheme.typography.labelSmall)
                             if (schedule != null && schedule.overtimeHours > 0) Text("+${schedule.overtimeHours} giờ", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
                         }
                     }
@@ -141,14 +281,16 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
                         if (date == null) {
                             androidx.compose.foundation.layout.Spacer(Modifier.size(AppTouchTarget.minimum))
                         } else {
+                            val canAssign = date.dayOfWeek != DayOfWeek.SUNDAY
                             val count = state.schedules.count { it.date == date.toString() }
                             Card(
-                                onClick = { onDay(date) },
+                                onClick = { if (canAssign) onDay(date) },
+                                enabled = canAssign,
                                 modifier = Modifier.size(AppTouchTarget.minimum)
                             ) {
                                 Column(Modifier.padding(AppSpacing.xSmall)) {
-                                    Text(date.dayOfMonth.toString())
-                                    Text("$count ca", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                    Text(date.dayOfMonth.toString(), color = if (canAssign) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(if (canAssign) "$count ca" else "CN", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                                 }
                             }
                         }
@@ -166,8 +308,10 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
 private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarget, vm: MainViewModel, onDismiss: () -> Unit) {
     val existing = state.schedules.firstOrNull { it.employeeId == target.employee?.id && it.date == target.date.toString() }
     val assignableShifts = assignableScheduleShifts(state.shifts)
-    var selectedShift by remember(target.date, target.employee?.id, assignableShifts) {
-        mutableStateOf(assignableShifts.firstOrNull { it.id == existing?.shiftId } ?: assignableShifts.firstOrNull())
+    var selectedShiftIds by remember(target.date, target.employee?.id, assignableShifts, existing?.shiftIds) {
+        val existingIds = existing?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
+            .filter { id -> assignableShifts.any { it.id == id } }
+        mutableStateOf(existingIds.ifEmpty { listOfNotNull(assignableShifts.firstOrNull()?.id) })
     }
     var selectedDepartment by remember(target.date, target.employee?.id) { mutableStateOf(state.employees.map { it.department }.firstOrNull { it.isNotBlank() }.orEmpty()) }
     var selectedEmployee by remember(target.date, target.employee?.id) { mutableStateOf(target.employee ?: state.employees.firstOrNull { it.active }) }
@@ -194,7 +338,7 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                         )
                     }
                 }
-                Text("Ca")
+                Text("Ca (chọn tối đa một ca sáng và một ca chiều)")
                 if (assignableShifts.isEmpty()) {
                     Text("Chưa có ca chính để phân")
                 } else {
@@ -204,8 +348,14 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                     ) {
                         assignableShifts.forEach { shift ->
                             FilterChip(
-                                selected = selectedShift?.id == shift.id,
-                                onClick = { selectedShift = shift },
+                                selected = shift.id in selectedShiftIds,
+                                onClick = {
+                                    selectedShiftIds = if (target.departmentMode) listOf(shift.id) else if (shift.id in selectedShiftIds) {
+                                        selectedShiftIds - shift.id
+                                    } else {
+                                        selectedShiftIds.filterNot { id -> assignableShifts.firstOrNull { it.id == id }?.category == shift.category } + shift.id
+                                    }
+                                },
                                 label = {
                                     Text(
                                         "${scheduleShiftLabel(shift)} • ${shift.startTime}–${shift.endTime}",
@@ -217,7 +367,7 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                         }
                     }
                 }
-                Text("Tăng ca 17:30–20:30 do nhân viên gửi đơn và Admin duyệt trong mục đơn từ.")
+                Text("Tăng ca 18:00–22:00 do nhân viên gửi đơn và Admin duyệt trong mục đơn từ.")
                 if (!target.departmentMode) {
                     androidx.compose.material3.OutlinedTextField(
                         value = overrideHours,
@@ -243,13 +393,15 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
         },
         confirmButton = {
             Button(onClick = {
-                val shift = selectedShift ?: return@Button
+                val selectedShifts = selectedShiftIds.mapNotNull { id -> assignableShifts.firstOrNull { it.id == id } }
+                    .sortedBy(WorkShift::startTime)
+                val shift = selectedShifts.firstOrNull() ?: return@Button
                 if (target.departmentMode) {
                     vm.assignShiftToDepartment(selectedDepartment, listOf(target.date.toString()), shift, 0) { onDismiss() }
                 } else if (selectedEmployee != null) {
-                    vm.assignShift(WorkSchedule(employeeId = selectedEmployee!!.id, employeeName = selectedEmployee!!.fullName, department = selectedEmployee!!.department, shiftId = shift.id, shiftName = shift.name, date = target.date.toString(), overtimeHours = 0, workedHoursOverride = overrideHours.replace(',', '.').toDoubleOrNull(), adjustmentNote = adjustmentNote.trim())) { onDismiss() }
+                    vm.assignShift(WorkSchedule(employeeId = selectedEmployee!!.id, employeeName = selectedEmployee!!.fullName, department = selectedEmployee!!.department, shiftId = shift.id, shiftIds = selectedShifts.map { it.id }, shiftName = selectedShifts.joinToString(" + ") { it.name }, date = target.date.toString(), overtimeHours = 0, workedHoursOverride = overrideHours.replace(',', '.').toDoubleOrNull(), adjustmentNote = adjustmentNote.trim())) { onDismiss() }
                 }
-            }, enabled = !state.saving && selectedShift != null && (target.departmentMode && selectedDepartment.isNotBlank() || !target.departmentMode && selectedEmployee != null && (overrideHours.isBlank() || overrideHours.replace(',', '.').toDoubleOrNull()?.let { it in 0.0..24.0 } == true && adjustmentNote.isNotBlank()))) { Text("Lưu phân ca") }
+            }, enabled = !state.saving && selectedShiftIds.isNotEmpty() && (target.departmentMode && selectedDepartment.isNotBlank() || !target.departmentMode && selectedEmployee != null && (overrideHours.isBlank() || overrideHours.replace(',', '.').toDoubleOrNull()?.let { it in 0.0..24.0 } == true && adjustmentNote.isNotBlank()))) { Text("Lưu phân ca") }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !state.saving) { Text("Hủy") } }
     )

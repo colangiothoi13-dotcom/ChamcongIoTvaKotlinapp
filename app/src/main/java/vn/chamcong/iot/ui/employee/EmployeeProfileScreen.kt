@@ -19,6 +19,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
@@ -44,7 +45,13 @@ private val profileTabs = listOf("Cá nhân", "Công việc", "Lịch sử hoạ
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun EmployeeProfileScreen(state: MainUiState, vm: MainViewModel, onChangePassword: () -> Unit) {
+fun EmployeeProfileScreen(
+    state: MainUiState,
+    vm: MainViewModel,
+    onChangePassword: () -> Unit,
+    onSaveContact: (phone: String, address: String) -> Unit,
+    onRequestFingerprintSupport: (reason: String, onSubmitted: () -> Unit) -> Unit
+) {
     val employee = state.currentEmployee
     if (employee == null) {
         Text("Chưa tải được hồ sơ cá nhân")
@@ -69,10 +76,18 @@ fun EmployeeProfileScreen(state: MainUiState, vm: MainViewModel, onChangePasswor
             }
         }
         when (selectedTab) {
-            0 -> item { PersonalInformationCard(employee, state.userProfile?.email.orEmpty()) }
+            0 -> item {
+                PersonalInformationCard(employee, state.userProfile?.email.orEmpty(), onSaveContact)
+            }
             1 -> {
                 item { WorkInformationCard(employee) }
-                item { FingerprintCard(employee) }
+                item {
+                    FingerprintCard(
+                        employee,
+                        state.devices.firstOrNull { it.id == employee.fingerprintDeviceId }?.name.orEmpty(),
+                        onRequestFingerprintSupport
+                    )
+                }
             }
             else -> {
                 if (activity.isEmpty()) {
@@ -134,7 +149,14 @@ private fun ProfileHeader(employee: Employee) {
 }
 
 @Composable
-private fun PersonalInformationCard(employee: Employee, fallbackEmail: String) {
+private fun PersonalInformationCard(
+    employee: Employee,
+    fallbackEmail: String,
+    onSaveContact: (phone: String, address: String) -> Unit
+) {
+    var phone by remember(employee.id, employee.phone) { mutableStateOf(employee.phone) }
+    var address by remember(employee.id, employee.address) { mutableStateOf(employee.address) }
+
     Card(Modifier.fillMaxWidth()) {
         Column(
             Modifier.padding(AppSpacing.large),
@@ -143,6 +165,27 @@ private fun PersonalInformationCard(employee: Employee, fallbackEmail: String) {
             Text("Thông tin cá nhân", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             ProfileInformationRow("Mã nhân viên", employee.code.ifBlank { "—" })
             ProfileInformationRow("Email", employee.email.ifBlank { fallbackEmail.ifBlank { "Chưa cập nhật" } })
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Số điện thoại") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = address,
+                onValueChange = { address = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Địa chỉ") },
+                minLines = 2,
+                maxLines = 3
+            )
+            Button(
+                onClick = { onSaveContact(phone.trim(), address.trim()) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Lưu thông tin liên hệ")
+            }
         }
     }
 }
@@ -164,17 +207,69 @@ private fun WorkInformationCard(employee: Employee) {
 }
 
 @Composable
-private fun FingerprintCard(employee: Employee) {
+private fun FingerprintCard(
+    employee: Employee,
+    deviceName: String,
+    onRequestFingerprintSupport: (reason: String, onSubmitted: () -> Unit) -> Unit
+) {
+    var supportReason by remember(employee.id) { mutableStateOf("") }
+    val isRegistered = employee.fingerprintTemplateId != null
+    val isPending = !isRegistered && employee.pendingTemplateId != null
+    val status = when {
+        isRegistered -> "Đã đăng ký"
+        isPending -> "Đang chờ đăng ký"
+        else -> "Chưa đăng ký"
+    }
+
     Card(Modifier.fillMaxWidth()) {
         Column(
             Modifier.padding(AppSpacing.large),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
         ) {
             Text("Vân tay chấm công", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text(
-                if (employee.fingerprintTemplateId != null) "Đã đăng ký" else "Chưa đăng ký",
-                color = if (employee.fingerprintTemplateId != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                status,
+                color = when {
+                    isRegistered -> MaterialTheme.colorScheme.primary
+                    isPending -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontWeight = FontWeight.SemiBold
             )
+            employee.fingerprintTemplateId?.let {
+                ProfileInformationRow("Mã mẫu vân tay", "#$it")
+            }
+            if (isPending) {
+                ProfileInformationRow("Mã mẫu đang chờ", "#${employee.pendingTemplateId}")
+            }
+            if (employee.fingerprintDeviceId.isNotBlank()) {
+                ProfileInformationRow("Mã thiết bị", employee.fingerprintDeviceId)
+            }
+            if (deviceName.isNotBlank()) {
+                ProfileInformationRow("Tên thiết bị", deviceName)
+            }
+            Text(
+                "Cần hỗ trợ với việc đăng ký vân tay? Hãy mô tả vấn đề bên dưới.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            OutlinedTextField(
+                value = supportReason,
+                onValueChange = { supportReason = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Nội dung cần hỗ trợ") },
+                minLines = 2,
+                maxLines = 4
+            )
+            Button(
+                onClick = {
+                    onRequestFingerprintSupport(supportReason.trim()) { supportReason = "" }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = supportReason.isNotBlank()
+            ) {
+                Text("Gửi yêu cầu hỗ trợ")
+            }
         }
     }
 }
@@ -208,6 +303,11 @@ private fun AttendanceActivityCard(attendance: Attendance) {
         ) {
             Text(activityLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(occurredAt, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                if (attendance.syncStatus == "PENDING_SYNC") "\u0110ang ch\u1edd đồng bộ từ thiết bị" else "\u0110ã đồng bộ lên hệ thống",
+                color = if (attendance.syncStatus == "PENDING_SYNC") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
             Text("Thiết bị: ${attendance.deviceId.ifBlank { "—" }}")
         }
     }

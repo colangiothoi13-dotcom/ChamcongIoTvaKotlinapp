@@ -37,7 +37,40 @@ fun summarizeDashboard(
     for (employeeId in activeIds) {
         for (date in dates) {
             val rows = rowsByKey[employeeId to date].orEmpty()
-            val shift = schedulesByKey[employeeId to date.toString()]?.let { shiftsById[it.shiftId] }
+            val schedule = schedulesByKey[employeeId to date.toString()]
+            val selectedShifts = schedule?.let { scheduledShifts(it, shiftsById) }.orEmpty()
+            if (selectedShifts.size > 1) {
+                val adjustment = latestAdjustment(adjustments, employeeId, date)
+                val adjustmentInstant = adjustment?.checkInAt ?: adjustment?.checkOutAt
+                val adjustmentShiftId = adjustmentInstant?.let { instant ->
+                    nearestScheduledShift(
+                        date,
+                        selectedShifts,
+                        instant,
+                        if (adjustment?.checkInAt != null) "CHECK_IN" else "CHECK_OUT",
+                        zoneId
+                    )?.id
+                }
+                val pairs = selectedShifts.map { shift ->
+                    val shiftAdjustments = if (shift.id == adjustmentShiftId) listOfNotNull(adjustment) else emptyList()
+                    shift to resolveAttendancePair(rows, date, shift, shiftAdjustments, zoneId)
+                }
+                val observedPairs = pairs.filter { (_, pair) -> pair.checkIn != null || pair.checkOut != null }
+                if (rows.isEmpty() && observedPairs.isEmpty()) continue
+                checkedIds += employeeId
+                if (pairs.any { (shift, pair) -> attendanceLateMinutes(pair.checkIn, date, shift, zoneId) > 0 }) {
+                    lateIds += employeeId
+                }
+                val latestObserved = observedPairs.maxByOrNull { (shift, _) -> shiftWindow(date, shift, zoneId).start }
+                val latestObservedPair = latestObserved?.second
+                if (latestObservedPair != null && latestObservedPair.checkIn != null && latestObservedPair.checkOut == null) {
+                    unresolvedIds += employeeId
+                } else {
+                    unresolvedIds -= employeeId
+                }
+                continue
+            }
+            val shift = selectedShifts.firstOrNull()
             val adjustment = latestAdjustment(adjustments, employeeId, date)
             val rawPair = resolveAttendancePair(rows, date, shift, adjustments, zoneId)
             val pair = rawPair.copy(checkIn = adjustment?.checkInAt ?: rawPair.checkIn, checkOut = adjustment?.checkOutAt ?: rawPair.checkOut)

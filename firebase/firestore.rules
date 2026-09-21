@@ -11,13 +11,11 @@ service cloud.firestore {
     function employeePath(employeeId) {
       return /databases/$(database)/documents/employees/$(employeeId);
     }
-    // Giữ bootstrap prototype cho email user chưa có profile; khi đã có profile
-    // thì bắt buộc role ADMIN và active=true.
     function isAdmin() {
       return isEmailUser()
-        && (!exists(userProfilePath())
-          || (get(userProfilePath()).data.role == 'ADMIN'
-            && get(userProfilePath()).data.active == true));
+        && exists(userProfilePath())
+        && get(userProfilePath()).data.role == 'ADMIN'
+        && get(userProfilePath()).data.active == true;
     }
     function isEmployee() {
       return isEmailUser()
@@ -41,6 +39,41 @@ service cloud.firestore {
     }
 
     function nonBlank(value) { return value is string && value.matches('(?s).*[^\\s].*'); }
+    function dateParts(value) { return value.split('-'); }
+    function isoDate(value) {
+      let parts = dateParts(value);
+      return timestamp.date(int(parts[0]), int(parts[1]), int(parts[2]));
+    }
+    function isSundayDate(value) {
+      return isoDate(value).dayOfWeek() == 7;
+    }
+    function paddedDatePart(value) {
+      return value < 10 ? '0' + string(value) : string(value);
+    }
+    function isoDateAfter(value, days) {
+      let date = isoDate(value) + duration.value(days, 'd');
+      return string(date.year()) + '-' + paddedDatePart(date.month()) + '-' + paddedDatePart(date.day());
+    }
+    function validWeeklyScheduleDates(data) {
+      let keys = data.shiftsByDate.keys();
+      let monday = isoDate(data.weekStart);
+      return monday.dayOfWeek() == 1
+        && keys.size() == 6
+        && keys.hasOnly([
+          isoDateAfter(data.weekStart, 0), isoDateAfter(data.weekStart, 1),
+          isoDateAfter(data.weekStart, 2), isoDateAfter(data.weekStart, 3),
+          isoDateAfter(data.weekStart, 4), isoDateAfter(data.weekStart, 5)
+        ]);
+    }
+    function vietnamLocalDate(instant) {
+      let local = instant + duration.value(7, 'h');
+      return string(local.year()) + '-' + paddedDatePart(local.month()) + '-' + paddedDatePart(local.day());
+    }
+    function overtimeSubmissionIsOpen(workDate) {
+      let localNow = request.time + duration.value(7, 'h');
+      let today = vietnamLocalDate(request.time);
+      return workDate > today || (workDate == today && localNow.hours() < 18);
+    }
     function validAdjustment(data) {
       return data.keys().hasOnly(['employeeId', 'employeeName', 'scheduleDate',
           'checkInAt', 'checkOutAt', 'workedHoursOverride', 'reason', 'actorId', 'actorName', 'createdAt'])
@@ -70,10 +103,340 @@ service cloud.firestore {
         && adjustment.actorId == audit.actorId && adjustment.actorName == audit.actorName
         && adjustment.reason == audit.reason && adjustment.createdAt == request.time;
     }
+    function validClassificationOverride(data) {
+      let attendancePath = /databases/$(database)/documents/attendance/$(data.attendanceId);
+      return data.keys().hasOnly([
+          'attendanceId', 'employeeId', 'employeeName', 'scheduleDate', 'sourceTimestamp',
+          'sourceType', 'sourceStatus', 'sourceResolutionStatus', 'previousType', 'previousStatus',
+          'correctedType', 'correctedStatus', 'reason', 'actorId', 'actorName', 'createdAt'])
+        && nonBlank(data.attendanceId) && nonBlank(data.employeeId) && nonBlank(data.employeeName)
+        && data.scheduleDate is string && data.scheduleDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && data.sourceTimestamp is timestamp
+        && data.sourceType in ['CHECK_IN', 'CHECK_OUT']
+        && data.sourceStatus in ['ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL']
+        && data.sourceResolutionStatus == 'ACCEPTED'
+        && data.previousType in ['CHECK_IN', 'CHECK_OUT']
+        && data.previousStatus in ['ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL']
+        && data.correctedType in ['CHECK_IN', 'CHECK_OUT']
+        && data.correctedStatus in ['ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL']
+        && (data.previousType != data.correctedType || data.previousStatus != data.correctedStatus)
+        && nonBlank(data.reason) && data.reason.size() <= 500
+        && data.actorId == request.auth.uid && nonBlank(data.actorName)
+        && data.createdAt == request.time
+        && exists(attendancePath)
+        && get(attendancePath).data.verified == true
+        && get(attendancePath).data.employeeId == data.employeeId
+        && get(attendancePath).data.employeeName == data.employeeName
+        && get(attendancePath).data.timestamp == data.sourceTimestamp
+        && get(attendancePath).data.type == data.sourceType
+        && get(attendancePath).data.status == data.sourceStatus
+        && get(attendancePath).data.resolutionStatus == data.sourceResolutionStatus;
+    }
+    function matchingClassificationOverrideAudit(id, data) {
+      let auditPath = /databases/$(database)/documents/audit_logs/$(id);
+      let audit = getAfter(auditPath).data;
+      return !exists(auditPath) && existsAfter(auditPath)
+        && audit.action == 'ATTENDANCE_CLASSIFICATION_CORRECT'
+        && audit.targetType == 'attendanceClassificationOverride'
+        && audit.targetId == id && audit.actorId == data.actorId
+        && audit.actorName == data.actorName && audit.reason == data.reason
+        && audit.createdAt == request.time;
+    }
+    function matchingClassificationOverride(id, audit) {
+      let overridePath = /databases/$(database)/documents/attendanceClassificationOverrides/$(id);
+      let override = getAfter(overridePath).data;
+      return audit.targetId == id && !exists(/databases/$(database)/documents/audit_logs/$(id))
+        && !exists(overridePath) && existsAfter(overridePath)
+        && override.actorId == audit.actorId && override.actorName == audit.actorName
+        && override.reason == audit.reason && override.createdAt == request.time;
+    }
+    function validRequestTime(value) {
+      return value == null || (value is string && value.matches('([01][0-9]|2[0-3]):[0-5][0-9]'));
+    }
+    function minutesFromTime(value) {
+      let parts = value.split(':');
+      return int(parts[0]) * 60 + int(parts[1]);
+    }
+    function validShiftTimeWindow(data) {
+      return data.startTime is string
+        && data.endTime is string
+        && data.startTime.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+        && data.endTime.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+        && data.startTime < data.endTime
+        && minutesFromTime(data.endTime) - minutesFromTime(data.startTime) <= 240;
+    }
+    function requestShiftAssignable(shiftId) {
+      let shiftPath = /databases/$(database)/documents/shifts/$(shiftId);
+      return shiftId is string && exists(shiftPath)
+        && get(shiftPath).data.active == true
+        && get(shiftPath).data.category in ['MORNING', 'EVENING']
+        && validShiftTimeWindow(get(shiftPath).data);
+    }
+    function optionalUnchanged(key, existing, updated) {
+      return !(key in existing) || ((key in updated) && existing[key] == updated[key]);
+    }
+    function approvedAdjustmentExists(data) {
+      let adjustmentPath = /databases/$(database)/documents/attendanceAdjustments/$(data.appliedAdjustmentId);
+      return data.appliedAdjustmentId is string
+        && existsAfter(adjustmentPath)
+        && getAfter(adjustmentPath).data.employeeId == data.employeeId
+        && getAfter(adjustmentPath).data.scheduleDate == data.startDate
+        && getAfter(adjustmentPath).data.actorId == request.auth.uid;
+    }
+    function approvedShiftExists(data) {
+      let schedulePath = /databases/$(database)/documents/workSchedules/$(data.employeeId + '_' + data.startDate);
+      return existsAfter(schedulePath)
+        && getAfter(schedulePath).data.employeeId == data.employeeId
+        && getAfter(schedulePath).data.date == data.startDate
+        && getAfter(schedulePath).data.shiftId == data.requestedShiftId;
+    }
+    function matchingLeaveReviewAudit(id, updated) {
+      let auditPath = /databases/$(database)/documents/audit_logs/$(id + '_REVIEW');
+      return !exists(auditPath) && existsAfter(auditPath)
+        && getAfter(auditPath).data.actorId == request.auth.uid
+        && getAfter(auditPath).data.actorName == updated.reviewerName
+        && getAfter(auditPath).data.action == (updated.type == 'SHIFT_CHANGE' && updated.status == 'APPROVED' ? 'SHIFT_UPDATE' : 'LEAVE_REVIEW')
+        && getAfter(auditPath).data.targetType == (updated.type == 'SHIFT_CHANGE' && updated.status == 'APPROVED' ? 'workSchedule' : 'leaveRequest')
+        && getAfter(auditPath).data.targetId == (updated.type == 'SHIFT_CHANGE' && updated.status == 'APPROVED' ? updated.employeeId + '_' + updated.startDate : id)
+        && getAfter(auditPath).data.reason == (updated.reviewNote == null ? '' : updated.reviewNote)
+        && getAfter(auditPath).data.createdAt == request.time;
+    }
+    function validEmployeeLeaveCancellation(id) {
+      let existing = resource.data;
+      let updated = request.resource.data;
+      let auditPath = /databases/$(database)/documents/audit_logs/$(id + '_CANCEL');
+      let audit = getAfter(auditPath).data;
+      return isOwnEmployee(existing.employeeId)
+        && existing.type == 'LEAVE' && existing.status == 'PENDING'
+        && updated.status == 'CANCELLED'
+        && updated.diff(existing).affectedKeys().hasOnly(['status'])
+        && !exists(auditPath) && existsAfter(auditPath)
+        && audit.action == 'LEAVE_CANCEL' && audit.targetType == 'leaveRequest'
+        && audit.targetId == id && audit.actorId == request.auth.uid
+        && audit.actorName == updated.employeeName
+        && audit.reason == 'Employee cancelled pending leave request'
+        && audit.createdAt == request.time;
+    }
+    function validLeaveRequestReview(id) {
+      let existing = resource.data;
+      let updated = request.resource.data;
+      return isAdmin()
+        && existing.status == 'PENDING'
+        && updated.status in ['APPROVED', 'REJECTED']
+        && updated.employeeId == existing.employeeId
+        && updated.employeeName == existing.employeeName
+        && updated.department == existing.department
+        && updated.type == existing.type
+        && updated.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE', 'FINGERPRINT_SUPPORT']
+        && updated.startDate == existing.startDate
+        && updated.endDate == existing.endDate
+        && updated.reason == existing.reason
+        && updated.createdAt == existing.createdAt
+        && optionalUnchanged('proposedCheckIn', existing, updated)
+        && optionalUnchanged('proposedCheckOut', existing, updated)
+        && optionalUnchanged('requestedShiftId', existing, updated)
+        && optionalUnchanged('requestedShiftName', existing, updated)
+        && updated.reviewerId == request.auth.uid
+        && nonBlank(updated.reviewerName)
+        && updated.reviewedAt == request.time
+        && updated.diff(existing).affectedKeys().hasOnly([
+          'status', 'reviewerId', 'reviewerName', 'reviewedAt', 'reviewNote', 'appliedAdjustmentId'])
+        && ((updated.status == 'APPROVED' && (updated.reviewNote == null || updated.reviewNote is string))
+          || (updated.status == 'REJECTED' && nonBlank(updated.reviewNote)))
+        && matchingLeaveReviewAudit(id, updated)
+        && ((updated.type == 'ATTENDANCE_ADJUSTMENT' && updated.status == 'APPROVED')
+          ? approvedAdjustmentExists(updated)
+          : optionalUnchanged('appliedAdjustmentId', existing, updated))
+        && (updated.type != 'SHIFT_CHANGE' || updated.status != 'APPROVED' || approvedShiftExists(updated));
+    }
+    function validEmployeeLeaveRequest(data) {
+      let employeeId = get(userProfilePath()).data.employeeId;
+      let employee = employeePath(employeeId);
+      return isEmployee()
+        && exists(employee)
+        && get(employee).data.active == true
+        && data.keys().hasOnly([
+          'employeeId', 'employeeName', 'department', 'type', 'startDate', 'endDate', 'reason',
+          'proposedCheckIn', 'proposedCheckOut', 'requestedShiftId', 'requestedShiftName', 'leaveShiftsByDate',
+          'appliedAdjustmentId', 'attachmentUrl', 'status', 'reviewerId', 'reviewerName',
+          'reviewedAt', 'reviewNote', 'createdAt'])
+        && data.employeeId == employeeId
+        && data.employeeName == get(employee).data.fullName
+        && data.department == get(employee).data.department
+        && data.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE', 'FINGERPRINT_SUPPORT']
+        && data.startDate is string && data.startDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && data.endDate is string && data.endDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && data.endDate >= data.startDate
+        && nonBlank(data.reason)
+        && validRequestTime(data.proposedCheckIn)
+        && validRequestTime(data.proposedCheckOut)
+        && (data.requestedShiftId == null || data.requestedShiftId is string)
+        && (data.requestedShiftName == null || data.requestedShiftName is string)
+        && (!('leaveShiftsByDate' in data) || data.leaveShiftsByDate == null
+          || (data.type == 'LEAVE' && data.leaveShiftsByDate is map
+            && data.leaveShiftsByDate.keys().size() > 0 && data.leaveShiftsByDate.keys().size() <= 31))
+        && (data.type != 'LEAVE' || (data.leaveShiftsByDate is map
+          && data.leaveShiftsByDate.keys().size() > 0 && data.leaveShiftsByDate.keys().size() <= 31))
+        && data.appliedAdjustmentId == null
+        && (data.attachmentUrl == null || data.attachmentUrl is string)
+        && data.status == 'PENDING'
+        && data.createdAt == request.time
+        && data.reviewerId == null && data.reviewerName == null && data.reviewedAt == null && data.reviewNote == null
+        && (data.type != 'ATTENDANCE_ADJUSTMENT'
+          || (data.startDate == data.endDate
+            && (nonBlank(data.proposedCheckIn) || nonBlank(data.proposedCheckOut))))
+        && (data.type != 'SHIFT_CHANGE'
+          || (data.startDate == data.endDate && nonBlank(data.requestedShiftId)
+            && requestShiftAssignable(data.requestedShiftId)));
+    }
+    function validWeeklyScheduleRequestBody(id, data) {
+      return data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'department', 'weekStart', 'shiftsByDate',
+          'status', 'reason', 'reviewNote', 'reviewerId', 'reviewerName', 'createdAt', 'reviewedAt'])
+        && data.id == id
+        && nonBlank(data.employeeId)
+        && nonBlank(data.employeeName)
+        && data.department is string
+        && data.weekStart is string
+        && data.weekStart.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && data.shiftsByDate is map
+        && validWeeklyScheduleDates(data)
+        && data.reason is string
+        && data.reason.size() <= 500
+        && data.status in ['PENDING', 'NEEDS_REVISION', 'APPROVED']
+        && data.createdAt is timestamp
+        && (data.reviewNote == null || (data.reviewNote is string && data.reviewNote.size() <= 1000))
+        && (data.reviewerId == null || nonBlank(data.reviewerId))
+        && (data.reviewerName == null || nonBlank(data.reviewerName))
+        && (data.reviewedAt == null || data.reviewedAt is timestamp);
+    }
+    function matchesActiveWeeklyEmployeeSnapshot(data) {
+      let employee = employeePath(data.employeeId);
+      return exists(employee)
+        && get(employee).data.active == true
+        && data.employeeName == get(employee).data.fullName
+        && data.department == get(employee).data.department;
+    }
+    function validWeeklyScheduleEmployeeCreate(id, data) {
+      return isEmployee()
+        && validWeeklyScheduleRequestBody(id, data)
+        && matchesActiveWeeklyEmployeeSnapshot(data)
+        && id == data.employeeId + '_' + data.weekStart
+        && data.employeeId == get(userProfilePath()).data.employeeId
+        && data.status == 'PENDING'
+        && data.createdAt == request.time
+        && data.reviewNote == null && data.reviewerId == null
+        && data.reviewerName == null && data.reviewedAt == null;
+    }
+    function validWeeklyScheduleEmployeeUpdate(id) {
+      let existing = resource.data;
+      let updated = request.resource.data;
+      return isOwnEmployee(existing.employeeId)
+        && existing.status in ['PENDING', 'NEEDS_REVISION']
+        && validWeeklyScheduleRequestBody(id, updated)
+        && matchesActiveWeeklyEmployeeSnapshot(updated)
+        && updated.id == existing.id
+        && updated.employeeId == existing.employeeId
+        && updated.weekStart == existing.weekStart
+        && updated.createdAt == existing.createdAt
+        && id == updated.employeeId + '_' + updated.weekStart
+        && updated.status == 'PENDING'
+        && updated.reviewNote == null && updated.reviewerId == null
+        && updated.reviewerName == null && updated.reviewedAt == null
+        && updated.diff(existing).affectedKeys().hasOnly([
+          'shiftsByDate', 'reason', 'status', 'reviewNote', 'reviewerId', 'reviewerName', 'reviewedAt']);
+    }
+    function validWeeklyScheduleAdminReview(id) {
+      let existing = resource.data;
+      let updated = request.resource.data;
+      return isAdmin()
+        && existing.status == 'PENDING'
+        && validWeeklyScheduleRequestBody(id, updated)
+        && updated.id == existing.id
+        && updated.employeeId == existing.employeeId
+        && updated.employeeName == existing.employeeName
+        && updated.department == existing.department
+        && updated.weekStart == existing.weekStart
+        && updated.shiftsByDate == existing.shiftsByDate
+        && updated.reason == existing.reason
+        && updated.createdAt == existing.createdAt
+        && updated.status in ['APPROVED', 'NEEDS_REVISION']
+        && updated.reviewerId == request.auth.uid
+        && nonBlank(updated.reviewerName)
+        && updated.reviewedAt == request.time
+        && (updated.status != 'NEEDS_REVISION' || nonBlank(updated.reviewNote))
+        && updated.diff(existing).affectedKeys().hasOnly([
+          'status', 'reviewNote', 'reviewerId', 'reviewerName', 'reviewedAt']);
+    }
+    function matchingWeeklyScheduleSubmissionAudit(data) {
+      let requestPath = /databases/$(database)/documents/weeklyScheduleRequests/$(data.targetId);
+      return data.action == 'SHIFT_UPDATE'
+        && data.targetType == 'weeklyScheduleRequest'
+        && data.targetId is string
+        && data.actorId == request.auth.uid
+        && nonBlank(data.actorName)
+        && existsAfter(requestPath)
+        && getAfter(requestPath).data.employeeId == get(userProfilePath()).data.employeeId
+        && getAfter(requestPath).data.status == 'PENDING'
+        && data.createdAt == request.time;
+    }
+    function matchingLeaveCancellationAudit(data) {
+      let requestPath = /databases/$(database)/documents/leaveRequests/$(data.targetId);
+      return data.action == 'LEAVE_CANCEL'
+        && data.targetType == 'leaveRequest'
+        && data.targetId is string
+        && data.actorId == request.auth.uid
+        && nonBlank(data.actorName)
+        && data.reason == 'Employee cancelled pending leave request'
+        && exists(requestPath) && existsAfter(requestPath)
+        && isOwnEmployee(get(requestPath).data.employeeId)
+        && get(requestPath).data.type == 'LEAVE'
+        && get(requestPath).data.status == 'PENDING'
+        && getAfter(requestPath).data.status == 'CANCELLED'
+        && getAfter(requestPath).data.diff(get(requestPath).data).affectedKeys().hasOnly(['status'])
+        && data.actorName == getAfter(requestPath).data.employeeName
+        && data.createdAt == request.time;
+    }
+    function activeOffScheduleReviewShift(data) {
+      let shiftPath = /databases/$(database)/documents/shifts/$(data.shiftId);
+      return exists(shiftPath)
+        && get(shiftPath).data.active == true
+        && get(shiftPath).data.category in ['MORNING', 'EVENING']
+        && get(shiftPath).data.name == data.shiftName
+        && validShiftTimeWindow(get(shiftPath).data);
+    }
+    function validOffScheduleReviewCreate(id, data) {
+      let employee = employeePath(data.employeeId);
+      return data.keys().hasAll([
+          'id', 'employeeId', 'employeeName', 'scheduleDate', 'shiftId', 'shiftName',
+          'decision', 'reason', 'status', 'reviewerId', 'reviewerName', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'employeeId', 'employeeName', 'scheduleDate', 'shiftId', 'shiftName',
+          'decision', 'reason', 'status', 'reviewerId', 'reviewerName', 'createdAt'])
+        && data.id == id
+        && data.employeeId is string && nonBlank(data.employeeId)
+        && data.employeeName is string && nonBlank(data.employeeName)
+        && data.scheduleDate is string && data.scheduleDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && data.shiftId is string && nonBlank(data.shiftId)
+        && data.shiftName is string && nonBlank(data.shiftName)
+        && data.decision in ['APPROVE', 'REJECT']
+        && data.reason is string && data.reason.size() <= 1000
+        && data.status == 'PENDING'
+        && data.reviewerId == request.auth.uid
+        && data.reviewerName is string && nonBlank(data.reviewerName)
+        && data.createdAt == request.time
+        && exists(employee) && get(employee).data.active == true
+        && get(employee).data.fullName == data.employeeName
+        && activeOffScheduleReviewShift(data);
+    }
 
     match /employees/{id} {
       allow read: if isAdmin() || isOwnEmployee(id);
-      allow create, update, delete: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isOwnEmployee(id)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['phone', 'address'])
+        && request.resource.data.phone is string
+        && request.resource.data.address is string);
     }
     match /users/{id} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == id);
@@ -98,7 +461,21 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /departments/{id} {
-      allow read, create, update: if isAdmin();
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'active', 'createdAt', 'updatedAt'])
+        && nonBlank(request.resource.data.name)
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.active is bool
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'active', 'createdAt', 'updatedAt'])
+        && nonBlank(request.resource.data.name)
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.active is bool
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
       allow delete: if false;
     }
     match /settings/{id} {
@@ -107,7 +484,9 @@ service cloud.firestore {
     }
     match /audit_logs/{id} {
       allow read: if isAdmin();
-      allow create: if isAdmin()
+      allow create: if (isAdmin() || (isEmployee()
+        && (matchingWeeklyScheduleSubmissionAudit(request.resource.data)
+          || matchingLeaveCancellationAudit(request.resource.data))))
         && request.resource.data.actorId == request.auth.uid
         && request.resource.data.action is string
         && request.resource.data.targetType is string
@@ -118,6 +497,12 @@ service cloud.firestore {
           || matchingOvertimeReviewRequest(id, request.resource.data))
         && (request.resource.data.targetType != 'attendanceAdjustment'
           || (request.resource.data.action == 'ATTENDANCE_ADJUST' && matchingAdjustment(id, request.resource.data)))
+        && (request.resource.data.targetType != 'attendanceClassificationOverride'
+          || (request.resource.data.action == 'ATTENDANCE_CLASSIFICATION_CORRECT'
+            && matchingClassificationOverride(id, request.resource.data)))
+        && (request.resource.data.action != 'ATTENDANCE_CLASSIFICATION_CORRECT'
+          || (request.resource.data.targetType == 'attendanceClassificationOverride'
+            && matchingClassificationOverride(id, request.resource.data)))
         && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
     }
@@ -141,6 +526,11 @@ service cloud.firestore {
         && activeFingerprintMapping();
       allow update, delete: if false;
     }
+    match /offScheduleReviews/{id} {
+      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
+      allow create: if isAdmin() && validOffScheduleReviewCreate(id, request.resource.data);
+      allow update, delete: if false;
+    }
     match /attendanceSessions/{id} {
       allow read, write: if false;
     }
@@ -148,6 +538,12 @@ service cloud.firestore {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create: if isAdmin() && validAdjustment(request.resource.data)
         && matchingAdjustmentAudit(id, request.resource.data);
+      allow update, delete: if false;
+    }
+    match /attendanceClassificationOverrides/{id} {
+      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
+      allow create: if isAdmin() && validClassificationOverride(request.resource.data)
+        && matchingClassificationOverrideAudit(id, request.resource.data);
       allow update, delete: if false;
     }
     match /devices/{id} {
@@ -158,15 +554,23 @@ service cloud.firestore {
         && request.resource.data.lastHeartbeat is timestamp
         && request.resource.data.keys().hasOnly([
           'deviceId', 'name', 'location', 'status', 'lastHeartbeat',
-          'firmwareVersion', 'fingerprintCount', 'capacity', 'capabilities'
-        ]));
+          'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities'
+        ])
+        && (!('pendingAttendanceCount' in request.resource.data)
+          || (request.resource.data.pendingAttendanceCount is int
+            && request.resource.data.pendingAttendanceCount >= 0
+            && request.resource.data.pendingAttendanceCount <= 500)));
       allow update: if isAdmin() || (isDevice()
         && resource.data.deviceId == id
         && request.resource.data.deviceId == id
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'deviceId', 'name', 'location', 'status', 'lastHeartbeat',
-          'firmwareVersion', 'fingerprintCount', 'capacity', 'capabilities'
-        ]));
+          'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities'
+        ])
+        && (!('pendingAttendanceCount' in request.resource.data)
+          || (request.resource.data.pendingAttendanceCount is int
+            && request.resource.data.pendingAttendanceCount >= 0
+            && request.resource.data.pendingAttendanceCount <= 500)));
       allow delete: if isAdmin();
     }
     match /shifts/{id} {
@@ -174,8 +578,7 @@ service cloud.firestore {
       allow create, update: if isAdmin()
         && request.resource.data.name is string
         && request.resource.data.category in ['MORNING', 'EVENING', 'SUPPLEMENTARY']
-        && request.resource.data.startTime is string
-        && request.resource.data.endTime is string
+        && validShiftTimeWindow(request.resource.data)
         && request.resource.data.allowEarlyMinutes is int
         && request.resource.data.lateGraceMinutes is int
         && request.resource.data.earlyLeaveAllowedMinutes is int
@@ -193,7 +596,37 @@ service cloud.firestore {
       // and changing a main template to supplementary in that batch cannot bypass this.
       return shiftId != 'SUPPLEMENTARY_1730_2030'
         && existsAfter(path)
-        && getAfter(path).data.category in ['MORNING', 'EVENING'];
+        && getAfter(path).data.category in ['MORNING', 'EVENING']
+        && validShiftTimeWindow(getAfter(path).data);
+    }
+    function activeAssignableScheduleShift(shiftId) {
+      let path = /databases/$(database)/documents/shifts/$(shiftId);
+      return assignableScheduleShift(shiftId) && getAfter(path).data.active == true;
+    }
+    function distinctAssignableScheduleCategories(firstShiftId, secondShiftId) {
+      let firstPath = /databases/$(database)/documents/shifts/$(firstShiftId);
+      let secondPath = /databases/$(database)/documents/shifts/$(secondShiftId);
+      return activeAssignableScheduleShift(firstShiftId)
+        && activeAssignableScheduleShift(secondShiftId)
+        && getAfter(firstPath).data.category != getAfter(secondPath).data.category;
+    }
+    function validScheduleShiftIds(data) {
+      return !('shiftIds' in data)
+        || (data.shiftIds is list
+          && data.shiftIds.size() >= 1
+          && data.shiftIds.size() <= 2
+          && data.shiftIds[0] == data.shiftId
+          && activeAssignableScheduleShift(data.shiftIds[0])
+          && (data.shiftIds.size() == 1
+            || (data.shiftIds[1] is string
+              && data.shiftIds[1] != data.shiftIds[0]
+              && distinctAssignableScheduleCategories(data.shiftIds[0], data.shiftIds[1]))));
+    }
+    match /weeklyScheduleRequests/{id} {
+      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
+      allow create: if validWeeklyScheduleEmployeeCreate(id, request.resource.data);
+      allow update: if validWeeklyScheduleEmployeeUpdate(id) || validWeeklyScheduleAdminReview(id);
+      allow delete: if false;
     }
     match /workSchedules/{id} {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
@@ -201,10 +634,13 @@ service cloud.firestore {
         && request.resource.data.employeeId is string
         && request.resource.data.shiftId is string
         && assignableScheduleShift(request.resource.data.shiftId)
+        && validScheduleShiftIds(request.resource.data)
         && request.resource.data.date is string
+        && request.resource.data.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && !isSundayDate(request.resource.data.date)
         && request.resource.data.overtimeHours is int
         && request.resource.data.overtimeHours >= 0
-        && request.resource.data.overtimeHours <= 3
+        && request.resource.data.overtimeHours <= 4
         && (!request.resource.data.keys().hasAny(['workedHoursOverride'])
           || request.resource.data.workedHoursOverride == null
           || (request.resource.data.workedHoursOverride is number
@@ -218,15 +654,17 @@ service cloud.firestore {
     function validOvertimeRequest(data) {
       return data.keys().hasOnly([
           'employeeId', 'employeeName', 'department', 'workDate',
-          'startTime', 'endTime', 'status', 'createdAt',
+          'startTime', 'endTime', 'reason', 'status', 'createdAt',
           'reviewerId', 'reviewerName', 'reviewedAt', 'rejectionReason'])
         && nonBlank(data.employeeId)
         && nonBlank(data.employeeName)
         && data.department is string
         && data.workDate is string
         && data.workDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
-        && data.startTime == '17:30'
-        && data.endTime == '20:30'
+        && !isSundayDate(data.workDate)
+        && ((data.startTime == '18:00' && data.endTime == '22:00')
+          || (data.startTime == '17:30' && data.endTime == '20:30'))
+        && (!('reason' in data) || data.reason is string)
         && data.status in ['PENDING', 'APPROVED', 'REJECTED']
         && data.createdAt is timestamp
         && (data.reviewerId == null || nonBlank(data.reviewerId))
@@ -304,6 +742,10 @@ service cloud.firestore {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create: if isEmployee()
         && validOvertimeRequest(request.resource.data)
+        && nonBlank(request.resource.data.reason)
+        && request.resource.data.startTime == '18:00'
+        && request.resource.data.endTime == '22:00'
+        && overtimeSubmissionIsOpen(request.resource.data.workDate)
         && matchesActiveEmployeeSnapshot(request.resource.data)
         && request.resource.data.employeeId == get(userProfilePath()).data.employeeId
         && id == request.resource.data.employeeId + '_' + request.resource.data.workDate
@@ -321,40 +763,44 @@ service cloud.firestore {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create: if (isAdmin()
         && request.resource.data.employeeId is string
-        && request.resource.data.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE']
+        && request.resource.data.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE', 'FINGERPRINT_SUPPORT']
         && request.resource.data.startDate is string
         && request.resource.data.endDate is string
         && request.resource.data.reason is string
         && request.resource.data.status in ['PENDING', 'APPROVED', 'REJECTED']);
-      allow create: if isEmployee()
-        && request.resource.data.employeeId == get(userProfilePath()).data.employeeId
-        && request.resource.data.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE']
-        && request.resource.data.startDate is string
-        && request.resource.data.endDate is string
-        && request.resource.data.reason is string
-        && request.resource.data.status == 'PENDING'
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.reviewerId == null
-        && request.resource.data.reviewerName == null
-        && request.resource.data.reviewedAt == null;
-      allow update: if isAdmin()
-        && request.resource.data.employeeId is string
-        && request.resource.data.type in ['LEAVE', 'LATE', 'EARLY_LEAVE', 'REMOTE', 'ATTENDANCE_ADJUSTMENT', 'SHIFT_CHANGE']
-        && request.resource.data.startDate is string
-        && request.resource.data.endDate is string
-        && request.resource.data.reason is string
-        && request.resource.data.status in ['PENDING', 'APPROVED', 'REJECTED'];
-      allow delete: if isAdmin();
+      allow create: if isEmployee() && validEmployeeLeaveRequest(request.resource.data);
+      allow update: if validLeaveRequestReview(id) || validEmployeeLeaveCancellation(id);
+      allow delete: if false;
     }
     match /notifications/{id} {
-      allow read: if isAdmin();
-      allow create, update: if isAdmin()
+      allow read: if isAdmin() || isOwnEmployee(resource.data.recipientEmployeeId);
+      allow create: if isAdmin()
         && request.resource.data.type is string
         && request.resource.data.title is string
         && request.resource.data.body is string
         && request.resource.data.createdAt is timestamp
-        && request.resource.data.read is bool;
-      allow delete: if isAdmin();
+        && request.resource.data.read is bool
+        && (!('recipientEmployeeId' in request.resource.data)
+          || request.resource.data.recipientEmployeeId == null
+          || (request.resource.data.recipientEmployeeId is string
+            && exists(employeePath(request.resource.data.recipientEmployeeId))));
+      allow update: if isAdmin() || (isOwnEmployee(resource.data.recipientEmployeeId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read is bool);
+      allow delete: if false;
+    }
+    match /announcements/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['title', 'body', 'targetDepartment', 'recipientCount', 'sentAt', 'senderId', 'senderName'])
+        && nonBlank(request.resource.data.title)
+        && nonBlank(request.resource.data.body)
+        && request.resource.data.recipientCount is int
+        && request.resource.data.recipientCount > 0
+        && request.resource.data.sentAt == request.time
+        && request.resource.data.senderId == request.auth.uid
+        && nonBlank(request.resource.data.senderName);
+      allow update, delete: if false;
     }
     match /deviceCommands/{id} {
       allow read: if isAdmin() || (isDevice() && resource.data.deviceId == id);

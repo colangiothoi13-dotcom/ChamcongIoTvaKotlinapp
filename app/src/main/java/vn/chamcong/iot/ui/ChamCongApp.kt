@@ -42,6 +42,10 @@ import vn.chamcong.iot.ui.employee.EmployeeAttendanceScreen
 import vn.chamcong.iot.ui.employee.EmployeeRequestsScreen
 import vn.chamcong.iot.ui.employee.EmployeeProfileScreen
 import vn.chamcong.iot.ui.employee.EmployeePayrollScreen
+import vn.chamcong.iot.ui.employee.EmployeeScheduleScreen
+import vn.chamcong.iot.ui.departments.DepartmentsScreen
+import vn.chamcong.iot.ui.notifications.AnnouncementsScreen
+import vn.chamcong.iot.ui.reports.MonthlyTimesheetScreen
 
 enum class AppDestination(val title: String) {
     DASHBOARD("Tổng quan"),
@@ -58,7 +62,10 @@ enum class AppDestination(val title: String) {
     PRESENCE("Có mặt"),
     REPORTS("Báo cáo"),
     AUDIT("Nhật ký"),
-    SETTINGS("Cài đặt")
+    SETTINGS("Cài đặt"),
+    MONTHLY_TIMESHEET("B\u1ea3ng c\u00f4ng th\u00e1ng"),
+    DEPARTMENTS("Ph\u00f2ng ban"),
+    ANNOUNCEMENTS("Th\u00f4ng b\u00e1o")
 }
 
 enum class EmployeeDestination(val title: String) {
@@ -66,7 +73,8 @@ enum class EmployeeDestination(val title: String) {
     ATTENDANCE("Chấm công của tôi"),
     REQUESTS("Đơn từ"),
     PAYROLL("Lương"),
-    PROFILE("Cá nhân")
+    PROFILE("Cá nhân"),
+    SCHEDULE("L\u1ecbch l\u00e0m"),
 }
 
 val adminPrimaryDestinations = listOf(
@@ -86,13 +94,17 @@ val adminTaskDestinations = listOf(
     AppDestination.PAYROLL,
     AppDestination.PERFORMANCE,
     AppDestination.REPORTS,
+    AppDestination.MONTHLY_TIMESHEET,
     AppDestination.AUDIT,
+    AppDestination.DEPARTMENTS,
+    AppDestination.ANNOUNCEMENTS,
     AppDestination.SETTINGS
 )
 
 val employeePrimaryDestinations = listOf(
     EmployeeDestination.HOME,
     EmployeeDestination.ATTENDANCE,
+    EmployeeDestination.SCHEDULE,
     EmployeeDestination.REQUESTS,
     EmployeeDestination.PAYROLL,
     EmployeeDestination.PROFILE
@@ -162,6 +174,7 @@ private fun AccessBlocked(onSignOut: () -> Unit) {
 private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(AppDestination.DASHBOARD) }
     var showAdd by remember { mutableStateOf(false) }
+    var employeeToEdit by remember { mutableStateOf<Employee?>(null) }
     var employeeToEnroll by remember { mutableStateOf<Employee?>(null) }
     var employeeToRemove by remember { mutableStateOf<Employee?>(null) }
     var retire by remember { mutableStateOf(false) }
@@ -207,6 +220,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                     state = state,
                     vm = vm,
                     onAdd = { vm.clearError(); showAdd = true },
+                    onEdit = { vm.clearError(); employeeToEdit = it },
                     onEnroll = { vm.clearError(); employeeToEnroll = it },
                     onSalary = { vm.clearError(); salaryEmployee = it },
                     onRemove = { employee, removeAll ->
@@ -224,6 +238,34 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 AppDestination.PRESENCE -> PresenceScreen(state, vm)
                 AppDestination.REQUESTS -> RequestsScreen(state, vm)
                 AppDestination.REPORTS -> ReportsScreen(state, vm)
+                AppDestination.MONTHLY_TIMESHEET -> MonthlyTimesheetScreen(
+                    month = state.selectedAdminTimesheetMonth,
+                    employees = state.employees,
+                    summariesForEmployee = { employeeId -> vm.employeeMonthSummaries(employeeId, state.selectedAdminTimesheetMonth) },
+                    onPreviousMonth = { vm.moveAdminTimesheetMonth(-1) },
+                    onNextMonth = { vm.moveAdminTimesheetMonth(1) },
+                    modifier = Modifier.fillMaxSize()
+                )
+                AppDestination.DEPARTMENTS -> DepartmentsScreen(
+                    departments = state.departments,
+                    employeeCounts = state.departments.associate { department ->
+                        department.id to state.employees.count { employee ->
+                            employee.active && (employee.departmentId == department.id || employee.department == department.name)
+                        }
+                    },
+                    saving = state.saving,
+                    onCreateDepartment = { name, done -> vm.saveDepartment(null, name, done) },
+                    onRenameDepartment = { id, name, done -> vm.saveDepartment(id, name, done) },
+                    onSetDepartmentActive = { id, active -> vm.setDepartmentActive(id, active) },
+                    modifier = Modifier.fillMaxSize()
+                )
+                AppDestination.ANNOUNCEMENTS -> AnnouncementsScreen(
+                    announcements = state.announcements,
+                    departments = state.departments,
+                    saving = state.saving,
+                    onSend = { target, title, body, onSent -> vm.sendAnnouncement(target, title, body, onSent) },
+                    modifier = Modifier.fillMaxSize()
+                )
                 AppDestination.AUDIT -> AuditScreen(state)
                 AppDestination.SETTINGS -> Placeholder("Cài đặt", "Cấu hình doanh nghiệp và thiết bị sẽ được nối vào Firebase Settings khi có yêu cầu nghiệp vụ cụ thể. Các chức năng đổi mật khẩu và xem nhật ký đã có trong menu cá nhân.", Icons.Default.Settings)
             }
@@ -233,6 +275,13 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
         onDismiss={ if(!state.saving) showAdd=false },
         onSave={ employee, account -> vm.saveEmployee(employee, account) { showAdd=false } },
         onEnroll={ employee, deviceId, account -> vm.requestFingerprint(employee, deviceId, account) { showAdd=false } })
+    employeeToEdit?.let { employee -> EmployeeDialog(
+        state = state,
+        initialEmployee = employee,
+        onDismiss = { if (!state.saving) employeeToEdit = null },
+        onSave = { updated, _ -> vm.saveEmployee(updated) { employeeToEdit = null } },
+        onEnroll = { _, _, _ -> }
+    ) }
     employeeToEnroll?.let { e -> EnrollFingerprintDialog(e, state,
         onDismiss={ if(!state.saving) employeeToEnroll=null },
         onConfirm={ vm.requestFingerprint(e,it) { employeeToEnroll=null } }) }
@@ -257,7 +306,7 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(EmployeeDestination.HOME) }
     var showAccountMenu by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
-    val icons = listOf(Icons.Default.Home, Icons.Default.FactCheck, Icons.Default.Description, Icons.Default.Payments, Icons.Default.Person)
+    val icons = listOf(Icons.Default.Home, Icons.Default.FactCheck, Icons.Default.Event, Icons.Default.Description, Icons.Default.Payments, Icons.Default.Person)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -304,9 +353,16 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                     onOpenRequests = { selected = EmployeeDestination.REQUESTS },
                     onOpenPayroll = { selected = EmployeeDestination.PAYROLL }
                 )
+                EmployeeDestination.SCHEDULE -> EmployeeScheduleScreen(state, vm)
                 EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)
                 EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state)
-                EmployeeDestination.PROFILE -> EmployeeProfileScreen(state, vm) { showChangePassword = true }
+                EmployeeDestination.PROFILE -> EmployeeProfileScreen(
+                    state = state,
+                    vm = vm,
+                    onChangePassword = { showChangePassword = true },
+                    onSaveContact = { phone, address -> vm.updateEmployeeContact(phone, address) },
+                    onRequestFingerprintSupport = { reason, onSubmitted -> vm.submitFingerprintSupportRequest(reason, onSubmitted) }
+                )
             }
         }
     }
@@ -355,7 +411,7 @@ private fun Dashboard(state: MainUiState) {
     Card(modifier) { Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary); Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label) } }
 }
 
-@Composable internal fun EmployeeList(employees: List<Employee>, commands: List<Map<String,Any>>, onEnroll: (Employee)->Unit, onSalary: (Employee)->Unit, onRemove: (Employee,Boolean)->Unit) {
+@Composable internal fun EmployeeList(employees: List<Employee>, commands: List<Map<String,Any>>, onEdit: (Employee)->Unit, onEnroll: (Employee)->Unit, onSalary: (Employee)->Unit, onRemove: (Employee,Boolean)->Unit) {
     LazyColumn(verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
         if(employees.isEmpty()) item { Text("Chưa có nhân viên trong danh sách này") }
         items(employees,key={it.id}) { e ->
@@ -363,6 +419,7 @@ private fun Dashboard(state: MainUiState) {
             val busy=command?.get("status") in listOf("REQUESTED","PROCESSING") || (command?.get("status")=="COMPLETED" && command["applied"]!=true)
             val hasTemplate=e.fingerprintTemplateId!=null || e.pendingTemplateId!=null || (command?.get("type")=="ENROLL_FINGERPRINT" && command["status"]=="FAILED")
             Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(AppSpacing.large),verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
+                TextButton({ onEdit(e) }, enabled = e.active) { Text("S\u1eeda h\u1ed3 s\u01a1") }
                 Text(e.fullName,fontWeight=FontWeight.Bold)
                 Text("${e.code} • ${e.department}${if(!e.active) " • Đã nghỉ" else ""}")
                 Text("Lương cơ bản: ${money(e.baseSalary)}")
@@ -401,13 +458,19 @@ private fun Dashboard(state: MainUiState) {
     attendance: List<Attendance>,
     modifier: Modifier = Modifier,
     adjustmentEnabled: Boolean = true,
-    onAdjust: ((Attendance) -> Unit)? = null
+    onAdjust: ((Attendance) -> Unit)? = null,
+    onReviewUnscheduled: ((Attendance) -> Unit)? = null
 ) = LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
     if (attendance.isEmpty()) item { Text("Chưa có lượt chấm phù hợp") }
-    items(attendance, key = { it.id }) { AttendanceRow(it, adjustmentEnabled, onAdjust) }
+    items(attendance, key = { it.id }) { AttendanceRow(it, adjustmentEnabled, onAdjust, onReviewUnscheduled) }
 }
 
-@Composable private fun AttendanceRow(item: Attendance, adjustmentEnabled: Boolean = true, onAdjust: ((Attendance) -> Unit)? = null) {
+@Composable private fun AttendanceRow(
+    item: Attendance,
+    adjustmentEnabled: Boolean = true,
+    onAdjust: ((Attendance) -> Unit)? = null,
+    onReviewUnscheduled: ((Attendance) -> Unit)? = null
+) {
     val time = remember(item.timestamp) {
         SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).apply {
             timeZone = java.util.TimeZone.getTimeZone(attendanceZone)
@@ -426,7 +489,17 @@ private fun Dashboard(state: MainUiState) {
             Text(item.employeeName.ifBlank { item.employeeId }, fontWeight = FontWeight.Bold)
             Text("$time • ${item.deviceId} • ${item.type}", style = MaterialTheme.typography.bodySmall)
             Text(resolution.label, color = tint, style = MaterialTheme.typography.labelLarge)
+            Text(
+                if (item.syncStatus == "PENDING_SYNC") "Đang chờ đồng bộ từ thiết bị"
+                else "Đã đồng bộ lên hệ thống",
+                color = if (item.syncStatus == "PENDING_SYNC") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
             Text("Ngày ca: ${attendanceAdjustmentDate(item) ?: "Không hợp lệ"}", style = MaterialTheme.typography.bodySmall)
+            if (item.type == "UNSCHEDULED" && onReviewUnscheduled != null) TextButton(
+                onClick = { onReviewUnscheduled(item) },
+                enabled = adjustmentEnabled && item.offScheduleReviewStatus != "REJECTED"
+            ) { Text(if (item.offScheduleReviewStatus == "PENDING") "Duyệt ngoài lịch" else "Xử lý chấm ngoài lịch") }
             if (onAdjust != null) TextButton(
                 onClick = { onAdjust(item) },
                 enabled = adjustmentEnabled && item.employeeId.isNotBlank() && attendanceAdjustmentDate(item) != null
@@ -441,25 +514,48 @@ private fun Dashboard(state: MainUiState) {
 
 @Composable private fun EmployeeDialog(
     state: MainUiState,
+    initialEmployee: Employee? = null,
     onDismiss: () -> Unit,
     onSave: (Employee, EmployeeAccountInput?) -> Unit,
     onEnroll: (Employee, String, EmployeeAccountInput?) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }
-    var department by remember { mutableStateOf("") }; var deviceId by remember { mutableStateOf("GATE-01") }
+    var name by remember(initialEmployee?.id) { mutableStateOf(initialEmployee?.fullName.orEmpty()) }; var email by remember(initialEmployee?.id) { mutableStateOf(initialEmployee?.email.orEmpty()) }
+    var phone by remember(initialEmployee?.id) { mutableStateOf(initialEmployee?.phone.orEmpty()) }
+    var address by remember(initialEmployee?.id) { mutableStateOf(initialEmployee?.address.orEmpty()) }
+    var department by remember(initialEmployee?.id) { mutableStateOf(initialEmployee?.department.orEmpty()) }
+    var position by remember(initialEmployee?.id) { mutableStateOf(initialEmployee?.position.orEmpty()) }
+    var hireDate by remember(initialEmployee?.id) { mutableStateOf(initialEmployee?.hireDate.orEmpty()) }
+    var deviceId by remember(initialEmployee?.id) { mutableStateOf(initialEmployee?.fingerprintDeviceId ?: "GATE-01") }
     var createAccount by remember { mutableStateOf(false) }
     var password by remember { mutableStateOf("") }; var passwordConfirmation by remember { mutableStateOf("") }
-    val employee=Employee(fullName=name.trim(),email=email.trim(),department=department.trim())
+    val employee=(initialEmployee ?: Employee()).copy(
+        fullName=name.trim(), email=email.trim(), phone=phone.trim(), address=address.trim(),
+        departmentId=state.departments.firstOrNull { it.name.equals(department.trim(), ignoreCase = true) }?.id
+            ?: initialEmployee?.takeIf { it.department.equals(department.trim(), ignoreCase = true) }?.departmentId.orEmpty(),
+        department=department.trim(), position=position.trim(), hireDate=hireDate.trim(),
+        fingerprintDeviceId=if(initialEmployee == null) deviceId.trim() else initialEmployee.fingerprintDeviceId
+    )
     val account = if (createAccount) EmployeeAccountInput(email.trim(), password, name.trim()) else null
     val accountReady = !createAccount || (
         email.trim().contains("@") && password.length >= 6 && password == passwordConfirmation
     )
-    AlertDialog(onDismissRequest=onDismiss,title={Text("Thêm nhân viên")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
-        Text("Mã nhân viên được cấp tự động khi lưu (NV0001, NV0002…).")
+    AlertDialog(onDismissRequest=onDismiss,title={Text(if (initialEmployee == null) "Th\u00eam nh\u00e2n vi\u00ean" else "Ch\u1ec9nh s\u1eeda h\u1ed3 s\u01a1")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
+        if (initialEmployee == null) {
+            Text("Mã nhân viên được cấp tự động khi lưu (NV0001, NV0002…).")
+        } else {
+            Text("M\u00e3 nh\u00e2n vi\u00ean: " + initialEmployee.code)
+        }
         OutlinedTextField(name,{name=it},label={Text("Họ tên")},singleLine=true)
         OutlinedTextField(email,{email=it},label={Text("Email")},singleLine=true)
         OutlinedTextField(department,{department=it},label={Text("Phòng ban")},singleLine=true)
-        OutlinedTextField(deviceId,{deviceId=it},label={Text("Mã thiết bị đăng ký")},singleLine=true)
+        if (initialEmployee == null) {
+            OutlinedTextField(deviceId,{deviceId=it},label={Text("Mã thiết bị đăng ký")},singleLine=true)
+        }
+        OutlinedTextField(phone,{phone=it},label={Text("S\u1ed1 \u0111i\u1ec7n tho\u1ea1i")},singleLine=true)
+        OutlinedTextField(address,{address=it},label={Text("\u0110\u1ecba ch\u1ec9")},singleLine=true)
+        OutlinedTextField(position,{position=it},label={Text("Ch\u1ee9c v\u1ee5")},singleLine=true)
+        OutlinedTextField(hireDate,{hireDate=it},label={Text("Ng\u00e0y v\u00e0o l\u00e0m (yyyy-MM-dd)")},singleLine=true)
+        if (initialEmployee == null) {
         Row(verticalAlignment=Alignment.CenterVertically) {
             Checkbox(checked=createAccount, onCheckedChange={ createAccount = it })
             Text("Tạo tài khoản đăng nhập cho nhân viên")
@@ -479,9 +575,14 @@ private fun Dashboard(state: MainUiState) {
                 Text("Mật khẩu nhập lại chưa khớp", color=MaterialTheme.colorScheme.error)
             }
         }
+        }
         state.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
     } },confirmButton={ Column(horizontalAlignment=Alignment.End) {
-        Button({onEnroll(employee,deviceId,account)},enabled=!state.saving && name.isNotBlank() && deviceId.isNotBlank() && accountReady) { Text("Lưu & đăng ký vân tay") }
-        TextButton({onSave(employee,account)},enabled=!state.saving && name.isNotBlank() && accountReady) { Text("Chỉ lưu nhân viên") }
+        if (initialEmployee == null) {
+            Button({onEnroll(employee,deviceId,account)},enabled=!state.saving && name.isNotBlank() && deviceId.isNotBlank() && accountReady) { Text("L\u01b0u & \u0111\u0103ng k\u00fd v\u00e2n tay") }
+            TextButton({onSave(employee,account)},enabled=!state.saving && name.isNotBlank() && accountReady) { Text("Ch\u1ec9 l\u01b0u nh\u00e2n vi\u00ean") }
+        } else {
+            Button({onSave(employee,null)},enabled=!state.saving && name.isNotBlank()) { Text("L\u01b0u h\u1ed3 s\u01a1") }
+        }
     } },dismissButton={TextButton(onDismiss,enabled=!state.saving){Text("Hủy")}})
 }

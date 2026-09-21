@@ -7,8 +7,12 @@ data class Employee(
     val code: String = "",
     val fullName: String = "",
     val email: String = "",
+    val phone: String = "",
+    val address: String = "",
+    val departmentId: String = "",
     val department: String = "",
     val position: String = "",
+    val hireDate: String = "",
     val fingerprintTemplateId: Int? = null,
     val baseSalary: Long = 0,
     val fingerprintDeviceId: String = "GATE-01",
@@ -29,11 +33,17 @@ data class Attendance(
     val timestamp: Timestamp = Timestamp.now(),
     val verified: Boolean = true,
     val receivedAt: Timestamp? = null,
+    val syncStatus: String = "SYNCED",
     val resolutionStatus: String = AttendanceResolutionStatus.ACCEPTED.name,
     val scheduleDate: String? = null,
     val shiftId: String? = null,
     val overtimeRequestId: String? = null,
-    val resolvedAt: Timestamp? = null
+    val resolvedAt: Timestamp? = null,
+    val offScheduleReviewStatus: String? = null,
+    val offScheduleReviewerId: String? = null,
+    val offScheduleReviewerName: String? = null,
+    val offScheduleReviewNote: String? = null,
+    val offScheduleReviewedAt: Timestamp? = null
 )
 
 data class Payroll(

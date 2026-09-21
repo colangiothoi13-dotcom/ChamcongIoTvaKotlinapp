@@ -104,6 +104,11 @@ private fun DeviceCard(device: DeviceSnapshot, saving: Boolean, vm: MainViewMode
             Text("Mã: ${device.id}")
             Text("Phiên bản phần mềm: ${device.firmwareVersion.ifBlank { "Chưa có dữ liệu" }}")
             Text("Vân tay: ${device.fingerprintCount?.toString() ?: "?"}/${device.capacity?.toString() ?: "?"}")
+            if (device.pendingAttendanceCount > 0) {
+                Text("Lượt chấm chờ đồng bộ: ${device.pendingAttendanceCount}", color = MaterialTheme.colorScheme.error)
+            } else {
+                Text("Không có lượt chấm chờ đồng bộ", style = MaterialTheme.typography.bodySmall)
+            }
             device.lastHeartbeat?.let {
                 Text("Tín hiệu cuối: ${SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).format(it.toDate())}", style = MaterialTheme.typography.bodySmall)
             } ?: Text("Chưa nhận tín hiệu", style = MaterialTheme.typography.bodySmall)

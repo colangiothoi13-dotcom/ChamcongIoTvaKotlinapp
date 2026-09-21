@@ -41,13 +41,16 @@ private val overtimeFilters = listOf(
 fun EmployeeOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
     val today = LocalDate.now(SUPPLEMENTARY_ZONE_ID)
     var workDate by remember { mutableStateOf(today.toString()) }
-    val validDate = isValidOvertimeWorkDate(workDate, today)
+    var reason by remember { mutableStateOf("") }
+    val validCalendarDate = isValidOvertimeWorkDate(workDate, today)
+    val openForSubmission = isOpenOvertimeSubmissionDate(workDate)
+    val validDate = validCalendarDate && openForSubmission
 
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Đăng ký ca tăng ca", style = MaterialTheme.typography.titleMedium)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                Text("Khung giờ cố định: 17:30–20:30")
+                Text("Khung giờ cố định: 18:00–22:00")
                 Text(
                     "Bạn chỉ có thể đăng ký cho hôm nay hoặc một ngày trong tương lai.",
                     style = MaterialTheme.typography.bodySmall
@@ -60,12 +63,21 @@ fun EmployeeOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
                     singleLine = true,
                     isError = workDate.isNotBlank() && !validDate,
                     supportingText = {
-                        if (!validDate) Text("Nhập ngày hợp lệ từ hôm nay trở đi")
+                        if (!validCalendarDate) Text("Nhập ngày hợp lệ từ hôm nay trở đi")
+                        else if (!openForSubmission) Text("Đơn cho hôm nay phải gửi trước 18:00")
                     }
                 )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Lý do tăng ca") },
+                    minLines = 3,
+                    supportingText = { if (reason.isBlank()) Text("Vui lòng nhập lý do đăng ký tăng ca") }
+                )
                 Button(
-                    onClick = { vm.submitOvertimeRequest(workDate.trim()) {} },
-                    enabled = validDate && !state.saving
+                    onClick = { vm.submitOvertimeRequest(workDate.trim(), reason.trim()) { reason = "" } },
+                    enabled = validDate && reason.isNotBlank() && !state.saving
                 ) {
                     Text("Gửi đăng ký tăng ca")
                 }
@@ -94,7 +106,7 @@ fun AdminOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Đăng ký tăng ca", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Ca cố định 17:30–20:30 • Đơn chờ duyệt vẫn hiển thị sau ngày làm việc.",
+            "Ca cố định 18:00–22:00 • Đơn chờ duyệt vẫn hiển thị sau ngày làm việc.",
             style = MaterialTheme.typography.bodySmall
         )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {

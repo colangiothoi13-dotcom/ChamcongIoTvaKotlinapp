@@ -21,15 +21,18 @@ fun classifyPresence(
     zoneId: ZoneId,
     now: Instant = Instant.now(),
     adjustments: List<AttendanceAdjustment> = emptyList(),
-    shift: WorkShift? = null
+    shift: WorkShift? = null,
+    schedule: WorkSchedule? = null
 ): PresenceRecord {
-    val dateIsCoveredByLeave = approvedRequests.any { request ->
-        request.employeeId == employee.id &&
-            request.type == "LEAVE" &&
+    val assignedIds = schedule?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty().toSet()
+    val shiftIsOnLeave = shift != null && shift.id in assignedIds && approvedRequests.any { request ->
+        request.employeeId == employee.id && request.type == "LEAVE" &&
             request.status == RequestStatus.APPROVED.name &&
-            isDateInRange(date, request.startDate, request.endDate)
+            isDateInRange(date, request.startDate, request.endDate) &&
+            (request.leaveShiftsByDate?.get(date.toString())?.contains(shift.id)
+                ?: (request.leaveShiftsByDate == null))
     }
-    if (dateIsCoveredByLeave) return PresenceRecord(employee, PresenceStatus.ON_LEAVE)
+    if (shiftIsOnLeave) return PresenceRecord(employee, PresenceStatus.ON_LEAVE)
 
     val dayRows = rows.filter {
         it.employeeId == employee.id && belongsToScheduleDate(it, date, shift, zoneId)
@@ -71,8 +74,26 @@ fun classifyPresenceForEmployees(
     .filter(Employee::active)
     .map { employee ->
         val schedule = schedules.firstOrNull { it.employeeId == employee.id && it.date == date.toString() }
-        val shift = schedule?.let { selected -> shifts.firstOrNull { it.id == selected.shiftId } }
-        classifyPresence(employee, assignedAttendance, requests, date, zoneId, now, adjustments, shift)
+        val selectedShifts = schedule?.let { scheduledShifts(it, shifts.associateBy(WorkShift::id)) }.orEmpty()
+        val orderedShifts = selectedShifts.sortedBy { shiftWindow(date, it, zoneId).start }
+        val shift = if (orderedShifts.size <= 1) orderedShifts.firstOrNull() else {
+            orderedShifts.firstOrNull { shiftWindow(date, it, zoneId).end.isAfter(now) } ?: orderedShifts.last()
+        }
+        val adjustment = latestAdjustment(adjustments, employee.id, date)
+        val adjustmentTime = adjustment?.checkInAt ?: adjustment?.checkOutAt
+        val adjustmentShiftId = adjustmentTime?.let { instant ->
+            nearestScheduledShift(
+                date,
+                orderedShifts,
+                instant,
+                if (adjustment?.checkInAt != null) "CHECK_IN" else "CHECK_OUT",
+                zoneId
+            )?.id
+        }
+        val applicableAdjustments = if (orderedShifts.size <= 1 || shift?.id == adjustmentShiftId) {
+            adjustments
+        } else emptyList()
+        classifyPresence(employee, assignedAttendance, requests, date, zoneId, now, applicableAdjustments, shift, schedule)
     }
 }
 

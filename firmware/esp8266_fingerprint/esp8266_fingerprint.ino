@@ -33,8 +33,8 @@ SoftwareSerial mySerial(D5, D6);
 Adafruit_Fingerprint finger(&mySerial);
 LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
 
-const char* WIFI_SSID = "P302";
-const char* WIFI_PASSWORD = "so2phukieu";
+const char* WIFI_SSID = DEVICE_WIFI_SSID;
+const char* WIFI_PASSWORD = DEVICE_WIFI_PASSWORD;
 // Lay current_key trong app/google-services.json. Firebase API key khong phai mat khau.
 const char* FIREBASE_API_KEY = "AIzaSyDX6BVVu7iKV-L4eukCQy0-BRehWs-NZYw";
 const char* FIRESTORE_BASE_URL = "https://firestore.googleapis.com/v1/projects/chamcongiot-56ae5/databases/(default)/documents";
@@ -291,14 +291,9 @@ int postAttendanceEvent(const String& eventId, const String& payload) {
   https.setTimeout(5000);
   https.addHeader("Content-Type", "application/json");
   https.addHeader("Authorization", "Bearer " + firebaseIdToken);
-  DynamicJsonDocument syncDocument(1536);
-  String uploadPayload = payload;
-  if (!deserializeJson(syncDocument, payload)) {
-    syncDocument["fields"]["syncStatus"]["stringValue"] = "SYNCED";
-    uploadPayload = "";
-    serializeJson(syncDocument, uploadPayload);
-  }
-  int code = https.POST(uploadPayload);
+  // Firestore Rules accept only PENDING_SYNC from a device. The trusted
+  // attendance resolver changes this to SYNCED after it processes the event.
+  int code = https.POST(payload);
   String response = https.getString();
   https.end();
   Serial.printf("ATTENDANCE HTTP %d: %s\n", code, response.c_str());
@@ -363,6 +358,20 @@ size_t attendanceOutboxBytes() {
   return bytes;
 }
 
+int attendancePendingCount() {
+  if (!littleFsReady) return 0;
+  File input = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "r");
+  if (!input) return 0;
+  int count = 0;
+  while (input.available()) {
+    String line = input.readStringUntil('\n');
+    if (line.length() > 0) count++;
+    yield();
+  }
+  input.close();
+  return count;
+}
+
 bool publishDeviceSnapshot() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.printf("HEARTBEAT bo qua: WiFi status=%d\n", WiFi.status());
@@ -402,6 +411,7 @@ bool publishDeviceSnapshot() {
   fields["firmwareVersion"]["stringValue"] = FIRMWARE_VERSION;
   if (templateCount >= 0) fields["fingerprintCount"]["integerValue"] = templateCount;
   fields["capacity"]["integerValue"] = 127;
+  fields["pendingAttendanceCount"]["integerValue"] = attendancePendingCount();
 
   JsonObject capabilityField = fields.createNestedObject("capabilities");
   JsonObject arrayValue = capabilityField.createNestedObject("arrayValue");

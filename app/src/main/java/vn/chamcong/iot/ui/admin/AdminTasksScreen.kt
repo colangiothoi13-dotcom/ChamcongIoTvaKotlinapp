@@ -12,6 +12,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Business
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FactCheck
@@ -68,13 +71,16 @@ val adminTaskGroups = listOf(
         listOf(
             AdminTaskItem(AppDestination.PAYROLL, "Tính lương, giờ làm và tăng ca", Icons.Default.Payments),
             AdminTaskItem(AppDestination.PERFORMANCE, "Theo dõi hiệu suất nhân sự", Icons.Default.Insights),
-            AdminTaskItem(AppDestination.REPORTS, "Báo cáo chấm công, nghỉ phép và thiết bị", Icons.Default.Assessment)
+            AdminTaskItem(AppDestination.REPORTS, "Báo cáo chấm công, nghỉ phép và thiết bị", Icons.Default.Assessment),
+            AdminTaskItem(AppDestination.MONTHLY_TIMESHEET, "Tổng hợp công, ngày công và giờ làm theo tháng", Icons.Default.CalendarMonth)
         )
     ),
     AdminTaskGroup(
         "Quản trị",
         listOf(
             AdminTaskItem(AppDestination.AUDIT, "Lịch sử thay đổi trong hệ thống", Icons.Default.History),
+            AdminTaskItem(AppDestination.DEPARTMENTS, "Tạo, chỉnh sửa và bật/tắt phòng ban", Icons.Default.Business),
+            AdminTaskItem(AppDestination.ANNOUNCEMENTS, "Gửi thông báo và xem lịch sử gửi", Icons.Default.Campaign),
             AdminTaskItem(AppDestination.SETTINGS, "Cấu hình doanh nghiệp và ứng dụng", Icons.Default.Settings)
         )
     )

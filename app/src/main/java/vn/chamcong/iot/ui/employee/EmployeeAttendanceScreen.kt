@@ -42,7 +42,8 @@ fun EmployeeAttendanceScreen(
 ) {
     var month by remember { mutableStateOf(LocalDate.now(zone).withDayOfMonth(1)) }
     val summaries = vm.employeeMonthSummaries(month).filter { summary ->
-        summary.workedHours > 0.0 || summary.checkIn != null || summary.checkOut != null || summary.shiftName.isNotBlank() || summary.status.name in listOf("LEAVE", "ABNORMAL")
+        summary.workedHours > 0.0 || summary.overtimeHours > 0.0 || summary.checkIn != null || summary.checkOut != null ||
+            summary.shiftName.isNotBlank() || summary.status.name in listOf("LEAVE", "ABNORMAL")
     }
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -66,9 +67,34 @@ private fun EmployeeDayCard(summary: EmployeeDaySummary) {
             Text(summary.date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")), style = MaterialTheme.typography.titleMedium)
             Text("Ca: ${summary.shiftName.ifBlank { "Chưa phân ca" }}")
             Text("Vào: ${summary.checkIn?.let(::formatTime) ?: "—"}    Ra: ${summary.checkOut?.let(::formatTime) ?: "—"}")
-            Text("Giờ làm: %.2f giờ • ${summary.status.toVietnamese()}".format(summary.workedHours))
+            Text(
+                "Giờ thường: %.2f giờ • Tăng ca: %.2f giờ • ${summary.status.toVietnamese()}"
+                    .format(summary.workedHours, summary.overtimeHours)
+            )
             if (summary.lateMinutes > 0 || summary.earlyLeaveMinutes > 0) {
                 Text("Đi trễ: ${summary.lateMinutes} phút • Về sớm: ${summary.earlyLeaveMinutes} phút", style = MaterialTheme.typography.bodySmall)
+            }
+            summary.shiftSummaries.forEach { shift ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.padding(AppSpacing.medium),
+                        verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)
+                    ) {
+                        Text("${shift.shiftName} · ${shift.shiftStartTime}–${shift.shiftEndTime}", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        Text(
+                            "Quét: ${shift.rawCheckInAt?.let(::formatTime) ?: "—"} → ${shift.rawCheckOutAt?.let(::formatTime) ?: "—"}  ·  " +
+                                "Tính công: ${shift.paidCheckInAt?.let(::formatTime) ?: "—"} → ${shift.paidCheckOutAt?.let(::formatTime) ?: "—"}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            "Thường %.2f giờ · Tăng ca %.2f giờ · ${shift.status.toVietnamese()}".format(
+                                shift.workedHours, shift.overtimeHours
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }

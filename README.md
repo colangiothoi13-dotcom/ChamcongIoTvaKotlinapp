@@ -20,9 +20,10 @@ và giao diện nhân viên; Cloud Functions chịu trách nhiệm phân giải 
 theo ca, tính giờ và cập nhật trạng thái.
 
 Điểm trọng tâm của phiên bản hiện tại là không quyết định vào/ra theo mốc 12 giờ.
-Hệ thống dùng lịch làm, cửa sổ ca và lượt chấm gần nhất để hỗ trợ ca qua đêm,
-chống quét trùng, phát hiện quên chấm ra, xử lý tăng ca có duyệt và ghi audit
-cho các thay đổi công.
+Hệ thống dùng lịch làm trong ngày từ thứ Hai đến thứ Bảy, cửa sổ ca và lượt chấm
+gần nhất để chống quét trùng, phát hiện quên chấm ra, xử lý tăng ca có duyệt và
+ghi audit cho các thay đổi công. Ca không được phân vào Chủ nhật, kết thúc phải
+sau giờ bắt đầu trong cùng ngày.
 
 ## Mục lục báo cáo
 
@@ -63,7 +64,7 @@ lượt quét lên Firebase để hệ thống xử lý.
 | ESP8266 + AS608/R307 | Đọc và đối chiếu vân tay cục bộ, điều khiển LED/còi, gửi lượt quét và trạng thái thiết bị. |
 | Firebase Authentication | Đăng nhập tài khoản Admin/Nhân viên; thiết bị dùng Anonymous Auth. |
 | Firestore | Lưu nhân viên, ca, lịch, lượt chấm, đơn từ, lương, thiết bị và audit log. |
-| Cloud Functions | Phân giải lượt quét theo lịch ca, xử lý ca qua đêm, tăng ca và thông báo. |
+| Cloud Functions | Phân giải lượt quét theo lịch ca trong ngày, tăng ca và thông báo. |
 | Firestore Rules | Kiểm soát quyền đọc/ghi theo vai trò, bảo vệ dữ liệu chấm công và audit. |
 
 Hệ thống không lưu ảnh hoặc đặc trưng vân tay trên Firestore. Mẫu vân tay được
@@ -76,7 +77,7 @@ Admin tạo nhân viên
         ↓
 Đăng ký mẫu vân tay trên ESP8266
         ↓
-Admin tạo ca và phân lịch tuần trước 17:00 Chủ nhật
+Nhân viên đăng ký lịch tuần sau trước 12:00 thứ Bảy; Admin duyệt trước 17:00
         ↓
 Nhân viên quét vân tay vào/ra
         ↓
@@ -92,11 +93,10 @@ Android cập nhật realtime hiện diện, giờ công, báo cáo và lương
 ### Luồng nghiệp vụ theo thời gian
 
 1. **Chuẩn bị:** Admin thêm nhân viên, thiết lập lương, đăng ký vân tay và tạo ca.
-2. **Phân lịch:** Admin vào `Phân ca → Lịch`, tích chọn nhân viên/ngày, chọn ca sáng
-   hoặc ca chiều và lưu trước 17:00 Chủ nhật.
+2. **Đăng ký lịch:** Nhân viên vào `Lịch làm việc`, chọn ca sáng, ca chiều hoặc cả hai cho tuần sau từ thứ Hai đến thứ Bảy, rồi gửi trước 12:00 thứ Bảy. Admin duyệt từng đơn hoặc hàng loạt trước 17:00; đơn cần sửa phải có lý do.
 3. **Chấm công:** Nhân viên quét vân tay. Hệ thống xác định vào/ra dựa trên cửa sổ
    ca và lượt hợp lệ gần nhất, không còn dựa vào mốc 12 giờ.
-4. **Tăng ca:** Nhân viên gửi đơn cho khung cố định 17:30–20:30. Admin duyệt hoặc
+4. **Tăng ca:** Nhân viên gửi đơn cho khung cố định 18:00–22:00. Admin duyệt hoặc
    từ chối; đơn chờ duyệt vẫn được giữ lượt quét nhưng chưa tính tiền tăng ca.
 5. **Theo dõi:** Admin xem Tổng quan, Chấm công, Có mặt, Thiết bị và xử lý cảnh báo.
 6. **Cuối kỳ:** Hệ thống tính giờ, tiền tăng ca, thưởng KPI và phạt đi muộn; Admin
@@ -148,7 +148,7 @@ và ô giao giữa nhân viên/ngày trên lịch cũng là vùng có thể bấ
 | Chấm công | `Điều chỉnh` → `Lưu điều chỉnh` | Sửa giờ/công có lý do; tạo bản ghi điều chỉnh và audit mới. |
 | Đơn từ | `Duyệt` | Duyệt đơn thường hoặc đơn tăng ca. |
 | Đơn từ | `Từ chối` → nhập lý do → `Từ chối` | Từ chối đơn; lý do bắt buộc và được ghi audit. |
-| Ca làm | `Thêm ca` | Tạo ca sáng, ca chiều, ca bổ sung hoặc ca tùy chỉnh. |
+| Ca làm | `Thêm ca` | Tạo mẫu ca trong ngày, tối đa 4 giờ; ca không qua ngày. |
 | Ca làm | `Chỉnh sửa` / `Tạo bản tùy chỉnh` | Sửa ca hiện tại hoặc tạo snapshot mới mà không ảnh hưởng lịch sử đã phân. |
 | Ca làm | `Lưu ca` / `Hủy` | Lưu cấu hình ca hoặc đóng form không lưu. |
 | Lịch | `Tuần trước`, `Tuần sau`, `Tuần này` | Chuyển tuần đang xem. |
@@ -177,7 +177,7 @@ và ô giao giữa nhân viên/ngày trên lịch cũng là vùng có thể bấ
 | Đơn từ | `Tạo đơn` / `Đóng form` | Mở hoặc đóng form tạo đơn. |
 | Đơn từ | Chip loại đơn | Chọn nghỉ phép, đi muộn, về sớm, sửa công, ngoài văn phòng hoặc đổi ca. |
 | Đơn từ | `Gửi đơn` | Gửi đơn thường kèm ngày và lý do. |
-| Đơn từ | `Gửi đăng ký tăng ca` | Gửi đơn tăng ca cho hôm nay/tương lai trong khung 17:30–20:30. |
+| Đơn từ | `Gửi đăng ký tăng ca` | Gửi đơn tăng ca cho hôm nay/tương lai trong khung 18:00–22:00. |
 | Cá nhân | `Đổi mật khẩu` | Đổi mật khẩu tài khoản nhân viên. |
 | Cá nhân | `Đăng xuất` | Kết thúc phiên nhân viên. |
 
@@ -223,8 +223,8 @@ ChamcongIoTvaKotlinapp-main/
 | `app/.../ui/MainViewModel.kt` | Giữ trạng thái màn hình, đăng ký listener realtime và gọi thao tác nghiệp vụ. |
 | `app/.../data/FirebaseRepository.kt` | Điểm truy cập Firebase duy nhất; đọc/ghi dữ liệu và tạo audit. |
 | `app/.../domain/AttendanceResolutionRules.kt` | Luật chọn ca, vào/ra, quét trùng, ngoài lịch và sai thứ tự. |
-| `app/.../domain/WeeklyScheduling.kt` | Luật chọn nhân viên/ngày, hạn Chủ nhật và payload phân ca hàng loạt. |
-| `app/.../domain/OvertimeRules.kt` | Luật đơn tăng ca 17:30–20:30 và duyệt/từ chối. |
+| `app/.../domain/WeeklyScheduling.kt` | Luật chọn nhân viên/ngày, hạn đăng ký/duyệt thứ Bảy và payload phân ca hàng loạt. |
+| `app/.../domain/OvertimeRules.kt` | Luật đơn tăng ca 18:00–22:00 và duyệt/từ chối. |
 | `app/.../domain/KpiBonusRules.kt` | Tính thưởng theo ca, Top 3 và phạt đi muộn. |
 | `app/.../ui/schedule/WeeklyAssignmentDialog.kt` | Giao diện checkbox phân nhiều nhân viên/ngày. |
 | `app/.../ui/attendance/AttendanceAdjustmentDialog.kt` | Form sửa công bắt buộc lý do. |
@@ -240,8 +240,8 @@ Luồng tăng ca dùng collection `overtimeRequests` với document ID xác đ�
 `overtimeRequests/{employeeId}_{workDate}`. Schema gồm `employeeId`,
 `employeeName`, `department`, `workDate`, `startTime`, `endTime`, `status`,
 `createdAt`, `reviewerId`, `reviewerName`, `reviewedAt` và
-`rejectionReason`. `startTime`/`endTime` luôn là `17:30`/`20:30` theo
-`Asia/Ho_Chi_Minh`, tương đương đúng **3 giờ**; request có trạng thái
+`rejectionReason`. `startTime`/`endTime` luôn là `18:00`/`22:00` theo
+`Asia/Ho_Chi_Minh`, tương đương đúng **4 giờ**; request có trạng thái
 `PENDING`, `APPROVED` hoặc `REJECTED`.
 
 - Nhân viên gửi tối đa một request cho mỗi nhân viên/ngày; request được audit
@@ -266,7 +266,7 @@ KPI tháng dùng dữ liệu attendance đã resolve và request đã duyệt: m
   muộn) nhận **500.000 VND/người**, mỗi lần đi muộn ca chính trừ
   **100.000 VND**. Tổng bonus bị chặn sàn ở 0; `deduction` trên phiếu payroll
   vẫn là khoản Admin nhập riêng, không bị công thức KPI tự động thay đổi.
-  Payroll cộng thêm 3 giờ cho mỗi ca tăng ca hoàn thành và vẫn lưu snapshot
+  Payroll cộng thêm giờ thực tế tối đa 4 giờ cho mỗi ca tăng ca hoàn thành và vẫn lưu snapshot
   khi phiếu được tạo.
 
 Query request của Admin đọc collection rồi sort `createdAt` ở local; query của
@@ -291,9 +291,9 @@ Changed-file inventory: `ui/schedule/WeeklyAssignmentDialog.kt` (selection recov
 
 ### Phân ca tuần cho nhiều nhân viên (17/09/2026)
 
-Trong **Quản lý ca làm → Lịch → Phân cho nhân viên**, Admin chọn nhiều nhân viên, chọn ngày trong tuần thứ hai–chủ nhật, rồi lưu một trong ba mẫu: **Ca sáng 08:00–12:00**, **Ca chiều 13:00–17:00**, **Ca bổ sung/tăng ca** nhập giờ mỗi lần. Giờ nhập theo `HH:mm`, không được bằng nhau; giờ kết thúc nhỏ hơn giờ bắt đầu nghĩa là kết thúc ngày hôm sau. Mỗi nhân viên/ngày vẫn chỉ có một `WorkSchedule`; phân lại thay ca của ngày đó, không cộng ca thứ hai.
+Trong **Quản lý ca làm → Lịch → Phân cho nhân viên**, Admin chọn nhiều nhân viên và ngày từ thứ Hai đến thứ Bảy. Mẫu mặc định là **Ca sáng 08:00–12:00** và **Ca chiều 13:00–17:00**; mỗi ca mới tối đa 4 giờ và không qua ngày. Tăng ca dùng đơn riêng cố định **18:00–22:00**, không phân trước như ca chính. Đơn lịch tuần đã duyệt có thể chứa cả ca sáng và ca chiều; phân ca trực tiếp của Admin cập nhật các ca đã chọn trong ngày đó.
 
-Hạn cảnh báo là **17:00 Chủ nhật trước tuần được chọn, Asia/Ho_Chi_Minh**. Cảnh báo chưa hoàn tất/quá hạn đếm nhân viên active chưa có bất kỳ lịch nào trong tuần; không bắt buộc làm cả bảy ngày. Admin tự kiểm tra các ngày cần làm, vì schema hiện tại chưa có kế hoạch ngày nghỉ. Cảnh báo cập nhật khi màn hình mở và không khóa thao tác sau hạn.
+Nhân viên gửi lịch tuần kế tiếp trước **12:00 thứ Bảy**; Admin duyệt trước **17:00 thứ Bảy** theo giờ `Asia/Ho_Chi_Minh`. Hệ thống nhắc nhân viên chưa đăng ký và đơn còn chờ; quá hạn không tự duyệt. Đăng ký cá nhân cho từng ngày thứ Hai–thứ Bảy có thể chọn ca sáng, ca chiều hoặc cả hai.
 
 Mẫu là helper thuần; chỉ nút **Lưu phân ca** mới ghi dữ liệu. ID `weekly_v1_<template>_<start>_<end>` ổn định, transaction chỉ tạo ca nếu chưa có và kiểm tra nội dung nếu đã có; không seed trong composition, không tạo ca trùng khi thử lại/cùng lúc. Các ca legacy không bị đổi tên, giờ hoặc gộp tự động. Ca chiều dùng category `EVENING` để tương thích schema. Mẫu đã lưu là snapshot: màn hình ca cho tạo bản tùy chỉnh thay vì sửa snapshot. Nếu snapshot bị sửa từ client cũ, lưu tuần báo lỗi thay vì ghi đè lịch sử cấu hình.
 
@@ -390,14 +390,15 @@ Hệ thống hoạt động theo chu trình sau:
 
 `resolveAttendance` chạy khi tạo `attendance/{eventId}`, đọc lại lượt `SCAN` có `resolutionStatus=PENDING` trong transaction, xác minh mapping vân tay đang bật và nhân viên còn active. Hàm tra `workSchedules` của ngày quét và ngày trước đó theo `Asia/Ho_Chi_Minh`, đọc `shifts`, rồi cập nhật chính document này. ID lượt, thiết bị và thời điểm quét được giữ nguyên; loại/trạng thái được thay bằng kết quả server, kèm `scheduleDate`, `shiftId`, `receivedAt`, `resolvedAt`. Android và thiết bị không được update/delete attendance.
 
-- `scheduleDate` là ngày bắt đầu ca (`yyyy-MM-dd`), không nhất thiết là ngày trên đồng hồ khi chấm ra. Ví dụ ca 22:00 ngày 17/09 đến 06:00 ngày 18/09: cả hai lượt mang `scheduleDate=2026-09-17`. Nếu giờ kết thúc nhỏ hơn hoặc bằng giờ bắt đầu, kết thúc thuộc ngày kế tiếp.
+- `scheduleDate` là ngày làm việc được phân (`yyyy-MM-dd`). Ca phải bắt đầu và kết thúc trong cùng ngày; giờ kết thúc phải sau giờ bắt đầu. Chấm ra trễ thực tế vẫn giữ timestamp của lượt chấm, nhưng không làm thay đổi giờ kết thúc đã phân.
 - Cửa sổ nhận lượt chạy từ đầu ca trừ `allowEarlyMinutes` đến cuối ca cộng `missingCheckOutGraceMinutes`, gồm cả hai mốc. Khi nhiều cửa sổ khớp, server chọn ca có mốc đầu/cuối gần lượt quét nhất, rồi ưu tiên ca bắt đầu sớm hơn nếu bằng nhau.
-- Chưa có phiên mở: lượt gần đầu ca hơn (hoặc cách đều) là `CHECK_IN`; gần cuối ca hơn là `CHECK_OUT` để bộc lộ trường hợp thiếu chấm vào. Có check-in đang mở thì lượt hợp lệ tiếp theo đóng phiên bằng `CHECK_OUT`. `attendanceSessions/{employeeId}_{scheduleDate}` chỉ do backend truy cập; transaction đọc lại trạng thái để tránh phân giải lại một event.
+- Chưa có phiên mở: lượt gần đầu ca hơn (hoặc cách đều) là `CHECK_IN`; gần cuối ca hơn là `CHECK_OUT` để bộc lộ trường hợp thiếu chấm vào. Có check-in đang mở thì lượt hợp lệ tiếp theo đóng phiên bằng `CHECK_OUT`. Ca đơn giữ ID phiên cũ `attendanceSessions/{employeeId}_{scheduleDate}`; ngày có nhiều ca dùng một phiên riêng cho mỗi ca. Các phiên chỉ do backend truy cập; transaction đọc lại trạng thái để tránh phân giải lại một event.
 - Trong ca đã chọn, lượt cách lượt được chấp nhận gần nhất không quá **3 phút (180.000 ms, kể cả đúng 3 phút)** là `DUPLICATE`. Lượt cũ hơn nằm ngoài cửa sổ trùng là `OUT_OF_ORDER`; không có ca khớp hoặc phiên đã đóng là `UNSCHEDULED`. Lượt bị từ chối không thay đổi phiên được chấp nhận và có `status=ABNORMAL`. Không có quy tắc trước/sau 12 giờ để quyết định vào/ra.
 - Lượt hợp lệ có `resolutionStatus=ACCEPTED`; server hiện đặt `status=NORMAL`, còn Android tính đi trễ/về sớm theo ca và cặp hiệu lực. Trigger FCM xét update có trạng thái trước khác `ACCEPTED` và trạng thái sau là `ACCEPTED` (luồng resolver bình thường là `PENDING` → `ACCEPTED`); helper hiện kiểm tra cấu trúc/trường trạng thái, không tự xác minh lại loại lượt. Lịch sử vẫn hiển thị riêng pending, trùng, ngoài lịch và sai thứ tự; chúng không đóng góp giờ làm.
-- Khi có chấm vào nhưng chưa chấm ra, chỉ đánh dấu thiếu chấm ra khi thời điểm hiện tại **sau** cuối ca cộng `missingCheckOutGraceMinutes`. Mặc định là **60 phút**, kể cả ca cũ chưa có field; giá trị `0` được giữ nguyên. Ca 22:00–06:00 với mặc định này chỉ quá hạn sau 07:00 hôm sau. Không tự tạo checkout hoặc tự cộng giờ đến hết ca. Khi không có thông tin ca, fallback thiếu checkout là sau ngày lịch tương ứng.
+- Với lượt `UNSCHEDULED`, Admin mở dòng chấm công, chọn ca sáng/chiều thực tế, ghi lý do rồi duyệt hoặc từ chối. Duyệt tạo/cập nhật lịch ca và phân giải lại các lượt phù hợp trong transaction; timestamp, thiết bị, template và ID quét gốc được giữ nguyên. Từ chối giữ lượt ở trạng thái bất thường. Cả hai kết quả có audit; lỗi dữ liệu được hiển thị trong khối xử lý ngoài lịch để Admin có thể gửi lại sau khi sửa nguyên nhân.
+- Khi có chấm vào nhưng chưa chấm ra, chỉ đánh dấu thiếu chấm ra khi thời điểm hiện tại **sau** cuối ca cộng `missingCheckOutGraceMinutes`. Mặc định là **60 phút**, kể cả ca cũ chưa có field; giá trị `0` được giữ nguyên. Không tự tạo checkout hoặc tự cộng giờ đến hết ca. Khi không có thông tin ca, fallback thiếu checkout là sau ngày lịch tương ứng.
 
-Admin vào **Chấm công → Điều chỉnh** trên dòng lịch sử để xem nhân viên, ngày ca, giờ vào/ra và giờ công hiệu lực. Nhập giờ theo `yyyy-MM-dd HH:mm` tại `Asia/Ho_Chi_Minh` (ca qua đêm phải nhập ngày hôm sau cho giờ ra), hoặc nhập giờ công từ 0 đến 24, và **bắt buộc nhập lý do không rỗng**. Ít nhất một giá trị phải thay đổi; nếu có cả hai mốc thì giờ ra phải sau giờ vào. Ô bỏ trống giữ giá trị hiệu lực hiện tại, không xóa giá trị; giờ override cũ được giữ khi để trống ô giờ công.
+Admin vào **Chấm công → Điều chỉnh** trên dòng lịch sử để xem nhân viên, ngày ca, giờ vào/ra và giờ công hiệu lực. Nhập giờ theo `yyyy-MM-dd HH:mm` tại `Asia/Ho_Chi_Minh`, hoặc nhập giờ công từ 0 đến 24, và **bắt buộc nhập lý do không rỗng**. Ít nhất một giá trị phải thay đổi; nếu có cả hai mốc thì giờ ra phải sau giờ vào. Ô bỏ trống giữ giá trị hiệu lực hiện tại, không xóa giá trị; giờ override cũ được giữ khi để trống ô giờ công.
 
 Mỗi lần lưu tạo mới `attendanceAdjustments/{id}` theo nhân viên/ngày ca, chứa mốc sửa và/hoặc `workedHoursOverride`, lý do, người thực hiện lấy từ phiên đăng nhập và timestamp server. Cùng một batch tạo `audit_logs/{id}` với `action=ATTENDANCE_ADJUST`, `targetType=attendanceAdjustment`, cùng ID, actor và reason. Chi tiết audit ghi giá trị adjustment trước/sau (không phải snapshot toàn bộ raw scans). Rules yêu cầu cặp adjustment/audit này tồn tại cùng lần ghi và cấm update/delete cả hai: sửa tiếp phải thêm bản ghi mới, không ghi đè lịch sử. Chỉ Admin được tạo adjustment; nhân viên chỉ đọc adjustment của mình.
 
@@ -405,7 +406,7 @@ Android dùng adjustment hợp lệ mới nhất theo `createdAt` của nhân vi
 
 Admin tải toàn bộ `workSchedules`, độc lập tuần đang chọn, để tính lương tháng, báo cáo và hiện diện kể cả ca qua ranh giới tháng. Chọn tuần chỉ thay đổi khoảng hiển thị; listener nhân viên vẫn giới hạn theo nhân viên. Dashboard và bộ lọc lịch sử tính đi trễ từ ca và cặp hiệu lực, cập nhật khi lịch/ca/adjustment thay đổi; không có ca thì giữ fallback trạng thái legacy. Hộp lập phiếu cập nhật giờ tự tính theo dữ liệu mới cho đến khi người dùng nhập giờ thủ công. Listener toàn bộ lịch tăng số document đọc; giới hạn lịch sử attendance/adjustment hiện có vẫn áp dụng.
 
-Lượt server `DUPLICATE` không ghi đè trạng thái của cặp hợp lệ; `UNSCHEDULED`/`OUT_OF_ORDER` vẫn hiện bất thường. Tổng ngày và báo cáo dùng `PRESENT` (đang làm việc) trước hoặc đúng hạn cuối ca cộng grace; chỉ sau hạn mới là `MISSING_CHECK_OUT`. Nghỉ phép chỉ áp dụng cho nhân viên trên đơn. Nghỉ giữa ca 02:00–02:30 của ca 22:00–06:00 được trừ ở ngày kế tiếp. Rules cho phép bỏ qua `missingCheckOutGraceMinutes`; nếu có thì phải là số nguyên không âm.
+Lượt server `DUPLICATE` không ghi đè trạng thái của cặp hợp lệ; `UNSCHEDULED`/`OUT_OF_ORDER` vẫn hiện bất thường. Tổng ngày và báo cáo dùng `PRESENT` (đang làm việc) trước hoặc đúng hạn cuối ca cộng grace; chỉ sau hạn mới là `MISSING_CHECK_OUT`. Nghỉ phép chỉ áp dụng cho nhân viên trên đơn. Ca được phân từ thứ Hai đến thứ Bảy; Chủ nhật không nhận phân ca. Rules cho phép bỏ qua `missingCheckOutGraceMinutes`; nếu có thì phải là số nguyên không âm.
 
 ### 6. Luồng xử lý thiết bị ESP8266
 
@@ -451,7 +452,7 @@ Khi mạng trở lại, ESP8266 tự động đọc lại hàng đợi, gửi t�
 ### 8. Luồng lịch làm, ca, đơn từ và có mặt
 
 - Admin có thể tạo ca chính, lập lịch theo tuần, phân ca cho từng nhân viên hoặc phòng ban.
-- Lịch tuần hiện dùng ca chính như ca sáng 08:00–12:00 và ca chiều 13:00–17:00; tăng ca không phân sẵn mà đi qua đơn 17:30–20:30 của nhân viên.
+- Lịch tuần hiện dùng ca chính như ca sáng 08:00–12:00 và ca chiều 13:00–17:00; tăng ca không phân sẵn mà đi qua đơn 18:00–22:00 của nhân viên.
 - Nếu có thay đổi lịch làm hoặc nhân viên vắng mặt, admin có thể gửi yêu cầu từ nhân viên/điều chỉnh bằng đơn từ.
 - Hệ thống phân loại trạng thái:
   - Đã vào công ty
@@ -517,11 +518,11 @@ Thiết bị đọc vân tay
 
 Nhân viên gửi đơn tăng ca
    -> Admin duyệt hoặc từ chối
-   -> lượt quét tăng ca được phân giải lại theo ca 17:30–20:30
+   -> lượt quét tăng ca được phân giải lại theo ca 18:00–22:00
    -> ca tăng ca hợp lệ được cộng giờ và thưởng vào phiếu lương
 ```
 
-Quy trình vận hành chuẩn của Admin là: tạo hồ sơ nhân viên → đăng ký vân tay → tạo/kiểm tra ca → phân lịch tuần trước **17:00 Chủ nhật** → theo dõi chấm công → xử lý đơn → điều chỉnh các trường hợp có lý do → lập lương và xem báo cáo/audit.
+Quy trình vận hành là: tạo hồ sơ nhân viên → đăng ký vân tay → tạo/kiểm tra ca → nhân viên đăng ký lịch tuần sau trước **12:00 thứ Bảy** → Admin duyệt trước **17:00 thứ Bảy** → theo dõi chấm công → xử lý đơn → điều chỉnh các trường hợp có lý do → lập lương và xem báo cáo/audit.
 
 ### 2. Đăng nhập, phân quyền và menu chung
 
@@ -558,10 +559,10 @@ Các dòng trong `Tác vụ` và các card trong `Phân ca` đều có thể b�
 
 | Mục | Chức năng |
 | --- | --- |
-| `Chấm công` | Xem lịch sử lượt vào/ra, lọc trạng thái/loại lượt và điều chỉnh công. |
+| `Chấm công` | Xem lịch sử lượt vào/ra, lọc trạng thái/loại lượt, duyệt/từ chối lượt ngoài lịch và điều chỉnh công. |
 | `Thiết bị` | Xem tín hiệu cuối, phiên bản phần mềm, trạng thái hoạt động/mất kết nối, số mẫu vân tay và lệnh gần đây. |
 | `Có mặt` | Xem ai đã vào, chưa đến, đang nghỉ, đã ra, chưa chấm ra hoặc bất thường theo ngày. |
-| `Ca làm` | Tạo và quản lý các mẫu ca chính; xem ca sáng 08:00–12:00, ca chiều 13:00–17:00 và cấu hình ca tùy chỉnh. Tăng ca 17:30–20:30 không phân trước ở màn hình này. |
+| `Ca làm` | Tạo và quản lý các mẫu ca chính; xem ca sáng 08:00–12:00, ca chiều 13:00–17:00 và cấu hình ca tùy chỉnh. Tăng ca 18:00–22:00 không phân trước ở màn hình này. |
 | `Lịch` | Phân ca cho từng nhân viên, nhiều nhân viên hoặc phòng ban theo tuần/tháng. |
 | `Lương` | Tính giờ, thưởng KPI, khấu trừ và lưu phiếu lương theo tháng. |
 | `Hiệu suất` | Xem số ca tăng ca, giờ tăng ca, số lần đi muộn, hạng Top 3 và tiền thưởng tự động. |
@@ -592,12 +593,13 @@ Các dòng trong `Tác vụ` và các card trong `Phân ca` đều có thể b�
 | Nút/vùng thao tác | Chức năng |
 | --- | --- |
 | Lọc trạng thái `Tất cả`, `Đúng giờ`, `Đi trễ`, `Về sớm` | Lọc các lượt đã được phân giải theo trạng thái hiển thị. |
+| `Duyệt ngoài lịch` / `Xử lý chấm ngoài lịch` | Chọn ca sáng/chiều và lý do; gửi quyết định duyệt hoặc từ chối. Backend cập nhật kết quả phân giải mà giữ nguyên trường quét gốc và ghi audit. |
 | Lọc loại `Tất cả loại`, `Vào ca`, `Ra ca` | Lọc theo `CHECK_IN` hoặc `CHECK_OUT`. |
 | `Điều chỉnh` | Mở hồ sơ công của nhân viên/ngày ca đang chọn. |
 | `Lưu điều chỉnh` | Lưu giờ vào, giờ ra hoặc giờ công override; bắt buộc có lý do. Mỗi lần sửa tạo bản ghi append-only và audit mới. |
 | `Hủy` | Đóng hộp thoại điều chỉnh. |
 
-Khi điều chỉnh, Admin nhập giờ theo `yyyy-MM-dd HH:mm` của `Asia/Ho_Chi_Minh`, hoặc giờ công từ 0 đến 24. Ô để trống giữ giá trị đang có; không dùng form này để xóa dữ liệu. Với ca qua đêm, giờ ra phải ghi sang ngày hôm sau.
+Khi điều chỉnh, Admin nhập giờ theo `yyyy-MM-dd HH:mm` của `Asia/Ho_Chi_Minh`, hoặc giờ công từ 0 đến 24. Ô để trống giữ giá trị đang có; không dùng form này để xóa dữ liệu.
 
 #### 3.5. Đơn từ và tăng ca
 
@@ -609,7 +611,7 @@ Khi điều chỉnh, Admin nhập giờ theo `yyyy-MM-dd HH:mm` của `Asia/Ho_C
 | `Hủy` trong form từ chối | Không thay đổi trạng thái đơn. |
 | Chip lọc tăng ca `Tất cả`, `Chờ duyệt`, `Đã duyệt`, `Từ chối` | Lọc riêng các đơn tăng ca. |
 
-Đơn tăng ca luôn có khung cố định **17:30–20:30**, nhân viên tự gửi đơn cho hôm nay hoặc ngày tương lai. Nếu Admin chưa kịp duyệt, đơn vẫn nằm chờ và nhân viên vẫn được quét; những lượt đó được giữ `OVERTIME_PENDING`, chưa được tính tiền. Khi duyệt, hệ thống mới tính cặp vào/ra hợp lệ; khi từ chối, raw scan vẫn giữ để tra cứu nhưng không tính giờ/tiền tăng ca.
+Đơn tăng ca luôn có khung cố định **18:00–22:00**, nhân viên tự gửi đơn cho hôm nay hoặc ngày tương lai. Nếu Admin chưa kịp duyệt, đơn vẫn nằm chờ và nhân viên vẫn được quét; những lượt đó được giữ `OVERTIME_PENDING`, chưa được tính tiền. Khi duyệt, hệ thống mới tính cặp vào/ra hợp lệ; khi từ chối, raw scan vẫn giữ để tra cứu nhưng không tính giờ/tiền tăng ca.
 
 #### 3.6. Ca làm
 
@@ -619,7 +621,7 @@ Khi điều chỉnh, Admin nhập giờ theo `yyyy-MM-dd HH:mm` của `Asia/Ho_C
 | `Chỉnh sửa` | Chỉnh mẫu ca đã lưu. |
 | `Tạo bản tùy chỉnh` | Tạo bản mới từ snapshot ca tuần, không sửa ngược lịch sử đã phân. |
 | Chip loại ca | Chọn loại ca khi cấu hình mẫu; mẫu ca bổ sung không được gán trước vào lịch tuần. |
-| Checkbox `Ca này được tính tăng ca` | Đánh dấu thuộc tính tăng ca của mẫu ca; không thay thế quy trình đơn tăng ca cố định 17:30–20:30. |
+| Checkbox `Ca này được tính tăng ca` | Đánh dấu thuộc tính tăng ca của mẫu ca; không thay thế quy trình đơn tăng ca cố định 18:00–22:00. |
 | `Lưu ca` | Kiểm tra và lưu mẫu ca. |
 | `Hủy` | Đóng form ca. |
 
@@ -640,7 +642,7 @@ Khi điều chỉnh, Admin nhập giờ theo `yyyy-MM-dd HH:mm` của `Asia/Ho_C
 | `Lưu phân ca` | Ghi lịch theo transaction, mỗi nhân viên/ngày chỉ có một lịch; giữ các override/lý do đang có. |
 | `Hủy` | Đóng form mà không lưu. |
 
-Hạn nhắc lịch tuần là **17:00 Chủ nhật** theo giờ Việt Nam. Đây là cảnh báo nghiệp vụ, không khóa thao tác; Admin vẫn có thể cập nhật lịch sau thời hạn. Ca bổ sung không được phân sẵn trong lịch tuần, vì nhân viên phải gửi đơn và Admin duyệt trong `Đơn từ`.
+Quy trình lịch tuần hiện tại dùng hạn **12:00 thứ Bảy** cho nhân viên gửi và **17:00 thứ Bảy** cho Admin duyệt theo giờ Việt Nam. Hệ thống cảnh báo quá hạn nhưng không tự duyệt. Ca tăng ca 18:00–22:00 vẫn đi qua đơn riêng trong `Đơn từ`.
 
 #### 3.8. Thiết bị, Lương, Hiệu suất, Báo cáo và Nhật ký
 
@@ -673,7 +675,7 @@ Hạn nhắc lịch tuần là **17:00 Chủ nhật** theo giờ Việt Nam. Đ�
 | `Điều chỉnh chấm công` | `Lưu điều chỉnh` | Ghi một bản điều chỉnh mới và audit; không ghi đè hoặc xóa lịch sử điều chỉnh cũ. |
 | `Thêm ca`/`Chỉnh sửa ca` | Chip `Ca sáng`, `Ca chiều`, `Ca bổ sung` | Chọn loại ca. Khi đổi loại, tên ca được gợi ý lại nhưng Admin vẫn có thể sửa tên. |
 | `Thêm ca`/`Chỉnh sửa ca` | Các ô giờ và thời gian cho phép | Nhập giờ `HH:mm`, phút chấm sớm/đi trễ/về sớm, thời gian nghỉ và khoảng ngày áp dụng. |
-| `Thêm ca`/`Chỉnh sửa ca` | `Ca này được tính tăng ca` | Đánh dấu thuộc tính tăng ca của mẫu ca; không thay thế đơn tăng ca cố định 17:30–20:30. |
+| `Thêm ca`/`Chỉnh sửa ca` | `Ca này được tính tăng ca` | Đánh dấu thuộc tính tăng ca của mẫu ca; không thay thế đơn tăng ca cố định 18:00–22:00. |
 | `Thêm ca`/`Chỉnh sửa ca` | `Lưu ca` / `Hủy` | Kiểm tra và lưu mẫu ca hoặc đóng hộp thoại không lưu. Ca snapshot từ lịch tuần dùng `Tạo bản tùy chỉnh` để không sửa lịch sử. |
 | `Phân ca cho nhân viên` | Chip phòng ban, nhân viên, ngày trong tuần | Lọc và tích chọn nhanh nhiều nhân viên × nhiều ngày. Có thể bỏ các nhân viên không còn hợp lệ khỏi danh sách chọn. |
 | `Phân ca cho nhân viên` | Chip `Ca sáng` / `Ca chiều`, ô `Điều chỉnh giờ làm`, ô `Lý do điều chỉnh` | Chọn ca chính và tùy chọn ghi nhận số giờ override khi quên chấm/mất mạng. Ca tăng ca không được chọn sẵn ở đây. |
@@ -704,7 +706,7 @@ Hạn nhắc lịch tuần là **17:00 Chủ nhật** theo giờ Việt Nam. Đ�
 | `Tạo đơn` / `Đóng form` | Mở/đóng form tạo đơn thường. |
 | Chip loại đơn | Chọn nghỉ phép, đi muộn, về sớm, sửa chấm công, ngoài văn phòng hoặc đổi ca. |
 | `Gửi đơn` | Gửi đơn thường; lý do bắt buộc phải có. |
-| `Gửi đăng ký tăng ca` | Gửi một đơn tăng ca cho ngày hợp lệ từ hôm nay trở đi, khung 17:30–20:30. |
+| `Gửi đăng ký tăng ca` | Gửi một đơn tăng ca cho ngày hợp lệ từ hôm nay trở đi, khung 18:00–22:00. |
 | `Cá nhân` | Xem hồ sơ, mã nhân viên, phòng ban, email và trạng thái đăng ký vân tay. |
 | `Đổi mật khẩu` | Mở form đổi mật khẩu. |
 | `Đăng xuất` | Kết thúc phiên nhân viên. |
@@ -714,11 +716,11 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 ### 5. Luồng tính công, tăng ca và tiền thưởng
 
 1. Firmware chỉ gửi raw scan `SCAN/PENDING` kèm thời gian UTC; firmware không quyết định vào hay ra theo mốc 12 giờ.
-2. Cloud Function đọc lịch của ngày quét và ngày trước đó, dựng cửa sổ ca theo giờ bắt đầu/kết thúc và hỗ trợ ca qua ngày.
+2. Cloud Function tra lịch quanh ngày quét và dựng cửa sổ theo giờ bắt đầu/kết thúc; ca được phân phải nằm trọn trong cùng ngày.
 3. Lượt gần đầu ca được chọn làm `CHECK_IN`, lượt gần cuối ca được chọn làm `CHECK_OUT`; lượt kế tiếp khi phiên đang mở sẽ đóng phiên.
 4. Hai lượt trong vòng **3 phút** bị coi là quét trùng; lượt ngoài thứ tự, ngoài lịch hoặc không có cửa sổ hợp lệ được giữ lại với trạng thái bất thường để tra cứu.
 5. Nếu có chấm vào nhưng chưa chấm ra, hệ thống chỉ đánh dấu thiếu chấm ra sau cuối ca cộng grace mặc định 60 phút; không tự tạo giờ ra.
-6. Ca chính được tính theo cặp vào/ra hợp lệ và lịch đã phân. Ca tăng ca chỉ được tính khi đơn đã `APPROVED` và có cặp quét hợp lệ trong 17:30–20:30.
+6. Ca chính được tính theo cặp vào/ra hợp lệ và lịch đã phân. Ca tăng ca chỉ được tính khi đơn đã `APPROVED` và có cặp quét hợp lệ trong 18:00–22:00.
 7. Mỗi ca tăng ca hoàn thành cộng **50.000 đ**; nhân viên thuộc Top 3 số ca tăng ca và không đi muộn nhận thêm **500.000 đ/người**; mỗi lần đi muộn trừ **100.000 đ** khỏi khoản thưởng. Tổng thưởng không thấp hơn 0.
 8. Lương giờ được tính từ đơn giá × tổng giờ (gồm giờ tăng ca), sau đó cộng thưởng tự động và trừ khoản khấu trừ Admin nhập. Phiếu lương được lưu thành snapshot.
 
@@ -730,8 +732,8 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 | Hồ sơ nhân viên | `employees/{id}` | Chuyển nghỉ bằng `active = false`, không xóa lịch sử. |
 | Lệnh vân tay | `deviceCommands/{deviceId}` và `devices/{deviceId}` | Thiết bị cập nhật trạng thái lệnh/heartbeat. |
 | Raw/resolved attendance | `attendance/{eventId}` | Cùng một document được Cloud Function cập nhật in-place; client không được sửa/xóa. |
-| Phiên phân giải | `attendanceSessions/{employeeId}_{scheduleDate}` | Chỉ backend truy cập. |
-| Ca và lịch | `shifts/{id}`, `workSchedules/{employeeId}_{date}` | Lịch tuần chỉ chứa ca chính. |
+| Phiên phân giải | `attendanceSessions/{employeeId}_{scheduleDate}`; ngày nhiều ca có thêm `_shiftId` | Chỉ backend truy cập; mỗi ca có phiên riêng khi đăng ký nhiều ca/ngày. |
+| Ca và lịch | `shifts/{id}`, `workSchedules/{employeeId}_{date}`, `weeklyScheduleRequests/{employeeId}_{weekStart}` | Mỗi ngày có thể có một ca chính hoặc cả ca sáng và chiều; tăng ca được lưu riêng trong đơn. |
 | Đơn thường | `leaveRequests/{id}` | Duyệt/từ chối và lý do được ghi theo luồng review. |
 | Đơn tăng ca | `overtimeRequests/{employeeId}_{workDate}` | Một đơn/ngày; review đồng thời ghi audit. |
 | Điều chỉnh công | `attendanceAdjustments/{id}` | Append-only; lý do bắt buộc và có audit cặp. |
@@ -740,7 +742,9 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 
 ### 7. Kịch bản thao tác mẫu cho một tuần
 
-**Trước 17:00 Chủ nhật:** Admin vào `Phân ca → Lịch → Phân cho nhân viên`, tích chọn nhân viên và các ngày, chọn `Ca sáng` hoặc `Ca chiều`, rồi bấm `Lưu phân ca`.
+**Trước 12:00 thứ Bảy:** Nhân viên vào `Lịch làm việc`, chọn ca sáng, ca chiều hoặc cả hai cho từng ngày từ thứ Hai đến thứ Bảy của tuần sau. Có thể sao chép lịch tuần này, chỉnh đơn đang chờ rồi gửi.
+
+**Trước 17:00 thứ Bảy:** Admin vào `Phân ca → Lịch`, kiểm tra số người theo ca và danh sách chưa gửi, duyệt từng đơn hoặc hàng loạt. Nếu cần sửa, Admin ghi lý do; đơn quá hạn vẫn ở trạng thái chờ xử lý, không tự được duyệt. Admin vẫn có thể điều chỉnh lịch trực tiếp.
 
 **Trong tuần:** Nhân viên quét vân tay khi vào/ra. Nếu muốn làm thêm, nhân viên vào `Đơn từ → Gửi đăng ký tăng ca`; Admin vào `Đơn từ`, lọc đơn tăng ca và bấm `Duyệt` hoặc `Từ chối` kèm lý do.
 
@@ -821,8 +825,9 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi
 - `employees/{id}`: mã, họ tên, phòng ban, email, `fingerprintTemplateId`, trạng thái.
 - `attendance/{eventId}`: giữ nguyên định danh sự kiện, thiết bị, thời điểm quét NTP UTC và provenance raw scan; Cloud Function cập nhật in place kết quả phân giải theo ca (`CHECK_IN`/`CHECK_OUT`, `scheduleDate`, `resolutionStatus`) trên cùng document.
 - `attendanceSessions/{employeeId}_{scheduleDate}`: trạng thái phiên phân giải của backend, cấm client đọc/ghi.
+- `offScheduleReviews/{id}`: quyết định Admin duyệt/từ chối lượt ngoài lịch; client chỉ tạo yêu cầu, Cloud Function cập nhật kết quả, scan tương ứng và audit. Lỗi không thể xử lý được lưu `FAILED` cùng lý do ngắn để Admin xử lý lại.
 - `attendanceAdjustments/{id}`: điều chỉnh append-only theo nhân viên/ngày ca, lý do bắt buộc và audit `ATTENDANCE_ADJUST` cùng ID. Index truy vấn: `employeeId ASC`, `scheduleDate ASC`, `createdAt DESC`.
-- `overtimeRequests/{employeeId}_{workDate}`: đơn tăng ca một đơn/ngày, khung cố định 17:30–20:30, trạng thái `PENDING`/`APPROVED`/`REJECTED`, người duyệt và lý do từ chối.
+- `overtimeRequests/{employeeId}_{workDate}`: đơn tăng ca một đơn/ngày, khung cố định 18:00–22:00, trạng thái `PENDING`/`APPROVED`/`REJECTED`, người duyệt và lý do từ chối.
 - `payroll/{id}`: lương cơ bản đã tính theo giờ, đơn giá/giờ, số giờ làm, thưởng, khấu trừ theo kỳ.
 - `performanceReviews/{id}`: kỳ đánh giá, điểm, nhận xét.
 - `notifications/{id}`: thông báo nội bộ.
@@ -989,3 +994,21 @@ Chạy kiểm tra rules riêng bằng `node --test firebase/test/shiftRules.test
 - File đã sửa: `app/src/main/java/vn/chamcong/iot/data/FirebaseRepository.kt`, `app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt`, `app/src/main/java/vn/chamcong/iot/ui/ChamCongApp.kt`, `app/src/main/java/vn/chamcong/iot/model/AuditModels.kt`, `firebase/firestore.rules` và README này.
 - Cách sử dụng: Admin vào **Nhân viên → +**, nhập họ tên/email/phòng ban, tích **Tạo tài khoản đăng nhập**, nhập mật khẩu ít nhất 6 ký tự, rồi chọn **Chỉ lưu nhân viên** hoặc **Lưu & đăng ký vân tay**. Gửi email và mật khẩu cho nhân viên đăng nhập lần đầu; nhân viên có thể đổi mật khẩu sau khi đăng nhập.
 - Kiểm chứng sau cập nhật: 58 unit test, 0 failure, 0 error, 0 skipped; `:app:testDebugUnitTest` và `:app:assembleDebug` đều thành công.
+
+
+## Bổ sung theo yêu cầu trong noidung.txt (20/09/2026)
+
+- Admin có thể thêm, đổi tên, bật hoặc ngừng phòng ban; đổi tên phòng ban sẽ cập nhật hồ sơ nhân viên và ghi audit.
+- Hồ sơ nhân viên cho phép sửa tên, email, điện thoại, địa chỉ, phòng ban, chức vụ và ngày vào làm. Tài khoản nhân viên có màn lịch tuần/tháng, thông báo riêng, trạng thái vân tay và biểu mẫu xin hỗ trợ.
+- Đơn điều chỉnh công nhận giờ vào/ra đề xuất; đơn đổi ca chọn ca đang hoạt động. Đơn tăng ca bắt buộc có lý do. Admin có thể duyệt/từ chối các yêu cầu này; phê duyệt điều chỉnh công hoặc đổi ca ghi tác động vào dữ liệu liên quan và audit.
+- Màn chấm công Admin lọc theo ngày, nhân viên, phòng ban, trạng thái và loại lượt. Bảng công tháng tổng hợp giờ, ngày công, đi muộn/về sớm, ngày thiếu lượt và ngày nghỉ phép.
+- Bảng công tháng tách giờ thường và giờ tăng ca; Admin và nhân viên có thể mở chi tiết từng ngày/ca, gồm mốc quét gốc và mốc dùng để tính công sau quy tắc ân hạn.
+- Nhân viên đăng ký lịch tuần sau theo ca sáng/chiều, sao chép lịch tuần này và sửa đơn đang chờ; Admin xem số người theo ca, nhắc người chưa gửi, yêu cầu sửa có lý do, duyệt từng đơn hoặc hàng loạt. Lịch đã duyệt hỗ trợ hai ca chính trong cùng ngày và được tách phiên chấm công theo ca.
+- Admin có thể gửi thông báo toàn công ty hoặc theo phòng ban và xem lịch sử; nhân viên nhận thông báo cá nhân trong Trang chủ.
+- Phân lịch trực tiếp, phân lịch theo phòng ban hoặc sao chép tuần sẽ tạo thông báo riêng cho nhân viên; duyệt lịch tuần vẫn dùng thông báo kết quả duyệt.
+- Luồng đồng bộ IoT giữ sự kiện trên thiết bị ở PENDING_SYNC; Cloud Function chuyển sang SYNCED sau khi nhận xử lý. Snapshot thiết bị báo số lượt còn trong hàng đợi; app phân biệt lượt chờ đồng bộ với lượt đã lên hệ thống.
+- Firestore Rules yêu cầu hồ sơ users/{uid} đang hoạt động với role=ADMIN trước khi cấp quyền Admin. Tạo hồ sơ Admin đầu tiên bằng Firebase Console hoặc Admin SDK; tài khoản Email/Password chưa có hồ sơ không còn được xem dữ liệu Admin. Tài khoản nhân viên chỉ sửa được điện thoại/địa chỉ của hồ sơ liên kết; đơn phải chờ Admin xử lý.
+- Firestore Rules chặn ca mới dài hơn 4 giờ, lịch Chủ nhật và đơn tăng ca gửi từ 18:00 trở đi; các mục này được kiểm tra cả ở app lẫn Rules.
+- Sao lưu/khôi phục thủ công có trong `firebase/backup-firestore.ps1`. Cần tạo bucket Cloud Storage và cấp quyền `gcloud` trước khi chạy; xuất bằng `./firebase/backup-firestore.ps1 -ProjectId <project> -BucketName <bucket>`, khôi phục bằng cách thêm `-RestoreFrom gs://<bucket>/firestore-backups/<project>/<timestamp>`. Project chưa cấu hình sao lưu tự động.
+- Firmware đọc Wi-Fi từ `firmware/esp8266_fingerprint/secrets.h`; tạo file này bằng cách sao chép `secrets.h.example` rồi điền cấu hình cục bộ. File thật đã được thêm vào `.gitignore`.
+- Giới hạn cần giữ rõ: firmware vẫn dùng Firebase Anonymous Auth chung, Rules chưa gắn danh tính xác thực riêng với từng deviceId, nên anonymous client khác vẫn có thể giả thiết bị và truy cập mapping. Firmware cũng chưa xác thực chứng thư TLS; hàng đợi offline giới hạn 12 KB và chưa nhận lượt mới nếu chưa có thời gian NTP đáng tin cậy. Cần cấp danh tính riêng cho từng thiết bị và xoay thông tin Wi-Fi từng được lưu trong source trước khi dùng production.

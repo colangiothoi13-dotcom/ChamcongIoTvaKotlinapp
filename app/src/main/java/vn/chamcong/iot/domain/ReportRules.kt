@@ -55,32 +55,41 @@ fun attendanceReportRows(
             val date = row.scheduleDate ?: row.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate().toString()
             "${row.employeeId}_$date"
         }
-    val approvedLeaveKeys = approvedRequests
-        .filter { it.status == "APPROVED" && it.type == "LEAVE" }
-        .flatMap { request ->
-            val start = runCatching { LocalDate.parse(request.startDate, reportDateFormatter) }.getOrNull()
-            val end = runCatching { LocalDate.parse(request.endDate, reportDateFormatter) }.getOrNull()
-            if (start == null || end == null) emptyList() else selectedEmployees.filter { it.id == request.employeeId }.flatMap { employee ->
-                generateSequence(start) { date -> date.plusDays(1).takeIf { !it.isAfter(end) } }
-                    .filter { it in filter.startDate..filter.endDate }
-                    .map { "${employee.id}_$it" }
-                    .toList()
-            }
-        }
-        .toSet()
-
     return selectedEmployees.flatMap { employee ->
         generateSequence(filter.startDate) { date -> date.plusDays(1).takeIf { !it.isAfter(filter.endDate) } }
             .map { date ->
                 val key = "${employee.id}_$date"
                 val schedule = schedulesByKey[key]
-                val shift = schedule?.let { shiftsById[it.shiftId] }
+                val selectedShifts = schedule?.let { scheduledShifts(it, shiftsById) }.orEmpty()
+                val leaveRequestsForDay = approvedRequests.filter { request ->
+                    request.employeeId == employee.id && request.status == "APPROVED" && request.type == "LEAVE" &&
+                        runCatching { date in LocalDate.parse(request.startDate)..LocalDate.parse(request.endDate) }
+                            .getOrDefault(false)
+                }
+                val legacyLeave = leaveRequestsForDay.any { it.leaveShiftsByDate == null }
+                val leaveShiftIds = if (legacyLeave) selectedShifts.map { it.id }.toSet() else {
+                    leaveRequestsForDay.flatMap { it.leaveShiftsByDate?.get(date.toString()).orEmpty() }
+                        .filter { shiftId -> selectedShifts.any { it.id == shiftId } }.toSet()
+                }
+                val hasApprovedLeave = selectedShifts.isNotEmpty() && (legacyLeave || leaveShiftIds.isNotEmpty())
                 val rows = attendanceByKey[key].orEmpty()
-                    .filter { belongsToScheduleDate(it, date, shift, zoneId) }
+                    .filter { row ->
+                        if (selectedShifts.isEmpty()) belongsToScheduleDate(row, date, null, zoneId)
+                        else selectedShifts.any { shift -> belongsToScheduleDate(row, date, shift, zoneId) }
+                    }
                 val adjustment = latestAdjustment(adjustments, employee.id, date)
-                if (rows.isEmpty() && schedule == null && adjustment == null && key !in approvedLeaveKeys) return@map null
-                val summary = employeeDaySummary(
-                    employee.id, date, rows, schedule, shift, key in approvedLeaveKeys, zoneId, adjustments, now
+                if (rows.isEmpty() && schedule == null && adjustment == null && !hasApprovedLeave) return@map null
+                val summary = employeeDaySummaryForSchedule(
+                    employeeId = employee.id,
+                    date = date,
+                    attendance = rows,
+                    schedule = schedule,
+                    shifts = shifts,
+                    approvedLeave = legacyLeave && selectedShifts.isNotEmpty(),
+                    zoneId = zoneId,
+                    adjustments = adjustments,
+                    now = now,
+                    approvedLeaveShiftIds = leaveShiftIds
                 )
                 AttendanceReportRow(
                     date = date.toString(),

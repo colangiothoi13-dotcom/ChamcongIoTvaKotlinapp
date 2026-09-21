@@ -31,6 +31,7 @@ internal fun requestStatusLabel(status: String): String = when (status) {
     "PENDING" -> "Chờ duyệt"
     "APPROVED" -> "Đã duyệt"
     "REJECTED" -> "Từ chối"
+    "CANCELLED" -> "Đã hủy"
     else -> status
 }
 
@@ -41,6 +42,7 @@ internal fun requestTypeLabel(type: String): String = when (type) {
     "ATTENDANCE_ADJUSTMENT" -> "Sửa chấm công"
     "REMOTE" -> "Ngoài văn phòng"
     "SHIFT_CHANGE" -> "Đổi ca"
+    "FINGERPRINT_SUPPORT" -> "Hỗ trợ vân tay"
     else -> type
 }
 
@@ -55,9 +57,12 @@ internal fun auditActionLabel(action: String): String = when (action) {
     "ACCOUNT_CREATE" -> "Tạo tài khoản"
     "EMPLOYEE_CREATE" -> "Thêm nhân viên"
     "EMPLOYEE_UPDATE" -> "Cập nhật nhân viên"
+    "DEPARTMENT_UPDATE" -> "Cập nhật phòng ban"
+    "ANNOUNCEMENT_SEND" -> "Gửi thông báo"
     "FINGERPRINT_DELETE" -> "Xóa vân tay"
     "ATTENDANCE_ADJUST" -> "Điều chỉnh chấm công"
     "LEAVE_REVIEW" -> "Xử lý đơn từ"
+    "LEAVE_CANCEL" -> "Hủy đơn nghỉ phép"
     "OVERTIME_REVIEW" -> "Duyệt tăng ca"
     "SHIFT_UPDATE" -> "Cập nhật ca"
     "DEVICE_CONFIG_UPDATE" -> "Cập nhật thiết bị"

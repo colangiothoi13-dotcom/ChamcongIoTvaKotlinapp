@@ -38,8 +38,8 @@ test("buildSupplementarySchedule creates the fixed Asia/Ho_Chi_Minh window", () 
   const window = buildShiftWindow(candidate.scheduleDate, candidate.shift);
 
   assert.equal(SUPPLEMENTARY_SHIFT_ID, "SUPPLEMENTARY_1730_2030");
-  assert.equal(SUPPLEMENTARY_START_TIME, "17:30");
-  assert.equal(SUPPLEMENTARY_END_TIME, "20:30");
+  assert.equal(SUPPLEMENTARY_START_TIME, "18:00");
+  assert.equal(SUPPLEMENTARY_END_TIME, "22:00");
   assert.equal(candidate.shiftId, SUPPLEMENTARY_SHIFT_ID);
   assert.equal(candidate.overtimeRequestId, "request-1");
   assert.equal(window.startMs, at("2026-09-17T10:30:00Z"));

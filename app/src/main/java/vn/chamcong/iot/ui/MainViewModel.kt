@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import vn.chamcong.iot.domain.filterAttendance
 import vn.chamcong.iot.domain.filterEmployees
+import vn.chamcong.iot.domain.applyAttendanceClassificationOverrides
 import vn.chamcong.iot.domain.classifyPresenceForEmployees
 import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.summarizeDashboard
@@ -26,6 +27,7 @@ import vn.chamcong.iot.domain.summarizeWeeklyWork
 import vn.chamcong.iot.domain.canAccessAdmin
 import vn.chamcong.iot.domain.canAccessEmployee
 import vn.chamcong.iot.domain.employeeMonthSummaries as buildEmployeeMonthSummaries
+import vn.chamcong.iot.domain.employeeApprovedLeaveShifts
 import vn.chamcong.iot.domain.employeeRequestDraft
 import vn.chamcong.iot.domain.createOvertimeRequest
 import vn.chamcong.iot.domain.KpiBonusBreakdown
@@ -34,8 +36,11 @@ import vn.chamcong.iot.model.Payroll
 import vn.chamcong.iot.data.FirebaseRepository
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
+import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.model.DashboardSummary
 import vn.chamcong.iot.model.DeviceSnapshot
+import vn.chamcong.iot.model.Department
+import vn.chamcong.iot.model.Announcement
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.EmployeeDaySummary
 import vn.chamcong.iot.model.AppNotification
@@ -51,9 +56,12 @@ import vn.chamcong.iot.model.RequestStatus
 import vn.chamcong.iot.model.RequestType
 import vn.chamcong.iot.model.OvertimeRequest
 import vn.chamcong.iot.model.OvertimeRequestStatus
+import vn.chamcong.iot.model.OffScheduleAttendanceReview
 import vn.chamcong.iot.model.UserProfile
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
+import vn.chamcong.iot.model.WeeklyScheduleRequest
+import vn.chamcong.iot.model.WeeklyScheduleRequestStatus
 import vn.chamcong.iot.model.WeeklyWorkSummary
 import vn.chamcong.iot.work.AttendanceSyncWorker
 import java.time.LocalDate
@@ -67,14 +75,20 @@ data class MainUiState(
     val employees: List<Employee> = emptyList(),
     val attendance: List<Attendance> = emptyList(),
     val attendanceAdjustments: List<AttendanceAdjustment> = emptyList(),
+    val attendanceClassificationOverrides: List<AttendanceClassificationOverride> = emptyList(),
+    val offScheduleAttendanceReviews: List<OffScheduleAttendanceReview> = emptyList(),
     val payroll: List<Payroll> = emptyList(),
     val employeePayroll: List<Payroll> = emptyList(),
     val commands: List<Map<String, Any>> = emptyList(),
     val devices: List<DeviceSnapshot> = emptyList(),
+    val departments: List<Department> = emptyList(),
+    val announcements: List<Announcement> = emptyList(),
     val selectedWeekStart: LocalDate = mondayOfWeek(LocalDate.now()),
     val selectedPresenceDate: LocalDate = LocalDate.now(),
     val shifts: List<WorkShift> = emptyList(),
     val schedules: List<WorkSchedule> = emptyList(),
+    val weeklyScheduleRequests: List<WeeklyScheduleRequest> = emptyList(),
+    val employeeWeeklyScheduleRequest: WeeklyScheduleRequest? = null,
     val leaveRequests: List<LeaveRequest> = emptyList(),
     val overtimeRequests: List<OvertimeRequest> = emptyList(),
     val notifications: List<AppNotification> = emptyList(),
@@ -85,27 +99,51 @@ data class MainUiState(
     val employeeSchedules: List<WorkSchedule> = emptyList(),
     val employeeRequests: List<LeaveRequest> = emptyList(),
     val employeeOvertimeRequests: List<OvertimeRequest> = emptyList(),
+    val employeeNotifications: List<AppNotification> = emptyList(),
     val selectedRequestFilter: String? = null,
+    val selectedAdminTimesheetMonth: YearMonth = YearMonth.now(),
     val employeeQuery: String = "",
     val departmentFilter: String? = null,
     val showRetired: Boolean = false,
     val attendanceStatusFilter: String? = null,
     val attendanceTypeFilter: String? = null,
+    val attendanceDateFilter: String = "",
+    val attendanceEmployeeFilter: String? = null,
+    val attendanceDepartmentFilter: String? = null,
     val saving: Boolean = false,
     val message: String? = null,
     val error: String? = null
 ) {
+    val employeeAttendanceForSummaries: List<Attendance>
+        get() = applyAttendanceClassificationOverrides(employeeAttendance, attendanceClassificationOverrides)
+    val attendanceForSummaries: List<Attendance>
+        get() = applyAttendanceClassificationOverrides(attendance, attendanceClassificationOverrides)
+
     // Derived on every state snapshot, including schedule, shift and adjustment emissions.
     val dashboard: DashboardSummary
-        get() = summarizeDashboard(employees, attendance, selectedWeekStart,
+        get() = summarizeDashboard(employees, attendanceForSummaries, selectedWeekStart,
             schedules = schedules, shifts = shifts, adjustments = attendanceAdjustments)
 
     val visibleEmployees: List<Employee>
         get() = filterEmployees(employees, employeeQuery, departmentFilter, showRetired)
 
     val visibleAttendance: List<Attendance>
-        get() = filterAttendance(attendance, attendanceStatusFilter, attendanceTypeFilter,
-            schedules, shifts, attendanceAdjustments)
+        get() {
+            val byEmployee = employees.associateBy(Employee::id)
+            val selectedDate = runCatching { LocalDate.parse(attendanceDateFilter.trim()) }.getOrNull()
+            if (attendanceDateFilter.isNotBlank() && selectedDate == null) return emptyList()
+            return filterAttendance(attendance, attendanceStatusFilter, attendanceTypeFilter,
+                schedules, shifts, attendanceAdjustments)
+                .filter { row -> attendanceEmployeeFilter.isNullOrBlank() || row.employeeId == attendanceEmployeeFilter }
+                .filter { row -> attendanceDepartmentFilter.isNullOrBlank() || byEmployee[row.employeeId]?.department == attendanceDepartmentFilter }
+                .filter { row ->
+                    selectedDate == null || runCatching {
+                        val date = row.scheduleDate ?: row.timestamp.toDate().toInstant()
+                            .atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toLocalDate().toString()
+                        LocalDate.parse(date)
+                    }.getOrNull() == selectedDate
+                }
+        }
 
     val visibleLeaveRequests: List<LeaveRequest>
         get() = leaveRequests.filter { selectedRequestFilter.isNullOrBlank() || it.status == selectedRequestFilter }
@@ -113,7 +151,7 @@ data class MainUiState(
     val presenceRecords: List<PresenceRecord>
         get() = classifyPresenceForEmployees(
             employees = employees,
-            attendance = attendance,
+            attendance = attendanceForSummaries,
             requests = leaveRequests,
             date = selectedPresenceDate,
             zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
@@ -125,13 +163,14 @@ data class MainUiState(
     val weeklyWorkSummary: WeeklyWorkSummary
         get() = summarizeWeeklyWork(
             employees = employees,
-            attendance = attendance,
+            attendance = attendanceForSummaries,
             schedules = schedules,
             shifts = shifts.associateBy { it.id },
             approvedRequests = leaveRequests,
             weekStart = selectedWeekStart,
             zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
-            adjustments = attendanceAdjustments
+            adjustments = attendanceAdjustments,
+            overtimeRequests = (overtimeRequests + employeeOvertimeRequests).distinctBy { it.id }
         )
 }
 
@@ -176,7 +215,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         cancelDataSubscriptions()
                         subscriptionMode = "BLOCKED"
                     }
-                } else subscribeAdmin()
+                } else if (canAccessAdmin("password", profile)) subscribeAdmin()
+                else {
+                    cancelDataSubscriptions()
+                    subscriptionMode = "BLOCKED"
+                }
             }
         }
     }
@@ -188,11 +231,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         scheduleSubscription = null
         _state.update {
             it.copy(
+                employees = emptyList(),
+                attendance = emptyList(),
                 attendanceAdjustments = emptyList(),
+                attendanceClassificationOverrides = emptyList(),
+                offScheduleAttendanceReviews = emptyList(),
                 payroll = emptyList(),
                 employeePayroll = emptyList(),
+                commands = emptyList(),
+                devices = emptyList(),
+                departments = emptyList(),
+                announcements = emptyList(),
+                shifts = emptyList(),
+                schedules = emptyList(),
+                weeklyScheduleRequests = emptyList(),
+                employeeWeeklyScheduleRequest = null,
+                leaveRequests = emptyList(),
                 overtimeRequests = emptyList(),
-                employeeOvertimeRequests = emptyList()
+                notifications = emptyList(),
+                auditLogs = emptyList(),
+                currentEmployee = null,
+                employeeAttendance = emptyList(),
+                employeeSchedules = emptyList(),
+                employeeRequests = emptyList(),
+                employeeOvertimeRequests = emptyList(),
+                employeeNotifications = emptyList()
             )
         }
     }
@@ -207,6 +270,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         dataSubscriptions += viewModelScope.launch {
+            repository.observeAttendanceClassificationOverrides().catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(attendanceClassificationOverrides = rows) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeOffScheduleAttendanceReviews().catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(offScheduleAttendanceReviews = rows) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
             repository.observePayroll().catch { e -> setError(e) }.collect { rows ->
                 _state.update { it.copy(payroll=rows) }
             }
@@ -214,6 +287,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dataSubscriptions += viewModelScope.launch {
             repository.observeEmployees().catch { e -> setError(e) }.collect { employees ->
                 _state.update { it.copy(employees = employees) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeDepartments().catch { e -> setError(e) }.collect { departments ->
+                _state.update { it.copy(departments = departments) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeAnnouncements().catch { e -> setError(e) }.collect { announcements ->
+                _state.update { it.copy(announcements = announcements) }
             }
         }
         dataSubscriptions += viewModelScope.launch {
@@ -246,6 +329,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         dataSubscriptions += viewModelScope.launch {
+            repository.observeWeeklyScheduleRequests().catch { e -> setError(e) }.collect { requests ->
+                _state.update { it.copy(weeklyScheduleRequests = requests) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
             repository.observeOvertimeRequests().catch { e -> setError(e) }.collect { requests ->
                 _state.update { it.copy(overtimeRequests = requests) }
             }
@@ -274,9 +362,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 currentEmployee = null,
                 employeeAttendance = emptyList(),
                 employeeSchedules = emptyList(),
+                employeeWeeklyScheduleRequest = null,
                 employeePayroll = emptyList(),
                 employeeRequests = emptyList(),
-                employeeOvertimeRequests = emptyList()
+                employeeOvertimeRequests = emptyList(),
+                employeeNotifications = emptyList()
             )
         }
         if (employeeId.isBlank()) return
@@ -284,6 +374,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.observeEmployeeAttendanceAdjustments(employeeId).catch { e -> setError(e) }.collect { rows ->
                 _state.update { it.copy(attendanceAdjustments = rows) }
             }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeeAttendanceClassificationOverrides(employeeId)
+                .catch { e -> setError(e) }
+                .collect { rows -> _state.update { it.copy(attendanceClassificationOverrides = rows) } }
         }
         dataSubscriptions += viewModelScope.launch {
             repository.observeEmployee(employeeId).catch { e -> setError(e) }.collect { employee ->
@@ -305,6 +400,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(employeeSchedules = rows) }
             }
         }
+        val requestedWeekStart = mondayOfWeek(LocalDate.now(zoneId)).plusWeeks(1).toString()
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeeWeeklyScheduleRequest(employeeId, requestedWeekStart)
+                .catch { e -> setError(e) }
+                .collect { request -> _state.update { it.copy(employeeWeeklyScheduleRequest = request) } }
+        }
         dataSubscriptions += viewModelScope.launch {
             repository.observeShifts().catch { e -> setError(e) }.collect { shifts ->
                 _state.update { it.copy(shifts = shifts) }
@@ -318,6 +419,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dataSubscriptions += viewModelScope.launch {
             repository.observeEmployeeOvertimeRequests(employeeId).catch { e -> setError(e) }.collect { rows ->
                 _state.update { it.copy(employeeOvertimeRequests = rows) }
+            }
+        }
+        dataSubscriptions += viewModelScope.launch {
+            repository.observeEmployeeNotifications(employeeId).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(employeeNotifications = rows) }
             }
         }
     }
@@ -345,6 +451,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun adjustAttendance(adjustment: AttendanceAdjustment, done: () -> Unit) = perform(done) {
         repository.saveAttendanceAdjustment(adjustment)
         "Đã lưu điều chỉnh chấm công"
+    }
+    fun correctAttendanceClassification(
+        correction: AttendanceClassificationOverride,
+        done: () -> Unit
+    ) = perform(done) {
+        repository.saveAttendanceClassificationOverride(correction)
+        "Đã lưu phân loại lượt chấm; dữ liệu gốc được giữ nguyên"
+    }
+    fun reviewOffScheduleAttendance(
+        employeeId: String,
+        employeeName: String,
+        scheduleDate: String,
+        shiftId: String,
+        decision: String,
+        reason: String,
+        done: () -> Unit = {}
+    ) = perform(done) {
+        val shift = _state.value.shifts.firstOrNull { it.id == shiftId }
+            ?: error("Không tìm thấy ca được chọn")
+        repository.submitOffScheduleAttendanceReview(
+            employeeId, employeeName, scheduleDate, shift, decision, reason
+        )
+        if (decision == "APPROVE") "Đã gửi duyệt lượt chấm ngoài lịch; chờ hệ thống cập nhật"
+        else "Đã gửi từ chối lượt chấm ngoài lịch"
     }
     fun saveEmployee(employee: Employee, account: EmployeeAccountInput? = null, done: () -> Unit) = perform(done) {
         val code = repository.saveEmployee(employee, account)
@@ -393,15 +523,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val created = repository.copyPreviousWeek(target.minusWeeks(1).toString(), target.toString(), repository.currentUserId)
         "Đã sao chép $created lịch từ tuần trước"
     }
+    fun submitWeeklySchedule(shiftsByDate: Map<String, List<String>>, note: String = "", done: () -> Unit = {}) = perform(done) {
+        val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
+        val weekStart = mondayOfWeek(LocalDate.now(zoneId)).plusWeeks(1)
+        val currentShifts = _state.value.shifts.associateBy(WorkShift::id)
+        val orderedShiftsByDate = shiftsByDate.mapValues { (_, ids) ->
+            ids.distinct().sortedBy { currentShifts[it]?.startTime ?: it }
+        }
+        repository.submitWeeklyScheduleRequest(
+            WeeklyScheduleRequest(
+                employeeId = employee.id,
+                employeeName = employee.fullName,
+                department = employee.department,
+                weekStart = weekStart.toString(),
+                shiftsByDate = orderedShiftsByDate,
+                reason = note.trim()
+            )
+        )
+        "Đã gửi đăng ký tuần bắt đầu $weekStart, đang chờ Admin duyệt"
+    }
+    fun reviewWeeklyScheduleRequest(
+        requestId: String,
+        status: WeeklyScheduleRequestStatus,
+        reviewNote: String,
+        done: () -> Unit = {}
+    ) = perform(done) {
+        repository.reviewWeeklyScheduleRequest(requestId, status, reviewNote)
+        if (status == WeeklyScheduleRequestStatus.APPROVED) "Đã duyệt đăng ký lịch tuần" else "Đã yêu cầu nhân viên chỉnh sửa lịch tuần"
+    }
+    fun approveWeeklySchedulesForWeek(weekStart: String, done: () -> Unit = {}) = perform(done) {
+        val pending = _state.value.weeklyScheduleRequests.filter {
+            it.weekStart == weekStart && it.status == WeeklyScheduleRequestStatus.PENDING
+        }
+        require(pending.isNotEmpty()) { "Không có đăng ký đang chờ duyệt trong tuần này" }
+        pending.forEach { request ->
+            repository.reviewWeeklyScheduleRequest(
+                request.id,
+                WeeklyScheduleRequestStatus.APPROVED,
+                ""
+            )
+        }
+        "Đã duyệt ${pending.size} đăng ký lịch tuần"
+    }
     fun reviewRequest(requestId: String, status: RequestStatus, note: String, done: () -> Unit) = perform(done) {
         repository.reviewLeaveRequest(requestId, status, repository.currentUserId, repository.currentUserName, note)
         if (status == RequestStatus.APPROVED) "Đã duyệt đơn" else "Đã từ chối đơn"
     }
-    fun submitOvertimeRequest(workDate: String, done: () -> Unit) = perform(done) {
+    fun submitOvertimeRequest(workDate: String, reason: String, done: () -> Unit) = perform(done) {
         val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
         val date = runCatching { LocalDate.parse(workDate.trim()) }
             .getOrElse { error("Ngày tăng ca không hợp lệ") }
-        repository.submitOvertimeRequest(createOvertimeRequest(employee, date))
+        repository.submitOvertimeRequest(createOvertimeRequest(employee, date, reason))
         "Đã gửi đơn tăng ca, đang chờ Admin duyệt"
     }
     fun reviewOvertimeRequest(
@@ -425,14 +597,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.updateDeviceConfiguration(deviceId, name, location)
         "Đã lưu cấu hình thiết bị"
     }
-    fun submitEmployeeRequest(type: RequestType, startDate: String, endDate: String, reason: String, done: () -> Unit = {}) = perform(done) {
+    fun submitEmployeeRequest(
+        type: RequestType,
+        startDate: String,
+        endDate: String,
+        reason: String,
+        proposedCheckIn: String? = null,
+        proposedCheckOut: String? = null,
+        requestedShiftId: String? = null,
+        requestedShiftName: String? = null,
+        leaveShiftsByDate: Map<String, List<String>>? = null,
+        done: () -> Unit = {}
+    ) = perform(done) {
         val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
-        val request = employeeRequestDraft(employee, type, startDate, endDate, reason)
+        val shiftName = requestedShiftName ?: _state.value.shifts.firstOrNull { it.id == requestedShiftId }?.name
+        val request = employeeRequestDraft(
+            employee, type, startDate, endDate, reason,
+            proposedCheckIn, proposedCheckOut, requestedShiftId, shiftName, leaveShiftsByDate
+        )
         repository.submitEmployeeRequest(request)
         "Đã gửi đơn, đang chờ Admin duyệt"
     }
+    fun cancelEmployeeLeaveRequest(requestId: String, done: () -> Unit = {}) = perform(done) {
+        val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
+        repository.cancelEmployeeLeaveRequest(requestId, employee.id)
+        "Đã hủy đơn nghỉ phép đang chờ duyệt"
+    }
     fun markNotificationRead(notificationId: String) = viewModelScope.launch {
         runCatching { repository.markNotificationRead(notificationId) }.onFailure(::setError)
+    }
+    fun markEmployeeNotificationRead(notificationId: String) = viewModelScope.launch {
+        runCatching { repository.markNotificationRead(notificationId) }.onFailure(::setError)
+    }
+    fun updateEmployeeContact(phone: String, address: String, done: () -> Unit = {}) = perform(done) {
+        val employee = _state.value.currentEmployee ?: error("Ch\u01b0a t\u1ea3i \u0111\u01b0\u1ee3c h\u1ed3 s\u01a1 nh\u00e2n vi\u00ean")
+        repository.updateEmployeeContact(employee.id, phone, address)
+        "\u0110\u00e3 c\u1eadp nh\u1eadt th\u00f4ng tin li\u00ean h\u1ec7"
+    }
+    fun submitFingerprintSupportRequest(reason: String, done: () -> Unit = {}) {
+        val today = LocalDate.now(zoneId).toString()
+        submitEmployeeRequest(RequestType.FINGERPRINT_SUPPORT, today, today, reason, done = done)
+    }
+    fun saveDepartment(departmentId: String?, name: String, done: () -> Unit = {}) = perform(done) {
+        repository.saveDepartment(departmentId, name)
+        "\u0110\u00e3 l\u01b0u ph\u00f2ng ban"
+    }
+    fun setDepartmentActive(departmentId: String, active: Boolean, done: () -> Unit = {}) = perform(done) {
+        repository.setDepartmentActive(departmentId, active)
+        if (active) "\u0110\u00e3 k\u00edch ho\u1ea1t ph\u00f2ng ban" else "\u0110\u00e3 ng\u1eebng ph\u00f2ng ban"
+    }
+    fun sendAnnouncement(targetDepartment: String?, title: String, body: String, done: () -> Unit = {}) = perform(done) {
+        val count = repository.sendAnnouncement(targetDepartment, title, body)
+        "\u0110\u00e3 g\u1eedi th\u00f4ng b\u00e1o cho $count nh\u00e2n vi\u00ean"
     }
     fun setEmployeeQuery(value: String) = _state.update { it.copy(employeeQuery = value) }
     fun setDepartmentFilter(value: String?) = _state.update { it.copy(departmentFilter = value?.takeIf(String::isNotBlank)) }
@@ -442,6 +658,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             attendanceStatusFilter = status?.takeIf(String::isNotBlank),
             attendanceTypeFilter = type?.takeIf(String::isNotBlank)
         )
+    }
+    fun setAttendanceDateFilter(value: String) = _state.update { it.copy(attendanceDateFilter = value) }
+    fun setAttendanceEmployeeFilter(value: String?) = _state.update { it.copy(attendanceEmployeeFilter = value?.takeIf(String::isNotBlank)) }
+    fun setAttendanceDepartmentFilter(value: String?) = _state.update { it.copy(attendanceDepartmentFilter = value?.takeIf(String::isNotBlank)) }
+    fun moveAdminTimesheetMonth(delta: Long) = _state.update {
+        it.copy(selectedAdminTimesheetMonth = it.selectedAdminTimesheetMonth.plusMonths(delta))
     }
     fun selectWeek(value: LocalDate) {
         val monday = mondayOfWeek(value)
@@ -468,7 +690,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun employeeMonthSummaries(month: LocalDate = LocalDate.now()): List<EmployeeDaySummary> {
         val employee = _state.value.currentEmployee ?: return emptyList()
         val approvedLeaveDates = _state.value.employeeRequests
-            .filter { it.status == RequestStatus.APPROVED.name && it.type == RequestType.LEAVE.name }
+            .filter { it.status == RequestStatus.APPROVED.name && it.type == RequestType.LEAVE.name && it.leaveShiftsByDate == null }
             .flatMap { request ->
                 val start = runCatching { LocalDate.parse(request.startDate) }.getOrNull()
                 val end = runCatching { LocalDate.parse(request.endDate) }.getOrNull()
@@ -478,22 +700,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }.toList()
             }
             .toSet()
+        val approvedLeaveShifts = employeeApprovedLeaveShifts(
+            employee.id, _state.value.employeeSchedules, _state.value.shifts, _state.value.employeeRequests
+        )
         return buildEmployeeMonthSummaries(
             employeeId = employee.id,
             month = month,
-            attendance = _state.value.employeeAttendance,
+            attendance = _state.value.employeeAttendanceForSummaries,
             schedules = _state.value.employeeSchedules,
             shifts = _state.value.shifts,
             approvedLeaveDates = approvedLeaveDates,
+            approvedLeaveShiftsByDate = approvedLeaveShifts,
             zoneId = zoneId,
-            adjustments = _state.value.attendanceAdjustments
+            adjustments = _state.value.attendanceAdjustments,
+            overtimeRequests = _state.value.employeeOvertimeRequests
+        )
+    }
+
+    fun employeeMonthSummaries(employeeId: String, month: YearMonth): List<EmployeeDaySummary> {
+        val current = _state.value
+        val leaveDates = current.leaveRequests
+            .asSequence()
+            .filter { it.employeeId == employeeId && it.status == RequestStatus.APPROVED.name && it.type == RequestType.LEAVE.name && it.leaveShiftsByDate == null }
+            .flatMap { request ->
+                val start = runCatching { LocalDate.parse(request.startDate) }.getOrNull()
+                val end = runCatching { LocalDate.parse(request.endDate) }.getOrNull()
+                if (start == null || end == null || end.isBefore(start)) emptySequence()
+                else generateSequence(start) { date -> date.plusDays(1).takeUnless { it.isAfter(end) } }
+            }
+            .filter { YearMonth.from(it) == month }
+            .toSet()
+        val approvedLeaveShifts = employeeApprovedLeaveShifts(
+            employeeId, current.schedules, current.shifts, current.leaveRequests
+        )
+        return buildEmployeeMonthSummaries(
+            employeeId = employeeId,
+            month = month.atDay(1),
+            attendance = current.attendanceForSummaries,
+            schedules = current.schedules,
+            shifts = current.shifts,
+            approvedLeaveDates = leaveDates,
+            approvedLeaveShiftsByDate = approvedLeaveShifts,
+            zoneId = zoneId,
+            adjustments = current.attendanceAdjustments,
+            overtimeRequests = current.overtimeRequests
         )
     }
 
     fun reportAttendanceRows(filter: ReportFilter): List<AttendanceReportRow> = vn.chamcong.iot.domain.attendanceReportRows(
         filter = filter,
         employees = _state.value.employees,
-        attendance = _state.value.attendance,
+        attendance = _state.value.attendanceForSummaries,
         schedules = _state.value.schedules,
         shifts = _state.value.shifts,
         approvedRequests = _state.value.leaveRequests,
@@ -506,7 +763,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return calculateMonthlyKpiBonuses(
             employees = current.employees,
             month = month,
-            attendance = current.attendance,
+            attendance = current.attendanceForSummaries,
             schedules = current.schedules,
             shifts = current.shifts,
             overtimeRequests = current.overtimeRequests,
