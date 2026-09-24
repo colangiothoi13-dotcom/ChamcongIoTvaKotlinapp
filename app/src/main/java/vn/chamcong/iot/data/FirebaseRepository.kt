@@ -1536,6 +1536,42 @@ class FirebaseRepository(
         ))
     }
 
+    suspend fun requestDeviceCommand(deviceId: String, type: DeviceCommandType): String {
+        require(deviceId.isNotBlank() && !deviceId.contains('/')) { "Mã thiết bị không hợp lệ" }
+        val requestId = UUID.randomUUID().toString()
+        val commandRef = db.collection("deviceCommands").document(deviceId)
+        val deviceRef = db.collection("devices").document(deviceId)
+        val auditRef = db.collection("audit_logs").document()
+        db.runTransaction { tx ->
+            val device = tx.get(deviceRef)
+            require(device.exists()) { "Không tìm thấy thiết bị" }
+            require(device.getString("deviceId").orEmpty().ifBlank { deviceId } == deviceId) {
+                "Thiết bị không khớp mã đăng ký"
+            }
+            requireFreeCommand(tx.get(commandRef))
+            tx.set(commandRef, mapOf(
+                "requestId" to requestId,
+                "type" to type.name,
+                "deviceId" to deviceId,
+                "status" to "REQUESTED",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "message" to "",
+                "applied" to true
+            ))
+            val audit = AuditLog(
+                actorId = currentUserId,
+                actorName = currentUserName,
+                action = AuditAction.DEVICE_COMMAND.name,
+                targetType = "deviceCommand",
+                targetId = requestId,
+                details = "Gửi lệnh ${type.name} cho thiết bị $deviceId"
+            )
+            validateAuditLog(audit)
+            tx.set(auditRef, audit.toFirestoreData())
+        }.await()
+        return requestId
+    }
+
     suspend fun saveEmployee(employee: Employee, account: EmployeeAccountInput? = null): String {
         account?.let(::validateEmployeeAccountInput)
         val result = saveEmployeeInternal(employee, null)

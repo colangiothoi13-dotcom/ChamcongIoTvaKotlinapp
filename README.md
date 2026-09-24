@@ -124,10 +124,12 @@ và ô giao giữa nhân viên/ngày trên lịch cũng là vùng có thể bấ
 | `Đổi mật khẩu` → `Lưu` | Đổi mật khẩu hiện tại nếu đủ 6 ký tự và nhập lại trùng nhau. |
 | `Đăng xuất` | Kết thúc phiên và quay về màn hình đăng nhập. |
 | `Tổng quan` | Xem thống kê tuần, thiết bị, cảnh báo, thông báo và lượt chấm mới. |
-| `Tác vụ` | Mở danh mục nhanh: Chấm công, Thiết bị, Có mặt, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Nhật ký, Cài đặt. |
+| `Tác vụ` | Mở danh mục nhanh: Có mặt, Phân ca, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Nhật ký, Phòng ban, Thông báo, Cài đặt. |
 | `Đơn từ` | Admin duyệt đơn; Nhân viên tạo và xem đơn của mình. |
 | `Phân ca` | Mở Quản lý ca làm hoặc Lịch phân ca. |
 | `Nhân viên` | Thêm, tìm kiếm, lọc, thiết lập lương và quản lý vân tay. |
+| `Chấm công` | Xem và lọc lịch sử chấm công, duyệt lượt ngoài lịch và điều chỉnh công. |
+| `Thiết bị` | Theo dõi heartbeat, sức khỏe, hàng đợi và gửi lệnh điều khiển. |
 
 ### Nút nghiệp vụ Admin
 
@@ -559,8 +561,6 @@ Các dòng trong `Tác vụ` và các card trong `Phân ca` đều có thể b�
 
 | Mục | Chức năng |
 | --- | --- |
-| `Chấm công` | Xem lịch sử lượt vào/ra, lọc trạng thái/loại lượt, duyệt/từ chối lượt ngoài lịch và điều chỉnh công. |
-| `Thiết bị` | Xem tín hiệu cuối, phiên bản phần mềm, trạng thái hoạt động/mất kết nối, số mẫu vân tay và lệnh gần đây. |
 | `Có mặt` | Xem ai đã vào, chưa đến, đang nghỉ, đã ra, chưa chấm ra hoặc bất thường theo ngày. |
 | `Ca làm` | Tạo và quản lý các mẫu ca chính; xem ca sáng 08:00–12:00, ca chiều 13:00–17:00 và cấu hình ca tùy chỉnh. Tăng ca 18:00–22:00 không phân trước ở màn hình này. |
 | `Lịch` | Phân ca cho từng nhân viên, nhiều nhân viên hoặc phòng ban theo tuần/tháng. |
@@ -831,7 +831,7 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi
 - `payroll/{id}`: lương cơ bản đã tính theo giờ, đơn giá/giờ, số giờ làm, thưởng, khấu trừ theo kỳ.
 - `performanceReviews/{id}`: kỳ đánh giá, điểm, nhận xét.
 - `notifications/{id}`: thông báo nội bộ.
-- `devices/{id}`: snapshot heartbeat, trạng thái, firmware, số mẫu và capability thiết bị (không lưu plaintext secret).
+- `devices/{id}`: snapshot heartbeat, trạng thái, firmware, số mẫu, capability và sức khỏe thiết bị (`wifiStatus`, `firebaseSyncStatus`, `sensorStatus`, `failedScanCount`, `lastError`) (không lưu plaintext secret).
 - `users/{uid}`: email, displayName, role `ADMIN`/`EMPLOYEE`, trạng thái active; tài khoản Nhân viên có thêm `employeeId` để liên kết đúng hồ sơ.
 - `departments/{id}`: phòng ban do admin quản lý.
 - `settings/{id}`: cấu hình dùng chung do admin quản lý.
@@ -840,6 +840,19 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi
 ## 12. Phần tiếp theo nên làm
 
 MVP đã có đăng nhập, dashboard, danh sách/thêm nhân viên, feed chấm công realtime, mô hình lương–hiệu suất, FCM và firmware nhận dạng/gửi kết quả. Các module ca/lịch, báo cáo, audit, bảo mật role, offline outbox và KPI tăng ca/đi muộn đã được bổ sung. Phần còn có thể mở rộng là tích hợp email/Zalo, tự động gửi báo cáo cuối tháng và hoàn thiện khu cấu hình doanh nghiệp trong `Cài đặt`.
+
+## Cập nhật MVP Gap Closure (22/09/2026)
+
+Các mục MVP đã duyệt trong đặc tả [`2026-09-21-mvp-gap-closure-design.md`](docs/superpowers/specs/2026-09-21-mvp-gap-closure-design.md) và kế hoạch [`2026-09-21-mvp-gap-closure.md`](docs/superpowers/plans/2026-09-21-mvp-gap-closure.md) đã được nối vào ứng dụng:
+
+- Admin có thanh chính **Tổng quan → Chấm công → Nhân viên → Đơn từ → Thiết bị**. Các mục ca, lịch, lương, báo cáo, hiệu suất, nhật ký và cài đặt vẫn mở được từ **Tác vụ**. Nhân viên giữ **Trang chủ → Chấm công của tôi → Đơn từ → Cá nhân**, còn lịch làm và bảng lương nằm trong menu cá nhân.
+- Dashboard Admin có bảy số liệu trong ngày theo `Asia/Ho_Chi_Minh`: nhân viên đang hoạt động, đã chấm vào, chưa chấm vào, đi trễ, đang có mặt, nghỉ phép được duyệt và thiếu lượt chấm ra. Việc tính vẫn theo lịch/ca, ca qua đêm, đơn nghỉ và điều chỉnh công hiện có.
+- Màn Chấm công có bộ lọc **Hôm nay, Hôm qua, Tuần này, Tháng này, Ngày cụ thể** và **Khoảng tùy chọn**. Ngày đầu/cuối đều được tính; lượt đã có `scheduleDate` dùng ngày ca, lượt chưa phân giải dùng ngày sự kiện theo giờ Việt Nam.
+- Màn Thiết bị hiển thị heartbeat, phiên bản, số mẫu/sức chứa, lượt chấm mới nhất, hàng đợi chưa đồng bộ và sức khỏe Wi-Fi/Firebase/cảm biến. Admin có thể kiểm tra LED xanh, LED đỏ, còi, đồng bộ hàng đợi hoặc khởi động lại; lệnh bị khóa khi thiết bị offline hoặc còn lệnh khác và khởi động lại cần xác nhận.
+- Firmware dùng đúng phần cứng đã lắp: ESP8266, AS608, LCD, LED xanh D1, LED đỏ D2 và còi D7. LCD hiển thị giờ Việt Nam từ NTP khi rảnh; Firebase vẫn lưu thời điểm UTC và thiết bị không giữ được giờ sau khi mất điện rồi khởi động lạnh cho tới khi đồng bộ NTP lại. Không có nút VÀO/RA riêng và firmware không tự đoán chiều chấm công theo giờ.
+- Heartbeat dùng `updateMask` chỉ cho các trường do firmware quản lý, nên không ghi đè tên/vị trí do Admin đặt. Lệnh và trường sức khỏe được giới hạn đồng nhất ở Android, Firestore Rules và firmware.
+
+Lần bàn giao này chỉ rà soát thủ công mã nguồn và giao thức; chưa chạy build/test tự động hoặc nạp firmware. Sau khi cập nhật Rules, firmware và app, cần kiểm tra trực tiếp trên phần cứng đã lắp để xác nhận LCD, LED, còi, AS608 và luồng lệnh Firebase.
 
 ## Phụ lục A. Thiết kế MVVM và nhật ký file
 

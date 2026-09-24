@@ -23,6 +23,10 @@ import vn.chamcong.iot.domain.applyAttendanceClassificationOverrides
 import vn.chamcong.iot.domain.classifyPresenceForEmployees
 import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.summarizeDashboard
+import vn.chamcong.iot.domain.summarizeDailyDashboard
+import vn.chamcong.iot.domain.AttendanceDateRange
+import vn.chamcong.iot.domain.filterAttendanceByDateRange
+import vn.chamcong.iot.domain.parseAttendanceDateRange
 import vn.chamcong.iot.domain.summarizeWeeklyWork
 import vn.chamcong.iot.domain.canAccessAdmin
 import vn.chamcong.iot.domain.canAccessEmployee
@@ -38,7 +42,9 @@ import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.model.DashboardSummary
+import vn.chamcong.iot.model.DailyDashboardSummary
 import vn.chamcong.iot.model.DeviceSnapshot
+import vn.chamcong.iot.model.DeviceCommandType
 import vn.chamcong.iot.model.Department
 import vn.chamcong.iot.model.Announcement
 import vn.chamcong.iot.model.Employee
@@ -108,6 +114,9 @@ data class MainUiState(
     val attendanceStatusFilter: String? = null,
     val attendanceTypeFilter: String? = null,
     val attendanceDateFilter: String = "",
+    val attendanceDatePreset: String? = null,
+    val attendanceRangeStart: String = "",
+    val attendanceRangeEnd: String = "",
     val attendanceEmployeeFilter: String? = null,
     val attendanceDepartmentFilter: String? = null,
     val saving: Boolean = false,
@@ -124,25 +133,43 @@ data class MainUiState(
         get() = summarizeDashboard(employees, attendanceForSummaries, selectedWeekStart,
             schedules = schedules, shifts = shifts, adjustments = attendanceAdjustments)
 
+    val dailyDashboard: DailyDashboardSummary
+        get() = summarizeDailyDashboard(
+            employees = employees,
+            attendance = attendanceForSummaries,
+            schedules = schedules,
+            shifts = shifts,
+            requests = leaveRequests,
+            adjustments = attendanceAdjustments,
+            date = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")),
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh")
+        )
+
     val visibleEmployees: List<Employee>
         get() = filterEmployees(employees, employeeQuery, departmentFilter, showRetired)
 
     val visibleAttendance: List<Attendance>
         get() {
             val byEmployee = employees.associateBy(Employee::id)
-            val selectedDate = runCatching { LocalDate.parse(attendanceDateFilter.trim()) }.getOrNull()
-            if (attendanceDateFilter.isNotBlank() && selectedDate == null) return emptyList()
-            return filterAttendance(attendance, attendanceStatusFilter, attendanceTypeFilter,
+            val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+            val today = LocalDate.now(zone)
+            val selectedRange: AttendanceDateRange? = when (attendanceDatePreset) {
+                "TODAY" -> AttendanceDateRange(today, today)
+                "YESTERDAY" -> AttendanceDateRange(today.minusDays(1), today.minusDays(1))
+                "THIS_WEEK" -> AttendanceDateRange(mondayOfWeek(today), mondayOfWeek(today).plusDays(6))
+                "THIS_MONTH" -> AttendanceDateRange(today.withDayOfMonth(1), today.withDayOfMonth(today.lengthOfMonth()))
+                "CUSTOM" -> parseAttendanceDateRange(attendanceRangeStart, attendanceRangeEnd)
+                "SINGLE" -> parseAttendanceDateRange(attendanceDateFilter, attendanceDateFilter)
+                else -> if (attendanceDateFilter.isBlank()) null else parseAttendanceDateRange(attendanceDateFilter, attendanceDateFilter)
+            }
+            if ((attendanceDatePreset != null || attendanceDateFilter.isNotBlank()) && selectedRange == null) return emptyList()
+            val rangedAttendance = selectedRange?.let {
+                filterAttendanceByDateRange(attendance, it, schedules, shifts, zone)
+            } ?: attendance
+            return filterAttendance(rangedAttendance, attendanceStatusFilter, attendanceTypeFilter,
                 schedules, shifts, attendanceAdjustments)
                 .filter { row -> attendanceEmployeeFilter.isNullOrBlank() || row.employeeId == attendanceEmployeeFilter }
                 .filter { row -> attendanceDepartmentFilter.isNullOrBlank() || byEmployee[row.employeeId]?.department == attendanceDepartmentFilter }
-                .filter { row ->
-                    selectedDate == null || runCatching {
-                        val date = row.scheduleDate ?: row.timestamp.toDate().toInstant()
-                            .atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toLocalDate().toString()
-                        LocalDate.parse(date)
-                    }.getOrNull() == selectedDate
-                }
         }
 
     val visibleLeaveRequests: List<LeaveRequest>
@@ -523,6 +550,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val created = repository.copyPreviousWeek(target.minusWeeks(1).toString(), target.toString(), repository.currentUserId)
         "Đã sao chép $created lịch từ tuần trước"
     }
+    fun requestDeviceCommand(deviceId: String, type: DeviceCommandType, done: () -> Unit = {}) = perform(done) {
+        repository.requestDeviceCommand(deviceId, type)
+        "Đã gửi lệnh ${vn.chamcong.iot.model.deviceCommandLabel(type)}"
+    }
     fun submitWeeklySchedule(shiftsByDate: Map<String, List<String>>, note: String = "", done: () -> Unit = {}) = perform(done) {
         val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
         val weekStart = mondayOfWeek(LocalDate.now(zoneId)).plusWeeks(1)
@@ -659,7 +690,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             attendanceTypeFilter = type?.takeIf(String::isNotBlank)
         )
     }
-    fun setAttendanceDateFilter(value: String) = _state.update { it.copy(attendanceDateFilter = value) }
+    fun setAttendanceDateFilter(value: String) = _state.update {
+        it.copy(
+            attendanceDateFilter = value,
+            attendanceDatePreset = value.takeIf(String::isNotBlank)?.let { "SINGLE" }
+        )
+    }
+    fun setAttendanceDatePreset(value: String?) = _state.update {
+        it.copy(
+            attendanceDatePreset = value,
+            attendanceDateFilter = if (value == "SINGLE") it.attendanceDateFilter else ""
+        )
+    }
+    fun setAttendanceRangeStart(value: String) = _state.update {
+        it.copy(attendanceDatePreset = "CUSTOM", attendanceRangeStart = value, attendanceDateFilter = "")
+    }
+    fun setAttendanceRangeEnd(value: String) = _state.update {
+        it.copy(attendanceDatePreset = "CUSTOM", attendanceRangeEnd = value, attendanceDateFilter = "")
+    }
     fun setAttendanceEmployeeFilter(value: String?) = _state.update { it.copy(attendanceEmployeeFilter = value?.takeIf(String::isNotBlank)) }
     fun setAttendanceDepartmentFilter(value: String?) = _state.update { it.copy(attendanceDepartmentFilter = value?.takeIf(String::isNotBlank)) }
     fun moveAdminTimesheetMonth(delta: Long) = _state.update {

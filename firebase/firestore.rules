@@ -30,6 +30,26 @@ service cloud.firestore {
     function isDevice() {
       return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
+    function validDeviceTelemetry(data) {
+      return (!('wifiStatus' in data) || data.wifiStatus in ['ONLINE', 'OFFLINE', 'UNKNOWN'])
+        && (!('firebaseSyncStatus' in data) || data.firebaseSyncStatus in ['ONLINE', 'PENDING', 'ERROR', 'UNKNOWN'])
+        && (!('sensorStatus' in data) || data.sensorStatus in ['OK', 'ERROR', 'UNKNOWN'])
+        && (!('failedScanCount' in data)
+          || (data.failedScanCount is int && data.failedScanCount >= 0 && data.failedScanCount <= 100000))
+        && (!('lastError' in data) || (data.lastError is string && data.lastError.size() <= 240));
+    }
+    function validDeviceCommand(data, id) {
+      return data.deviceId == id
+        && data.requestId is string
+        && nonBlank(data.requestId)
+        && data.type in [
+          'ENROLL_FINGERPRINT', 'DELETE_FINGERPRINT',
+          'TEST_LED_GREEN', 'TEST_LED_RED', 'TEST_BUZZER',
+          'SYNC_ATTENDANCE', 'RESTART_DEVICE'
+        ]
+        && data.status == 'REQUESTED'
+        && data.applied is bool;
+    }
     function activeFingerprintMapping() {
       let mappingPath = /databases/$(database)/documents/fingerprintMappings/$(request.resource.data.templateId);
       return exists(mappingPath)
@@ -554,23 +574,27 @@ service cloud.firestore {
         && request.resource.data.lastHeartbeat is timestamp
         && request.resource.data.keys().hasOnly([
           'deviceId', 'name', 'location', 'status', 'lastHeartbeat',
-          'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities'
+          'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities',
+          'wifiStatus', 'firebaseSyncStatus', 'sensorStatus', 'failedScanCount', 'lastError'
         ])
         && (!('pendingAttendanceCount' in request.resource.data)
           || (request.resource.data.pendingAttendanceCount is int
             && request.resource.data.pendingAttendanceCount >= 0
-            && request.resource.data.pendingAttendanceCount <= 500)));
+            && request.resource.data.pendingAttendanceCount <= 500))
+        && validDeviceTelemetry(request.resource.data));
       allow update: if isAdmin() || (isDevice()
         && resource.data.deviceId == id
         && request.resource.data.deviceId == id
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'deviceId', 'name', 'location', 'status', 'lastHeartbeat',
-          'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities'
+          'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities',
+          'wifiStatus', 'firebaseSyncStatus', 'sensorStatus', 'failedScanCount', 'lastError'
         ])
         && (!('pendingAttendanceCount' in request.resource.data)
           || (request.resource.data.pendingAttendanceCount is int
             && request.resource.data.pendingAttendanceCount >= 0
-            && request.resource.data.pendingAttendanceCount <= 500)));
+            && request.resource.data.pendingAttendanceCount <= 500))
+        && validDeviceTelemetry(request.resource.data));
       allow delete: if isAdmin();
     }
     match /shifts/{id} {
@@ -804,10 +828,19 @@ service cloud.firestore {
     }
     match /deviceCommands/{id} {
       allow read: if isAdmin() || (isDevice() && resource.data.deviceId == id);
-      allow create, delete: if isAdmin();
+      allow create: if isAdmin() && validDeviceCommand(request.resource.data, id);
+      allow delete: if isAdmin();
       allow update: if isAdmin() || (isDevice()
+        && resource.data.deviceId == id
+        && request.resource.data.deviceId == id
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'message', 'completedAt']));
+          .hasOnly(['status', 'message', 'completedAt'])
+        && request.resource.data.status in ['REQUESTED', 'PROCESSING', 'COMPLETED', 'FAILED']
+        && (!('message' in request.resource.data)
+          || (request.resource.data.message is string && request.resource.data.message.size() <= 240))
+        && (!('completedAt' in request.resource.data)
+          || request.resource.data.completedAt == null
+          || request.resource.data.completedAt is timestamp));
     }
     match /fingerprintMappings/{id} {
       allow read: if isAdmin() || isDevice();

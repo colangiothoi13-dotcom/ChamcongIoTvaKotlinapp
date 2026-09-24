@@ -17,6 +17,7 @@ enum class AuditAction {
     OVERTIME_REVIEW,
     SHIFT_UPDATE,
     DEVICE_CONFIG_UPDATE,
+    DEVICE_COMMAND,
     PASSWORD_CHANGE
 }
 

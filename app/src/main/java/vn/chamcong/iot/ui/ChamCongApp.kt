@@ -72,23 +72,23 @@ enum class EmployeeDestination(val title: String) {
     HOME("Trang chủ"),
     ATTENDANCE("Chấm công của tôi"),
     REQUESTS("Đơn từ"),
-    PAYROLL("Lương"),
+    PAYROLL("Bảng lương"),
     PROFILE("Cá nhân"),
-    SCHEDULE("L\u1ecbch l\u00e0m"),
+    SCHEDULE("Lịch làm việc"),
 }
 
 val adminPrimaryDestinations = listOf(
     AppDestination.DASHBOARD,
-    AppDestination.TASKS,
+    AppDestination.ATTENDANCE,
+    AppDestination.EMPLOYEES,
     AppDestination.REQUESTS,
-    AppDestination.SHIFT_MANAGEMENT,
-    AppDestination.EMPLOYEES
+    AppDestination.TASKS
 )
 
 val adminTaskDestinations = listOf(
-    AppDestination.ATTENDANCE,
-    AppDestination.DEVICES,
     AppDestination.PRESENCE,
+    AppDestination.DEVICES,
+    AppDestination.SHIFT_MANAGEMENT,
     AppDestination.SHIFTS,
     AppDestination.SCHEDULE,
     AppDestination.PAYROLL,
@@ -104,9 +104,7 @@ val adminTaskDestinations = listOf(
 val employeePrimaryDestinations = listOf(
     EmployeeDestination.HOME,
     EmployeeDestination.ATTENDANCE,
-    EmployeeDestination.SCHEDULE,
     EmployeeDestination.REQUESTS,
-    EmployeeDestination.PAYROLL,
     EmployeeDestination.PROFILE
 )
 
@@ -181,7 +179,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var salaryEmployee by remember { mutableStateOf<Employee?>(null) }
     var showChangePassword by remember { mutableStateOf(false) }
     var showAccountMenu by remember { mutableStateOf(false) }
-    val icons = listOf(Icons.Default.Dashboard, Icons.Default.FactCheck, Icons.Default.Description, Icons.Default.Event, Icons.Default.Groups)
+    val icons = listOf(Icons.Default.Dashboard, Icons.Default.FactCheck, Icons.Default.Groups, Icons.Default.Description, Icons.Default.Assignment)
     Scaffold(
         topBar = { TopAppBar(title = { Text(selected.title) }, actions = {
             IconButton({ showAccountMenu = true }, enabled = !state.saving) { Icon(Icons.Default.AccountCircle, "Menu cá nhân") }
@@ -306,7 +304,7 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(EmployeeDestination.HOME) }
     var showAccountMenu by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
-    val icons = listOf(Icons.Default.Home, Icons.Default.FactCheck, Icons.Default.Event, Icons.Default.Description, Icons.Default.Payments, Icons.Default.Person)
+    val icons = listOf(Icons.Default.Home, Icons.Default.FactCheck, Icons.Default.Description, Icons.Default.Person)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -316,6 +314,14 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                         Icon(Icons.Default.AccountCircle, "Menu cá nhân")
                     }
                     DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Lịch làm việc") },
+                            onClick = { selected = EmployeeDestination.SCHEDULE; showAccountMenu = false }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Bảng lương") },
+                            onClick = { selected = EmployeeDestination.PAYROLL; showAccountMenu = false }
+                        )
                         DropdownMenuItem(
                             text = { Text("Đổi mật khẩu") },
                             onClick = { showChangePassword = true; showAccountMenu = false }

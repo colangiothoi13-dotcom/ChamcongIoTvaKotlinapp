@@ -9,6 +9,12 @@
 #include <LittleFS.h>
 #include <time.h>
 
+#ifdef __has_include
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#endif
+
 // ==================== KHAI BAO CHAN CAM ====================
 // NodeMCU D5 (GPIO14) <- TX cua cam bien van tay AS608/R307
 // NodeMCU D6 (GPIO12) -> RX cua cam bien van tay AS608/R307
@@ -33,9 +39,13 @@ SoftwareSerial mySerial(D5, D6);
 Adafruit_Fingerprint finger(&mySerial);
 LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
 
-// Thay hai gia tri mau bang thong tin Wi-Fi cua ban truoc khi nap.
-#define DEVICE_WIFI_SSID "YOUR_WIFI_SSID"
-#define DEVICE_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+// Co the dat Wi-Fi trong secrets.h (sao chep tu secrets.h.example).
+#ifndef DEVICE_WIFI_SSID
+#define DEVICE_WIFI_SSID "III"
+#endif
+#ifndef DEVICE_WIFI_PASSWORD
+#define DEVICE_WIFI_PASSWORD "00000012"
+#endif
 
 const char* WIFI_SSID = DEVICE_WIFI_SSID;
 const char* WIFI_PASSWORD = DEVICE_WIFI_PASSWORD;
@@ -47,6 +57,9 @@ const char* DEVICE_ID = "GATE-01";
 const char* FIRMWARE_VERSION = "snapshot-2-offline";
 const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 const unsigned long ATTENDANCE_SYNC_INTERVAL_MS = 5000;
+const unsigned long SENSOR_RETRY_INTERVAL_MS = 15000;
+const unsigned long LCD_CLOCK_INTERVAL_MS = 1000;
+const unsigned long FAILED_SCAN_WINDOW_MS = 300000;
 const size_t ATTENDANCE_OUTBOX_MAX_BYTES = 12288;
 const char* ATTENDANCE_OUTBOX_PATH = "/attendance.outbox";
 const char* ATTENDANCE_OUTBOX_TMP_PATH = "/attendance.outbox.tmp";
@@ -55,18 +68,30 @@ const char* FINGERPRINT_CACHE_PATH = "/fingerprint-cache.json";
 unsigned long lastCommandCheck = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastAttendanceSync = 0;
+unsigned long lastSensorRetry = 0;
+unsigned long lastLcdClock = 0;
 unsigned long tokenCreatedAt = 0;
 String firebaseIdToken;
 bool waitingForFingerRemoval = false;
 String commandVersion;
 String commandRequestId;
+String pendingCommandType;
 bool pendingCommandResult = false;
 bool pendingCommandSuccess = false;
 bool pendingCommandDelete = false;
+bool pendingCommandRestart = false;
 uint16_t pendingCommandTemplateId = 0;
 bool attendancePendingSync = false;
 bool littleFsReady = false;
 unsigned long fingerRemovalStarted = 0;
+bool sensorReady = false;
+bool lcdIdleMode = false;
+String sensorError = "AS608 chua san sang";
+String sensorStatus = "UNKNOWN";
+String lastError = "";
+String firebaseSyncStatus = "PENDING";
+uint32_t failedScanTimes[32] = {};
+uint8_t failedScanSampleCount = 0;
 
 char vietnameseLetter(uint32_t codePoint) {
   if (codePoint < 128) return static_cast<char>(codePoint);
@@ -145,13 +170,53 @@ void lcdPrintLine(uint8_t row, const String& value) {
   lcd.print(text);
 }
 
-void showLcd(const String& firstLine, const String& secondLine) {
+void renderLcd(const String& firstLine, const String& secondLine) {
   lcdPrintLine(0, firstLine);
   lcdPrintLine(1, secondLine);
 }
 
+void showLcd(const String& firstLine, const String& secondLine) {
+  lcdIdleMode = false;
+  renderLcd(firstLine, secondLine);
+}
+
+bool hasValidClock() {
+  return time(nullptr) >= 1700000000;
+}
+
+String vietnamTimeText() {
+  time_t now = time(nullptr);
+  if (now < 1700000000) return "--:--:--";
+  time_t localNow = now + 7 * 3600;
+  struct tm localTime;
+  gmtime_r(&localNow, &localTime);
+  char value[15];
+  strftime(value, sizeof(value), "%d/%m %H:%M:%S", &localTime);
+  return String(value);
+}
+
+void showIdleScreen() {
+  lcdIdleMode = true;
+  if (hasValidClock()) {
+    renderLcd(vietnamTimeText(), "DAT NGON TAY...");
+  } else {
+    renderLcd("CHUA DONG BO GIO", "DAT NGON TAY...");
+  }
+  lastLcdClock = millis();
+}
+
 void showReadyScreen() {
-  showLcd("MAY CHAM CONG", "DAT NGON TAY...");
+  showIdleScreen();
+}
+
+void maybeUpdateIdleClock() {
+  if (!lcdIdleMode || millis() - lastLcdClock < LCD_CLOCK_INTERVAL_MS) return;
+  lastLcdClock = millis();
+  if (hasValidClock()) {
+    renderLcd(vietnamTimeText(), "DAT NGON TAY...");
+  } else {
+    renderLcd("CHUA DONG BO GIO", "DAT NGON TAY...");
+  }
 }
 
 void startWaitingForFingerRemoval() {
@@ -167,27 +232,102 @@ void signalResult(bool ok) {
   digitalWrite(LED_RED_PIN, LOW);
 }
 
+void setLatestError(const String& message) {
+  lastError = message;
+  if (lastError.length() > 160) lastError = lastError.substring(0, 160);
+  Serial.printf("LOI GAN NHAT: %s\n", lastError.c_str());
+}
+
+void setSensorError(const String& message) {
+  sensorReady = false;
+  sensorStatus = "ERROR";
+  sensorError = message;
+  setLatestError(message);
+  Serial.printf("AS608: vo hieu hoa doc cam bien (%s)\n", sensorError.c_str());
+}
+
+void markSensorReady() {
+  if (!sensorReady) Serial.println("AS608: cam bien da san sang");
+  sensorReady = true;
+  sensorStatus = "OK";
+  sensorError = "";
+  lastHeartbeat = 0;
+  if (lcdIdleMode || (!waitingForFingerRemoval && !pendingCommandResult)) showReadyScreen();
+}
+
+int recentFailedScanCount() {
+  uint32_t now = millis();
+  uint8_t kept = 0;
+  for (uint8_t i = 0; i < failedScanSampleCount; ++i) {
+    if (now - failedScanTimes[i] <= FAILED_SCAN_WINDOW_MS) {
+      failedScanTimes[kept++] = failedScanTimes[i];
+    }
+  }
+  failedScanSampleCount = kept;
+  return failedScanSampleCount;
+}
+
+void recordFailedScan(const String& message) {
+  recentFailedScanCount();
+  if (failedScanSampleCount < sizeof(failedScanTimes) / sizeof(failedScanTimes[0])) {
+    failedScanTimes[failedScanSampleCount++] = millis();
+  } else {
+    for (uint8_t i = 1; i < sizeof(failedScanTimes) / sizeof(failedScanTimes[0]); ++i) {
+      failedScanTimes[i - 1] = failedScanTimes[i];
+    }
+    failedScanTimes[(sizeof(failedScanTimes) / sizeof(failedScanTimes[0])) - 1] = millis();
+  }
+  setLatestError(message);
+}
+
+void maybeRecoverSensor() {
+  if (sensorReady || millis() - lastSensorRetry < SENSOR_RETRY_INTERVAL_MS) return;
+  lastSensorRetry = millis();
+  Serial.println("AS608: thu ket noi lai cam bien");
+  if (finger.verifyPassword()) {
+    markSensorReady();
+  } else {
+    setSensorError("AS608 khong phan hoi");
+  }
+}
+
 bool firebaseSignIn() {
   if (firebaseIdToken.length() > 0 && millis() - tokenCreatedAt < 3300000UL) return true;
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
   String url = String(ANONYMOUS_AUTH_URL) + FIREBASE_API_KEY;
-  if (!https.begin(client, url)) return false;
+  if (!https.begin(client, url)) {
+    firebaseSyncStatus = "ERROR";
+    setLatestError("Khong tao duoc ket noi Firebase Auth");
+    return false;
+  }
   https.addHeader("Content-Type", "application/json");
   int code = https.POST("{\"returnSecureToken\":true}");
   String response = https.getString();
   https.end();
   if (code != 200) {
     Serial.printf("Firebase Auth loi HTTP %d: %s\n", code, response.c_str());
+    firebaseSyncStatus = "ERROR";
+    setLatestError(String("Firebase Auth HTTP ") + code);
     return false;
   }
   DynamicJsonDocument authDoc(2048);
-  if (deserializeJson(authDoc, response)) return false;
+  if (deserializeJson(authDoc, response)) {
+    firebaseSyncStatus = "ERROR";
+    setLatestError("Firebase Auth tra ve JSON khong hop le");
+    return false;
+  }
   firebaseIdToken = authDoc["idToken"].as<String>();
   tokenCreatedAt = millis();
   Serial.println("Da dang nhap Firebase Anonymous");
-  return firebaseIdToken.length() > 0;
+  if (firebaseIdToken.length() == 0) {
+    firebaseSyncStatus = "ERROR";
+    setLatestError("Firebase Auth khong tra ve token");
+    return false;
+  }
+  firebaseSyncStatus = "PENDING";
+  return true;
 }
 
 String utcTimestamp(time_t now = time(nullptr)) {
@@ -285,22 +425,36 @@ bool enqueueAttendanceEvent(const String& eventId, const String& payload) {
   return true;
 }
 
+bool httpResponseAcknowledgesEvent(int code);
+
 int postAttendanceEvent(const String& eventId, const String& payload) {
-  if (WiFi.status() != WL_CONNECTED || !firebaseSignIn()) return -1;
+  if (WiFi.status() != WL_CONNECTED) {
+    firebaseSyncStatus = "PENDING";
+    return -1;
+  }
+  if (!firebaseSignIn()) return -1;
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
   String url = String(FIRESTORE_BASE_URL) + "/attendance?documentId=" + eventId;
-  if (!https.begin(client, url)) return -1;
+  if (!https.begin(client, url)) {
+    firebaseSyncStatus = "ERROR";
+    setLatestError("Khong tao duoc ket noi dong bo cham cong");
+    return -1;
+  }
   https.setTimeout(5000);
   https.addHeader("Content-Type", "application/json");
   https.addHeader("Authorization", "Bearer " + firebaseIdToken);
   // Firestore Rules accept only PENDING_SYNC from a device. The trusted
-  // attendance resolver changes this to SYNCED after it processes the event.
+  // attendance resolver changes the pending event state after it processes it.
   int code = https.POST(payload);
   String response = https.getString();
   https.end();
   Serial.printf("ATTENDANCE HTTP %d: %s\n", code, response.c_str());
+  if (!httpResponseAcknowledgesEvent(code)) {
+    firebaseSyncStatus = "ERROR";
+    setLatestError(String("Dong bo cham cong HTTP ") + code);
+  }
   return code;
 }
 
@@ -309,14 +463,20 @@ bool httpResponseAcknowledgesEvent(int code) {
 }
 
 bool flushAttendanceOutbox() {
-  if (!littleFsReady) return false;
+  if (!littleFsReady) {
+    firebaseSyncStatus = "ERROR";
+    setLatestError("Khong mo duoc hang doi LittleFS");
+    return false;
+  }
   File input = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "r");
   if (!input || input.size() == 0) {
     if (input) input.close();
+    firebaseSyncStatus = WiFi.status() == WL_CONNECTED ? "ONLINE" : "PENDING";
     return true;
   }
   String remaining;
   bool blocked = false;
+  bool syncError = false;
   while (input.available()) {
     String line = input.readStringUntil('\n');
     line.trim();
@@ -334,6 +494,7 @@ bool flushAttendanceOutbox() {
       Serial.printf("OUTBOX da dong bo event %s\n", eventId.c_str());
     } else {
       blocked = true;
+      if (WiFi.status() == WL_CONNECTED) syncError = true;
       remaining += line + '\n';
       Serial.printf("OUTBOX giu event %s, HTTP %d\n", eventId.c_str(), code);
     }
@@ -350,7 +511,11 @@ bool flushAttendanceOutbox() {
     LittleFS.remove(ATTENDANCE_OUTBOX_PATH);
     LittleFS.rename(ATTENDANCE_OUTBOX_TMP_PATH, ATTENDANCE_OUTBOX_PATH);
   }
-  return remaining.length() == 0;
+  bool synced = remaining.length() == 0;
+  firebaseSyncStatus = synced && WiFi.status() == WL_CONNECTED
+      ? "ONLINE"
+      : (syncError ? "ERROR" : "PENDING");
+  return synced;
 }
 
 size_t attendanceOutboxBytes() {
@@ -379,10 +544,12 @@ int attendancePendingCount() {
 bool publishDeviceSnapshot() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.printf("HEARTBEAT bo qua: WiFi status=%d\n", WiFi.status());
+    firebaseSyncStatus = "PENDING";
     return false;
   }
-  if (time(nullptr) < 1700000000) {
+  if (!hasValidClock()) {
     Serial.println("HEARTBEAT bo qua: chua dong bo NTP");
+    firebaseSyncStatus = "PENDING";
     return false;
   }
   if (!firebaseSignIn()) {
@@ -391,36 +558,62 @@ bool publishDeviceSnapshot() {
   }
 
   int templateCount = -1;
-  if (finger.getTemplateCount() == FINGERPRINT_OK) templateCount = finger.templateCount;
+  if (sensorReady) {
+    uint8_t templateStatus = finger.getTemplateCount();
+    if (templateStatus == FINGERPRINT_OK) {
+      templateCount = finger.templateCount;
+    } else {
+      setSensorError("AS608 loi khi doc so mau van tay");
+    }
+  }
 
   BearSSL::WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
-  String url = String(FIRESTORE_BASE_URL) + "/devices/" + DEVICE_ID;
+  int pendingCount = attendancePendingCount();
+  String url = String(FIRESTORE_BASE_URL) + "/devices/" + DEVICE_ID +
+               "?updateMask.fieldPaths=deviceId"
+               "&updateMask.fieldPaths=status"
+               "&updateMask.fieldPaths=lastHeartbeat"
+               "&updateMask.fieldPaths=firmwareVersion"
+               "&updateMask.fieldPaths=capacity"
+               "&updateMask.fieldPaths=pendingAttendanceCount"
+               "&updateMask.fieldPaths=capabilities"
+               "&updateMask.fieldPaths=wifiStatus"
+               "&updateMask.fieldPaths=firebaseSyncStatus"
+               "&updateMask.fieldPaths=sensorStatus"
+               "&updateMask.fieldPaths=failedScanCount"
+               "&updateMask.fieldPaths=lastError";
+  if (templateCount >= 0) url += "&updateMask.fieldPaths=fingerprintCount";
   if (!https.begin(client, url)) {
     Serial.println("HEARTBEAT loi: khong tao duoc ket noi HTTPS");
+    firebaseSyncStatus = "ERROR";
+    setLatestError("Khong tao duoc ket noi heartbeat");
     return false;
   }
   https.setTimeout(5000);
   https.addHeader("Content-Type", "application/json");
   https.addHeader("Authorization", "Bearer " + firebaseIdToken);
 
-  DynamicJsonDocument doc(2048);
+  DynamicJsonDocument doc(3072);
   JsonObject fields = doc.createNestedObject("fields");
   fields["deviceId"]["stringValue"] = DEVICE_ID;
-  fields["name"]["stringValue"] = "Cong chinh";
-  fields["location"]["stringValue"] = "Loi vao";
   fields["status"]["stringValue"] = "ONLINE";
   fields["lastHeartbeat"]["timestampValue"] = utcTimestamp();
   fields["firmwareVersion"]["stringValue"] = FIRMWARE_VERSION;
   if (templateCount >= 0) fields["fingerprintCount"]["integerValue"] = templateCount;
   fields["capacity"]["integerValue"] = 127;
-  fields["pendingAttendanceCount"]["integerValue"] = attendancePendingCount();
+  fields["pendingAttendanceCount"]["integerValue"] = pendingCount;
+  fields["wifiStatus"]["stringValue"] = WiFi.status() == WL_CONNECTED ? "ONLINE" : "OFFLINE";
+  fields["firebaseSyncStatus"]["stringValue"] = pendingCount == 0 ? "ONLINE" : "PENDING";
+  fields["sensorStatus"]["stringValue"] = sensorStatus;
+  fields["failedScanCount"]["integerValue"] = recentFailedScanCount();
+  fields["lastError"]["stringValue"] = lastError;
 
   JsonObject capabilityField = fields.createNestedObject("capabilities");
   JsonObject arrayValue = capabilityField.createNestedObject("arrayValue");
   JsonArray values = arrayValue.createNestedArray("values");
-  const char* capabilities[] = {"fingerprint", "attendance", "enrollment", "deletion", "led", "buzzer", "heartbeat"};
+  const char* capabilities[] = {"fingerprint", "attendance", "enrollment", "deletion", "led", "buzzer", "heartbeat", "sync", "restart"};
   for (const char* capability : capabilities) {
     JsonObject item = values.createNestedObject();
     item["stringValue"] = capability;
@@ -432,7 +625,14 @@ bool publishDeviceSnapshot() {
   String response = https.getString();
   https.end();
   Serial.printf("HEARTBEAT HTTP %d: %s\n", code, response.c_str());
-  return code >= 200 && code < 300;
+  bool synced = code >= 200 && code < 300;
+  if (synced) {
+    firebaseSyncStatus = pendingCount == 0 ? "ONLINE" : "PENDING";
+  } else {
+    firebaseSyncStatus = "ERROR";
+    setLatestError(String("Heartbeat HTTP ") + code);
+  }
+  return synced;
 }
 
 void maybePublishDeviceSnapshot() {
@@ -531,9 +731,15 @@ bool uploadAttendance(uint16_t templateId, uint16_t confidence,
 }
 
 bool waitForFinger(uint32_t timeoutMs) {
+  if (!sensorReady) return false;
   uint32_t started = millis();
   while (millis() - started < timeoutMs) {
-    if (finger.getImage() == FINGERPRINT_OK) return true;
+    uint8_t status = finger.getImage();
+    if (status == FINGERPRINT_OK) return true;
+    if (status != FINGERPRINT_NOFINGER) {
+      setSensorError("AS608 loi khi doc van tay");
+      return false;
+    }
     delay(80);
     yield();
   }
@@ -541,9 +747,15 @@ bool waitForFinger(uint32_t timeoutMs) {
 }
 
 bool waitForFingerRemoval(uint32_t timeoutMs) {
+  if (!sensorReady) return false;
   uint32_t started = millis();
   while (millis() - started < timeoutMs) {
-    if (finger.getImage() == FINGERPRINT_NOFINGER) return true;
+    uint8_t status = finger.getImage();
+    if (status == FINGERPRINT_NOFINGER) return true;
+    if (status != FINGERPRINT_OK) {
+      setSensorError("AS608 loi khi kiem tra ngon tay");
+      return false;
+    }
     delay(80);
     yield();
   }
@@ -551,6 +763,7 @@ bool waitForFingerRemoval(uint32_t timeoutMs) {
 }
 
 bool enrollFingerprint(uint16_t templateId) {
+  if (!sensorReady) return false;
   Serial.printf("DANG KY: dat ngon tay lan 1 (template %d)\n", templateId);
   showLcd("DANG KY VAN TAY", "DAT NGON TAY 1");
   tone(BUZZER_PIN, 1200, 120);
@@ -573,15 +786,26 @@ bool refreshCommandVersion() {
   client.setInsecure();
   HTTPClient https;
   String url = String(FIRESTORE_BASE_URL) + "/deviceCommands/" + DEVICE_ID;
-  if (!https.begin(client, url)) { Serial.println("LENH: khong tao duoc ket noi HTTPS"); return false; }
+  if (!https.begin(client, url)) {
+    Serial.println("LENH: khong tao duoc ket noi HTTPS");
+    setLatestError("Khong tao duoc ket noi doc lenh");
+    return false;
+  }
   https.addHeader("Authorization", "Bearer " + firebaseIdToken);
   int code = https.GET();
   String body = https.getString();
   https.end();
-  if (code != 200) { Serial.printf("LENH refresh: HTTP %d, heap=%u\n", code, ESP.getFreeHeap()); return false; }
+  if (code != 200) {
+    Serial.printf("LENH refresh: HTTP %d, heap=%u\n", code, ESP.getFreeHeap());
+    return false;
+  }
   DynamicJsonDocument current(2048);
   DeserializationError parseError = deserializeJson(current, body);
-  if (parseError) { Serial.printf("LENH refresh: JSON %s, bytes=%u, heap=%u\n", parseError.c_str(), static_cast<unsigned>(body.length()), ESP.getFreeHeap()); return false; }
+  if (parseError) {
+    Serial.printf("LENH refresh: JSON %s, bytes=%u, heap=%u\n", parseError.c_str(), static_cast<unsigned>(body.length()), ESP.getFreeHeap());
+    setLatestError("Du lieu lenh khong hop le");
+    return false;
+  }
   String requestId = current["fields"]["requestId"]["stringValue"] | "";
   if (requestId != commandRequestId) {
     // Khong ghi ket qua cua lenh cu len lenh moi.
@@ -593,7 +817,8 @@ bool refreshCommandVersion() {
   if (commandVersion.length() == 0) Serial.println("LENH refresh: thieu updateTime");
   return commandVersion.length() > 0;
 }
-bool updateEnrollmentStatus(const char* status, const char* message) {
+
+bool updateDeviceCommandStatus(const char* status, const char* message) {
   if (!firebaseSignIn() || !refreshCommandVersion()) return false;
   delay(50);
   yield();
@@ -603,7 +828,11 @@ bool updateEnrollmentStatus(const char* status, const char* message) {
   String url = String(FIRESTORE_BASE_URL) + "/deviceCommands/" + DEVICE_ID +
                "?updateMask.fieldPaths=status&updateMask.fieldPaths=message&updateMask.fieldPaths=completedAt";
   url += "&currentDocument.updateTime=" + commandVersion;
-  if (!https.begin(client, url)) { Serial.println("LENH: khong tao duoc ket noi HTTPS"); return false; }
+  if (!https.begin(client, url)) {
+    Serial.println("LENH: khong tao duoc ket noi HTTPS");
+    setLatestError("Khong tao duoc ket noi cap nhat lenh");
+    return false;
+  }
   https.addHeader("Content-Type", "application/json");
   https.addHeader("Authorization", "Bearer " + firebaseIdToken);
   DynamicJsonDocument doc(512);
@@ -633,11 +862,14 @@ bool updateEnrollmentStatus(const char* status, const char* message) {
                   code, ESP.getFreeHeap());
   }
   https.end();
+  if (code < 200 || code >= 300) setLatestError(String("Cap nhat lenh HTTP ") + code);
   return code >= 200 && code < 300;
 }
 
-bool readEnrollmentCommand(uint16_t& templateId, String& type, bool& wasProcessing) {
+bool readDeviceCommand(uint16_t& templateId, String& type, bool& wasProcessing) {
   templateId = 0;
+  type = "";
+  wasProcessing = false;
   if (WiFi.status() != WL_CONNECTED) {
     Serial.printf("LENH: WiFi chua ket noi, status=%d\n", WiFi.status());
     return false;
@@ -648,7 +880,11 @@ bool readEnrollmentCommand(uint16_t& templateId, String& type, bool& wasProcessi
   client.setInsecure();
   HTTPClient https;
   String url = String(FIRESTORE_BASE_URL) + "/deviceCommands/" + DEVICE_ID;
-  if (!https.begin(client, url)) { Serial.println("LENH: khong tao duoc ket noi HTTPS"); return false; }
+  if (!https.begin(client, url)) {
+    Serial.println("LENH: khong tao duoc ket noi HTTPS");
+    setLatestError("Khong tao duoc ket noi doc lenh");
+    return false;
+  }
   https.addHeader("Authorization", "Bearer " + firebaseIdToken);
 
   int code = https.GET();
@@ -670,8 +906,11 @@ bool readEnrollmentCommand(uint16_t& templateId, String& type, bool& wasProcessi
       wasProcessing = strcmp(status, "PROCESSING") == 0;
       commandVersion = response["updateTime"].as<String>();
       commandRequestId = response["fields"]["requestId"]["stringValue"] | "";
-      templateId =
-          String(response["fields"]["templateId"]["integerValue"].as<const char*>()).toInt();
+      templateId = response["fields"]["templateId"]["integerValue"].as<uint16_t>();
+      if (templateId == 0) {
+        const char* templateText = response["fields"]["templateId"]["integerValue"].as<const char*>();
+        if (templateText != nullptr) templateId = String(templateText).toInt();
+      }
       requested = true;
     }
   } else if (code < 0) {
@@ -685,10 +924,19 @@ bool readEnrollmentCommand(uint16_t& templateId, String& type, bool& wasProcessi
 }
 
 bool finishDeviceCommand() {
-  const char* message = pendingCommandDelete
-      ? (pendingCommandSuccess ? "Fingerprint deleted" : "Fingerprint deletion failed")
-      : (pendingCommandSuccess ? "Fingerprint stored" : "Enrollment failed, interrupted or timed out");
-  if (!updateEnrollmentStatus(pendingCommandSuccess ? "COMPLETED" : "FAILED", message)) {
+  String message;
+  if (pendingCommandType == "DELETE_FINGERPRINT") {
+    message = pendingCommandSuccess ? "Fingerprint deleted" : "Fingerprint deletion failed";
+  } else if (pendingCommandType == "ENROLL_FINGERPRINT") {
+    message = pendingCommandSuccess ? "Fingerprint stored" : "Enrollment failed, interrupted or timed out";
+  } else if (pendingCommandType == "SYNC_ATTENDANCE") {
+    message = pendingCommandSuccess ? "Attendance synchronized" : "Attendance synchronization failed";
+  } else if (pendingCommandType == "RESTART_DEVICE") {
+    message = pendingCommandSuccess ? "Restarting device" : "Device restart failed";
+  } else {
+    message = pendingCommandSuccess ? "Device command completed" : "Unsupported device command";
+  }
+  if (!updateDeviceCommandStatus(pendingCommandSuccess ? "COMPLETED" : "FAILED", message.c_str())) {
     showLcd("CHO DONG BO", "KIEM TRA MANG");
     return false;
   }
@@ -696,16 +944,49 @@ bool finishDeviceCommand() {
     removeCachedFingerprintMapping(pendingCommandTemplateId);
   }
   pendingCommandResult = false;
-  showLcd(pendingCommandDelete ? (pendingCommandSuccess ? "DA XOA VAN TAY" : "XOA THAT BAI")
-                              : (pendingCommandSuccess ? "DANG KY XONG" : "DANG KY THAT BAI"),
-          pendingCommandSuccess ? "HOAN TAT" : "KIEM TRA APP");
-  signalResult(pendingCommandSuccess);
+  if (pendingCommandRestart) {
+    showLcd(pendingCommandSuccess ? "DANG KHOI DONG" : "KHOI DONG LOI", "VUI LONG DOI");
+    if (pendingCommandSuccess) signalResult(true);
+    delay(300);
+    if (pendingCommandSuccess) ESP.restart();
+    return true;
+  }
+
+  bool isTestCommand = pendingCommandType == "TEST_LED_GREEN" ||
+                       pendingCommandType == "TEST_LED_RED" ||
+                       pendingCommandType == "TEST_BUZZER";
+  if (pendingCommandType == "DELETE_FINGERPRINT") {
+    showLcd(pendingCommandSuccess ? "DA XOA VAN TAY" : "XOA THAT BAI",
+            pendingCommandSuccess ? "HOAN TAT" : "KIEM TRA APP");
+  } else if (pendingCommandType == "ENROLL_FINGERPRINT") {
+    showLcd(pendingCommandSuccess ? "DANG KY XONG" : "DANG KY THAT BAI",
+            pendingCommandSuccess ? "HOAN TAT" : "KIEM TRA APP");
+  } else if (pendingCommandType == "SYNC_ATTENDANCE") {
+    showLcd(pendingCommandSuccess ? "DA DONG BO" : "DONG BO THAT BAI",
+            pendingCommandSuccess ? "CHAM CONG" : "KIEM TRA MANG");
+  } else {
+    showLcd(pendingCommandSuccess ? "LENH HOAN TAT" : "LENH THAT BAI",
+            pendingCommandType);
+  }
+  if (!isTestCommand || !pendingCommandSuccess) signalResult(pendingCommandSuccess);
   delay(1500);
-  startWaitingForFingerRemoval();
+  if (pendingCommandType == "DELETE_FINGERPRINT" || pendingCommandType == "ENROLL_FINGERPRINT") {
+    if (sensorReady) startWaitingForFingerRemoval();
+    else showLcd("LOI CAM BIEN", "KIEM TRA DAY");
+  } else {
+    showReadyScreen();
+  }
   return true;
 }
 
-bool checkEnrollmentCommand() {
+bool isSupportedDeviceCommand(const String& type) {
+  return type == "ENROLL_FINGERPRINT" || type == "DELETE_FINGERPRINT" ||
+         type == "TEST_LED_GREEN" || type == "TEST_LED_RED" ||
+         type == "TEST_BUZZER" || type == "SYNC_ATTENDANCE" ||
+         type == "RESTART_DEVICE";
+}
+
+bool checkDeviceCommand() {
   // Neu PATCH mat mang, chi gui lai ket qua, khong thuc hien lai dang ky.
   if (pendingCommandResult) {
     finishDeviceCommand();
@@ -714,39 +995,89 @@ bool checkEnrollmentCommand() {
   uint16_t templateId = 0;
   String type;
   bool wasProcessing = false;
-  if (!readEnrollmentCommand(templateId, type, wasProcessing)) return false;
+  if (!readDeviceCommand(templateId, type, wasProcessing)) return false;
   delay(50);
   yield();
-  if (time(nullptr) < 1700000000) {
+  if (!hasValidClock()) {
     Serial.println("LENH: chua dong bo NTP, tam hoan cap nhat");
     showLcd("LOI DONG BO GIO", "KIEM TRA MANG");
     return true;
   }
+
+  pendingCommandType = type;
+  pendingCommandTemplateId = templateId;
+  pendingCommandDelete = type == "DELETE_FINGERPRINT";
+  pendingCommandRestart = type == "RESTART_DEVICE";
+
+  // A PROCESSING command found after a reset may have been interrupted while
+  // touching the sensor. Never rerun it; report a deterministic failure.
+  if (wasProcessing) {
+    Serial.printf("LENH %s dang PROCESSING sau khi khoi dong, danh bai\n", type.c_str());
+    pendingCommandSuccess = false;
+    pendingCommandResult = true;
+    return finishDeviceCommand();
+  }
+
+  if (!isSupportedDeviceCommand(type) || commandRequestId.length() == 0) {
+    setLatestError(String("Lenh khong duoc ho tro: ") + type);
+    pendingCommandSuccess = false;
+    pendingCommandResult = true;
+    pendingCommandRestart = false;
+    return finishDeviceCommand();
+  }
+
   bool deleting = type == "DELETE_FINGERPRINT";
   bool enrolling = type == "ENROLL_FINGERPRINT";
-  if (!wasProcessing && !updateEnrollmentStatus("PROCESSING", deleting ? "Deleting fingerprint" : "Waiting for finger")) {
+  const char* processingMessage = deleting ? "Deleting fingerprint" :
+      enrolling ? "Waiting for finger" : "Processing device command";
+  if (!updateDeviceCommandStatus("PROCESSING", processingMessage)) {
     showLcd("LOI MAY CHU", "KIEM TRA MANG");
     return true;
   }
   bool success = false;
-  if (templateId > 0 && templateId <= 127) {
-    if (deleting) {
+
+  if (deleting || enrolling) {
+    if (!sensorReady) {
+      setLatestError("AS608 dang loi; khong the xu ly mau van tay");
+    } else if (templateId > 0 && templateId <= 127 && deleting) {
       showLcd("DANG XOA", "VAN TAY...");
       success = finger.deleteModel(templateId) == FINGERPRINT_OK;
-    } else if (enrolling && !wasProcessing) {
+    } else if (templateId > 0 && templateId <= 127 && enrolling) {
       success = enrollFingerprint(templateId);
     }
+  } else if (type == "TEST_LED_GREEN") {
+    showLcd("TEST LED XANH", "DANG THUC HIEN");
+    digitalWrite(LED_GREEN_PIN, HIGH);
+    delay(600);
+    digitalWrite(LED_GREEN_PIN, LOW);
+    success = true;
+  } else if (type == "TEST_LED_RED") {
+    showLcd("TEST LED DO", "DANG THUC HIEN");
+    digitalWrite(LED_RED_PIN, HIGH);
+    delay(600);
+    digitalWrite(LED_RED_PIN, LOW);
+    success = true;
+  } else if (type == "TEST_BUZZER") {
+    showLcd("TEST COI", "DANG THUC HIEN");
+    tone(BUZZER_PIN, 1500, 600);
+    delay(650);
+    success = true;
+  } else if (type == "SYNC_ATTENDANCE") {
+    showLcd("DANG DONG BO", "CHAM CONG...");
+    success = WiFi.status() == WL_CONNECTED && flushAttendanceOutbox() && attendancePendingCount() == 0;
+    if (!success) setLatestError("Hang doi cham cong chua dong bo het");
+  } else if (type == "RESTART_DEVICE") {
+    showLcd("DANG KHOI DONG", "VUI LONG DOI");
+    success = true;
   }
-  // Sau reset, lenh dang ky PROCESSING chuyen FAILED; app van giu cho mau de xoa an toan.
+
   pendingCommandResult = true;
   pendingCommandSuccess = success;
-  pendingCommandDelete = deleting;
-  pendingCommandTemplateId = templateId;
   finishDeviceCommand();
   return true;
 }
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   Serial.printf("\nFW: %s, device=%s\n", FIRMWARE_VERSION, DEVICE_ID);
   randomSeed(ESP.getCycleCount());
   littleFsReady = LittleFS.begin();
@@ -761,8 +1092,10 @@ void setup() {
   finger.begin(57600);
   if (!finger.verifyPassword()) {
     Serial.println("Khong tim thay cam bien van tay");
+    setSensorError("AS608 khong xac thuc duoc");
     showLcd("LOI CAM BIEN", "KIEM TRA DAY");
-    while (true) { signalResult(false); }
+  } else {
+    markSensorReady();
   }
   showLcd("DANG KET NOI", "WIFI...");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -791,11 +1124,14 @@ void setup() {
     showLcd("OFFLINE", "CHO DONG BO");
   }
   Serial.println("\nSan sang cham cong");
-  showReadyScreen();
+  if (sensorReady) showReadyScreen();
+  else showLcd("LOI CAM BIEN", "KIEM TRA DAY");
 }
 
 void loop() {
+  maybeRecoverSensor();
   maybePublishDeviceSnapshot();
+  maybeUpdateIdleClock();
   if (millis() - lastAttendanceSync >= ATTENDANCE_SYNC_INTERVAL_MS) {
     lastAttendanceSync = millis();
     if (!flushAttendanceOutbox() && attendanceOutboxBytes() > 0) {
@@ -805,18 +1141,26 @@ void loop() {
   if (pendingCommandResult) {
     if (millis() - lastCommandCheck >= 3000) {
       lastCommandCheck = millis();
-      checkEnrollmentCommand();
+      checkDeviceCommand();
     }
     delay(80);
     return;
   }
   if (waitingForFingerRemoval) {
+    if (!sensorReady) {
+      waitingForFingerRemoval = false;
+      showLcd("LOI CAM BIEN", "KIEM TRA DAY");
+      delay(200);
+      return;
+    }
     uint8_t imageStatus = finger.getImage();
     if (imageStatus == FINGERPRINT_NOFINGER) {
       waitingForFingerRemoval = false;
       showReadyScreen();
     } else if (imageStatus != FINGERPRINT_OK) {
+      setSensorError("AS608 loi khi kiem tra ngon tay");
       showLcd("LOI CAM BIEN", "KIEM TRA DAY");
+      waitingForFingerRemoval = false;
     } else if (millis() - fingerRemovalStarted >= 10000) {
       showLcd("NHAC NGON TAY", "RA KHOI CAM BIEN");
       fingerRemovalStarted = millis();
@@ -827,13 +1171,34 @@ void loop() {
 
   if (millis() - lastCommandCheck >= 3000) {
     lastCommandCheck = millis();
-    if (checkEnrollmentCommand()) return;
+    if (checkDeviceCommand()) return;
   }
-  if (finger.getImage() != FINGERPRINT_OK) { delay(80); return; }
+  if (!sensorReady) {
+    delay(200);
+    return;
+  }
+  uint8_t imageStatus = finger.getImage();
+  if (imageStatus != FINGERPRINT_OK) {
+    if (imageStatus != FINGERPRINT_NOFINGER) {
+      setSensorError("AS608 loi khi doc van tay");
+      showLcd("LOI CAM BIEN", "KIEM TRA DAY");
+    }
+    delay(80);
+    return;
+  }
   showLcd("DANG XU LY...", "VUI LONG DOI");
-  if (finger.image2Tz() != FINGERPRINT_OK || finger.fingerFastSearch() != FINGERPRINT_OK) {
+  uint8_t imageToTemplateStatus = finger.image2Tz();
+  uint8_t searchStatus = imageToTemplateStatus == FINGERPRINT_OK
+      ? finger.fingerFastSearch()
+      : imageToTemplateStatus;
+  if (imageToTemplateStatus != FINGERPRINT_OK || searchStatus != FINGERPRINT_OK) {
     Serial.println("Van tay khong hop le");
     showLcd("VAN TAY SAI", "XIN THU LAI");
+    if (searchStatus == FINGERPRINT_NOTFOUND || imageToTemplateStatus == FINGERPRINT_IMAGEMESS) {
+      recordFailedScan("Van tay khong hop le");
+    } else {
+      setSensorError("AS608 loi khi xu ly van tay");
+    }
     signalResult(false);
     delay(500);
     startWaitingForFingerRemoval();

@@ -66,6 +66,7 @@ internal fun auditActionLabel(action: String): String = when (action) {
     "OVERTIME_REVIEW" -> "Duyệt tăng ca"
     "SHIFT_UPDATE" -> "Cập nhật ca"
     "DEVICE_CONFIG_UPDATE" -> "Cập nhật thiết bị"
+    "DEVICE_COMMAND" -> "Điều khiển thiết bị"
     "PASSWORD_CHANGE" -> "Đổi mật khẩu"
     else -> action
 }
@@ -80,6 +81,7 @@ internal fun auditTargetTypeLabel(targetType: String): String = when (targetType
     "shift" -> "Ca làm"
     "workSchedule" -> "Lịch phân ca"
     "device" -> "Thiết bị"
+    "deviceCommand" -> "Lệnh thiết bị"
     else -> targetType
 }
 

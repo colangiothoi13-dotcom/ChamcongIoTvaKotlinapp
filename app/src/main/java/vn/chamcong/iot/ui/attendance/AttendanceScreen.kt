@@ -30,6 +30,7 @@ import java.time.LocalDate
 import java.util.Date
 import vn.chamcong.iot.domain.assignAttendanceScheduleDates
 import vn.chamcong.iot.domain.employeeDaySummary
+import vn.chamcong.iot.domain.parseAttendanceDateRange
 import vn.chamcong.iot.model.Attendance
 
 @Composable
@@ -41,6 +42,8 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
     val statuses = listOf("Tất cả" to null, "Đúng giờ" to "NORMAL", "Đi trễ" to "LATE", "Về sớm" to "EARLY_LEAVE")
     val types = listOf("Tất cả loại" to null, "Vào ca" to "CHECK_IN", "Ra ca" to "CHECK_OUT")
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
+        AttendanceDateRangeControls(state, vm)
+        if (state.attendanceDatePreset == "SINGLE" || state.attendanceDateFilter.isNotBlank()) {
         OutlinedTextField(
             value = state.attendanceDateFilter,
             onValueChange = vm::setAttendanceDateFilter,
@@ -54,6 +57,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 }
             }
         )
+        }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             androidx.compose.foundation.layout.Box {
                 FilterChip(
@@ -170,6 +174,52 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 ) { offScheduleTarget = null }
             }
         )
+    }
+}
+
+@Composable
+private fun AttendanceDateRangeControls(state: MainUiState, vm: MainViewModel) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+        listOf(
+            "Tất cả" to null,
+            "Hôm nay" to "TODAY",
+            "Hôm qua" to "YESTERDAY",
+            "Tuần này" to "THIS_WEEK",
+            "Tháng này" to "THIS_MONTH",
+            "Ngày cụ thể" to "SINGLE",
+            "Khoảng tùy chọn" to "CUSTOM"
+        ).forEach { (label, preset) ->
+            FilterChip(
+                selected = state.attendanceDatePreset == preset,
+                onClick = { vm.setAttendanceDatePreset(preset) },
+                label = { Text(label) }
+            )
+        }
+    }
+    if (state.attendanceDatePreset == "CUSTOM") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+            OutlinedTextField(
+                value = state.attendanceRangeStart,
+                onValueChange = vm::setAttendanceRangeStart,
+                modifier = Modifier.weight(1f),
+                label = { Text("Từ ngày (yyyy-MM-dd)") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = state.attendanceRangeEnd,
+                onValueChange = vm::setAttendanceRangeEnd,
+                modifier = Modifier.weight(1f),
+                label = { Text("Đến ngày (yyyy-MM-dd)") },
+                singleLine = true
+            )
+        }
+        if (parseAttendanceDateRange(state.attendanceRangeStart, state.attendanceRangeEnd) == null) {
+            Text(
+                "Khoảng ngày không hợp lệ hoặc chưa đủ hai đầu mút",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
     }
 }
 

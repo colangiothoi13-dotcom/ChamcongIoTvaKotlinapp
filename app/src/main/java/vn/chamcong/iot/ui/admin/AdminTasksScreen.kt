@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Event
-import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.Insights
@@ -52,16 +51,16 @@ data class AdminTaskGroup(
 
 val adminTaskGroups = listOf(
     AdminTaskGroup(
-        "Chấm công & thiết bị",
+        "Hiện diện & thiết bị",
         listOf(
-            AdminTaskItem(AppDestination.ATTENDANCE, "Theo dõi lượt vào/ra và lọc bất thường", Icons.Default.FactCheck),
-            AdminTaskItem(AppDestination.DEVICES, "Tín hiệu, trạng thái và lệnh vân tay", Icons.Default.Devices),
-            AdminTaskItem(AppDestination.PRESENCE, "Biết nhanh ai đang có mặt", Icons.Default.HowToReg)
+            AdminTaskItem(AppDestination.PRESENCE, "Biết nhanh ai đang có mặt", Icons.Default.HowToReg),
+            AdminTaskItem(AppDestination.DEVICES, "Theo dõi trạng thái và điều khiển thiết bị từ xa", Icons.Default.Devices)
         )
     ),
     AdminTaskGroup(
         "Lịch & ca",
         listOf(
+            AdminTaskItem(AppDestination.SHIFT_MANAGEMENT, "Mở nhanh quản lý ca và lịch làm việc", Icons.Default.CalendarMonth),
             AdminTaskItem(AppDestination.SHIFTS, "Tạo ca sáng, ca chiều và ca bổ sung", Icons.Default.Schedule),
             AdminTaskItem(AppDestination.SCHEDULE, "Phân ca theo tuần/tháng và sao chép lịch", Icons.Default.Event)
         )

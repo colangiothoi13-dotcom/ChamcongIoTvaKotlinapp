@@ -7,7 +7,11 @@ import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
+import vn.chamcong.iot.model.DailyDashboardSummary
+import vn.chamcong.iot.model.EmployeeAttendanceStatus
+import vn.chamcong.iot.model.LeaveRequest
 import java.time.LocalDate
+import java.time.Instant
 import java.time.ZoneId
 
 fun summarizeDashboard(
@@ -100,3 +104,70 @@ fun summarizeDashboard(
 private fun Attendance.localDate(zoneId: ZoneId): LocalDate =
     scheduleDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         ?: timestamp.toDate().toInstant().atZone(zoneId).toLocalDate()
+
+fun summarizeDailyDashboard(
+    employees: List<Employee>,
+    attendance: List<Attendance>,
+    schedules: List<WorkSchedule>,
+    shifts: List<WorkShift>,
+    requests: List<LeaveRequest>,
+    adjustments: List<AttendanceAdjustment>,
+    date: LocalDate,
+    zoneId: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+    now: Instant = Instant.now()
+): DailyDashboardSummary {
+    val activeEmployees = employees.filter { it.active && it.id.isNotBlank() }
+    val assignedAttendance = assignAttendanceScheduleDates(
+        attendance.filter(::isAcceptedAttendance), schedules, shifts, zoneId
+    )
+    val schedulesByEmployee = schedules
+        .filter { it.date == date.toString() }
+        .groupBy(WorkSchedule::employeeId)
+    val shiftsById = shifts.associateBy(WorkShift::id)
+    var checkedIn = 0
+    var notCheckedIn = 0
+    var present = 0
+    var onLeave = 0
+    var missingCheckOut = 0
+    val lateEmployees = mutableListOf<Employee>()
+
+    activeEmployees.forEach { employee ->
+        val schedule = schedulesByEmployee[employee.id].orEmpty().firstOrNull()
+        val selectedShifts = schedule?.let { scheduledShifts(it, shiftsById) }.orEmpty()
+        val leaveShiftIds = schedule?.let {
+            approvedLeaveShiftIdsForDate(employee.id, date, it, shifts, requests)
+        }.orEmpty()
+        val daily = employeeDaySummaryForSchedule(
+            employeeId = employee.id,
+            date = date,
+            attendance = assignedAttendance,
+            schedule = schedule,
+            shifts = shifts,
+            approvedLeave = false,
+            zoneId = zoneId,
+            adjustments = adjustments,
+            now = now,
+            approvedLeaveShiftIds = leaveShiftIds
+        )
+        val shiftSummaries = daily.shiftSummaries
+        val hasCheckIn = daily.checkIn != null
+        val hasWorkingShift = selectedShifts.any { it.id !in leaveShiftIds }
+        if (hasCheckIn) checkedIn++
+        if (!hasCheckIn && hasWorkingShift) notCheckedIn++
+        if (shiftSummaries.any { it.lateMinutes > 0 }) lateEmployees += employee
+        if (shiftSummaries.any { it.status == EmployeeAttendanceStatus.PRESENT }) present++
+        if (shiftSummaries.any { it.status == EmployeeAttendanceStatus.LEAVE }) onLeave++
+        if (shiftSummaries.any { it.status == EmployeeAttendanceStatus.MISSING_CHECK_OUT }) missingCheckOut++
+    }
+
+    return DailyDashboardSummary(
+        date = date,
+        activeEmployees = activeEmployees.size,
+        checkedInEmployees = checkedIn,
+        notCheckedInEmployees = notCheckedIn,
+        lateEmployees = lateEmployees.distinctBy(Employee::id).sortedBy { it.fullName },
+        presentEmployees = present,
+        onLeaveEmployees = onLeave,
+        missingCheckOutEmployees = missingCheckOut
+    )
+}
