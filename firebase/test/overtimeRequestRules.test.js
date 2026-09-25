@@ -66,8 +66,8 @@ function overtimeFields(employeeId, workDate, overrides = {}) {
     employeeName: { stringValue: `Employee ${employeeId}` },
     department: { stringValue: "Engineering" },
     workDate: { stringValue: workDate },
-    startTime: { stringValue: "17:30" },
-    endTime: { stringValue: "20:30" },
+    startTime: { stringValue: "18:00" },
+    endTime: { stringValue: "22:00" },
     status: { stringValue: "PENDING" },
     reviewerId: { nullValue: null },
     reviewerName: { nullValue: null },
@@ -169,7 +169,7 @@ test("inactive employee record cannot create an overtime request", async () => {
 
 test("employee cannot tamper with the fixed overtime window", async () => {
   const { response } = await createOvertime(employee, employee.employeeId, "2026-09-22", {
-    startTime: { stringValue: "18:00" }
+    startTime: { stringValue: "17:30" }
   });
   await expectStatus(response, 403, "fixed time tampering");
 });

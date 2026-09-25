@@ -10,7 +10,9 @@ import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceResolutionStatus
 import vn.chamcong.iot.model.AttendanceType
+import vn.chamcong.iot.model.OffScheduleAttendanceReview
 import vn.chamcong.iot.model.WorkShift
+import vn.chamcong.iot.model.WorkSchedule
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -34,6 +36,33 @@ class AttendanceResolutionRulesTest {
     @Test
     fun shiftDefaultsToSixtyMinuteMissingCheckoutGrace() {
         assertEquals(60, WorkShift().missingCheckOutGraceMinutes)
+    }
+
+    @Test
+    fun sparkRejectedOffScheduleReviewIsShownAsRejectedImmediately() {
+        val row = Attendance(
+            id = "scan-1",
+            employeeId = "e1",
+            type = "UNSCHEDULED",
+            status = "ABNORMAL",
+            resolutionStatus = AttendanceResolutionStatus.UNSCHEDULED.name,
+            scheduleDate = scheduleDate.toString(),
+            timestamp = Timestamp(Date.from(Instant.parse("2026-09-14T03:00:00Z")))
+        )
+        val review = OffScheduleAttendanceReview(
+            employeeId = "e1",
+            scheduleDate = scheduleDate.toString(),
+            shiftId = "morning",
+            decision = "REJECT",
+            status = "PENDING",
+            reviewerId = "admin-1",
+            reviewerName = "Admin"
+        )
+
+        val effective = applyOffScheduleReviewDecisions(listOf(row), listOf(review), zone).single()
+
+        assertEquals("REJECTED", effective.offScheduleReviewStatus)
+        assertEquals("admin-1", effective.offScheduleReviewerId)
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -138,11 +167,88 @@ class AttendanceResolutionRulesTest {
         assertTrue(isMissingCheckOut(pair, scheduleDate, null, Instant.parse("2026-09-15T00:00:00Z"), zone))
     }
 
+    @Test
+    fun resolvesSparkPendingScansLocallyAcrossTwoSeparateShifts() {
+        val morning = WorkShift(
+            id = "morning",
+            name = "Ca sáng",
+            category = "MORNING",
+            startTime = "08:00",
+            endTime = "12:00",
+            allowEarlyMinutes = 120
+        )
+        val afternoon = WorkShift(
+            id = "afternoon",
+            name = "Ca chiều",
+            category = "EVENING",
+            startTime = "13:00",
+            endTime = "17:00"
+        )
+        val schedule = WorkSchedule(
+            employeeId = "e1",
+            date = scheduleDate.toString(),
+            shiftId = morning.id,
+            shiftIds = listOf(morning.id, afternoon.id)
+        )
+        val rawRows = listOf(
+            rawScan("2026-09-14T03:00:00Z", "in-morning"),
+            rawScan("2026-09-14T05:00:00Z", "out-morning"),
+            rawScan("2026-09-14T06:00:00Z", "in-afternoon"),
+            rawScan("2026-09-14T10:30:00Z", "out-afternoon")
+        )
+
+        val resolved = resolveSparkPendingAttendance(rawRows, listOf(schedule), listOf(morning, afternoon), zone)
+
+        assertEquals(listOf("CHECK_IN", "CHECK_OUT", "CHECK_IN", "CHECK_OUT"), resolved.map { it.type })
+        assertEquals(listOf("LATE", "NORMAL", "NORMAL", "NORMAL"), resolved.map { it.status })
+        assertEquals(listOf("morning", "morning", "afternoon", "afternoon"), resolved.map { it.shiftId })
+        assertTrue(resolved.all { it.resolutionStatus == AttendanceResolutionStatus.ACCEPTED.name })
+        assertEquals("SCAN", rawRows.first().type)
+        assertEquals(AttendanceResolutionStatus.PENDING.name, rawRows.first().resolutionStatus)
+    }
+
+    @Test
+    fun resolvesSparkEarlyCheckoutWithoutChangingFirestoreRow() {
+        val morning = WorkShift(
+            id = "morning",
+            category = "MORNING",
+            startTime = "08:00",
+            endTime = "12:00",
+            allowEarlyMinutes = 120
+        )
+        val schedule = WorkSchedule(
+            employeeId = "e1",
+            date = scheduleDate.toString(),
+            shiftId = morning.id,
+            shiftIds = listOf(morning.id)
+        )
+        val rawRows = listOf(
+            rawScan("2026-09-14T03:00:00Z", "in"),
+            rawScan("2026-09-14T04:30:00Z", "early-out")
+        )
+
+        val resolved = resolveSparkPendingAttendance(rawRows, listOf(schedule), listOf(morning), zone)
+
+        assertEquals("EARLY_LEAVE", resolved.last().status)
+        assertEquals("SCAN", rawRows.last().type)
+    }
+
     private fun attendance(type: String, instant: String, resolutionStatus: String = AttendanceResolutionStatus.ACCEPTED.name) = Attendance(
         employeeId = "e1",
         type = type,
         timestamp = Timestamp(Date.from(Instant.parse(instant))),
         resolutionStatus = resolutionStatus
+    )
+
+    private fun rawScan(instant: String, id: String) = Attendance(
+        id = id,
+        employeeId = "e1",
+        employeeName = "An",
+        type = "SCAN",
+        status = "PENDING",
+        resolutionStatus = AttendanceResolutionStatus.PENDING.name,
+        syncStatus = "PENDING_SYNC",
+        timestamp = Timestamp(Date.from(Instant.parse(instant)))
     )
 
     private fun adjustment(id: String, createdAt: String, checkOutAt: String) = AttendanceAdjustment(

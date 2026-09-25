@@ -62,7 +62,7 @@ data class WorkTimeSummary(
     /** Original scan instants, before any schedule-boundary adjustments. */
     val rawCheckInAt: java.time.Instant? = null,
     val rawCheckOutAt: java.time.Instant? = null,
-    /** Instants used for paid-time calculation after schedule/grace clipping. */
+    /** Instants used for paid-time calculation after schedule-window clipping. */
     val paidCheckInAt: java.time.Instant? = null,
     val paidCheckOutAt: java.time.Instant? = null,
     /** Exact whole seconds credited to regular work and overtime, before hour rounding. */

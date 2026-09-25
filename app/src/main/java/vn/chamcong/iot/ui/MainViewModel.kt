@@ -20,6 +20,8 @@ import kotlinx.coroutines.CancellationException
 import vn.chamcong.iot.domain.filterAttendance
 import vn.chamcong.iot.domain.filterEmployees
 import vn.chamcong.iot.domain.applyAttendanceClassificationOverrides
+import vn.chamcong.iot.domain.applyOffScheduleReviewDecisions
+import vn.chamcong.iot.domain.resolveSparkPendingAttendance
 import vn.chamcong.iot.domain.classifyPresenceForEmployees
 import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.summarizeDashboard
@@ -123,10 +125,19 @@ data class MainUiState(
     val message: String? = null,
     val error: String? = null
 ) {
+    /** Effective rows are derived locally in Spark mode; Firestore raw scans stay immutable. */
+    val sparkResolvedAttendance: List<Attendance>
+        get() = resolveSparkPendingAttendance(attendance, schedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh"))
+    val employeeSparkResolvedAttendance: List<Attendance>
+        get() = resolveSparkPendingAttendance(employeeAttendance, employeeSchedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh"))
     val employeeAttendanceForSummaries: List<Attendance>
-        get() = applyAttendanceClassificationOverrides(employeeAttendance, attendanceClassificationOverrides)
+        get() = applyAttendanceClassificationOverrides(employeeSparkResolvedAttendance, attendanceClassificationOverrides)
     val attendanceForSummaries: List<Attendance>
-        get() = applyAttendanceClassificationOverrides(attendance, attendanceClassificationOverrides)
+        get() = applyOffScheduleReviewDecisions(
+            applyAttendanceClassificationOverrides(sparkResolvedAttendance, attendanceClassificationOverrides),
+            offScheduleAttendanceReviews,
+            ZoneId.of("Asia/Ho_Chi_Minh")
+        )
 
     // Derived on every state snapshot, including schedule, shift and adjustment emissions.
     val dashboard: DashboardSummary
@@ -163,9 +174,13 @@ data class MainUiState(
                 else -> if (attendanceDateFilter.isBlank()) null else parseAttendanceDateRange(attendanceDateFilter, attendanceDateFilter)
             }
             if ((attendanceDatePreset != null || attendanceDateFilter.isNotBlank()) && selectedRange == null) return emptyList()
+            // Spark mode keeps Firestore scans immutable, so the list screen
+            // must use the locally resolved copies to show CHECK_IN/CHECK_OUT
+            // instead of exposing the raw SCAN/PENDING device event.
+            val resolvedAttendance = attendanceForSummaries
             val rangedAttendance = selectedRange?.let {
-                filterAttendanceByDateRange(attendance, it, schedules, shifts, zone)
-            } ?: attendance
+                filterAttendanceByDateRange(resolvedAttendance, it, schedules, shifts, zone)
+            } ?: resolvedAttendance
             return filterAttendance(rangedAttendance, attendanceStatusFilter, attendanceTypeFilter,
                 schedules, shifts, attendanceAdjustments)
                 .filter { row -> attendanceEmployeeFilter.isNullOrBlank() || row.employeeId == attendanceEmployeeFilter }
@@ -500,6 +515,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.submitOffScheduleAttendanceReview(
             employeeId, employeeName, scheduleDate, shift, decision, reason
         )
+        if (decision == "REJECT") {
+            // The attendance document is immutable on Spark. Mark matching
+            // rows locally so the admin sees the rejection immediately; the
+            // review listener also restores this view after a refresh.
+            _state.update { current ->
+                current.copy(
+                    attendance = current.attendance.map { row ->
+                        val rowDate = row.scheduleDate ?: row.timestamp.toDate().toInstant()
+                            .atZone(zoneId).toLocalDate().toString()
+                        if (row.employeeId == employeeId && rowDate == scheduleDate &&
+                            (row.type == "UNSCHEDULED" || row.resolutionStatus == "UNSCHEDULED")) {
+                            row.copy(offScheduleReviewStatus = "REJECTED")
+                        } else row
+                    }
+                )
+            }
+        }
         if (decision == "APPROVE") "Đã gửi duyệt lượt chấm ngoài lịch; chờ hệ thống cập nhật"
         else "Đã gửi từ chối lượt chấm ngoài lịch"
     }

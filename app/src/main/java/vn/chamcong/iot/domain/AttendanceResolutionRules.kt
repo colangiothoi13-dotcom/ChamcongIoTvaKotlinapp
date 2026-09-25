@@ -7,6 +7,7 @@ import vn.chamcong.iot.model.AttendancePair
 import vn.chamcong.iot.model.AttendanceResolutionStatus
 import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.AttendanceStatus
+import vn.chamcong.iot.model.OffScheduleAttendanceReview
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WorkSchedule
 import java.time.Duration
@@ -14,6 +15,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import kotlin.math.abs
 
 data class ShiftWindow(
     val scheduleDate: LocalDate,
@@ -77,6 +79,48 @@ fun applyAttendanceClassificationOverrides(
         val scanTimestamp = row.timestamp.toDate().toInstant()
         if (row.id.isBlank() || scanTimestamp != correction.sourceTimestamp) row
         else row.copy(type = correction.correctedType, status = correction.correctedStatus)
+    }
+}
+
+/**
+ * Spark fallback for off-schedule reviews. Cloud Functions normally writes the
+ * final review status and annotates the immutable attendance row. On Spark,
+ * the client cannot update either document, so a pending REJECT decision is
+ * overlaid in memory for the attendance list and review controls.
+ */
+fun applyOffScheduleReviewDecisions(
+    rows: List<Attendance>,
+    reviews: List<OffScheduleAttendanceReview>,
+    zoneId: ZoneId
+): List<Attendance> {
+    if (rows.isEmpty() || reviews.isEmpty()) return rows
+    val rejectedReviews = reviews.filter { review ->
+        review.decision == "REJECT" && review.status in setOf("PENDING", "REJECTED")
+    }
+    if (rejectedReviews.isEmpty()) return rows
+
+    return rows.map { row ->
+        if (row.type != "UNSCHEDULED" &&
+            row.resolutionStatus != AttendanceResolutionStatus.UNSCHEDULED.name) {
+            return@map row
+        }
+        if (row.offScheduleReviewStatus in setOf("APPROVED", "REJECTED")) return@map row
+        val scheduleDate = row.scheduleDate
+            ?: row.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate().toString()
+        val sameEmployeeDayReviews = rejectedReviews.filter { review ->
+            review.scheduleDate == scheduleDate &&
+                (review.employeeId == row.employeeId ||
+                    (review.employeeName.isNotBlank() && review.employeeName == row.employeeName))
+        }
+        val matchingReview = sameEmployeeDayReviews.firstOrNull { review ->
+            row.shiftId.isNullOrBlank() || row.shiftId == review.shiftId
+        } ?: sameEmployeeDayReviews.firstOrNull() ?: return@map row
+
+        row.copy(
+            offScheduleReviewStatus = "REJECTED",
+            offScheduleReviewerId = matchingReview.reviewerId,
+            offScheduleReviewerName = matchingReview.reviewerName
+        )
     }
 }
 
@@ -277,7 +321,7 @@ internal fun belongsToScheduleDate(
     val opensAt = window.start.minusSeconds(earlyMinutes * 60L)
     val checkoutGraceSeconds = effectiveCheckoutGraceSeconds(shift)
     val closesAt = window.end.plusSeconds(checkoutGraceSeconds)
-    val insideClose = if (hasStrictCheckoutWindow(shift)) eventAt.isBefore(closesAt) else !eventAt.isAfter(closesAt)
+    val insideClose = !eventAt.isAfter(closesAt)
     return !eventAt.isBefore(opensAt) && insideClose
 }
 
@@ -294,4 +338,170 @@ private fun effectiveCheckoutGraceSeconds(shift: WorkShift): Long = when {
     shift.id == SUPPLEMENTARY_SHIFT_ID -> 120L * 60L
     isStandardMorning(shift) || isStandardAfternoon(shift) -> 30L * 60L
     else -> shift.missingCheckOutGraceMinutes * 60L
+}
+
+private data class SparkScheduleCandidate(
+    val schedule: WorkSchedule,
+    val shift: WorkShift,
+    val window: ShiftWindow
+)
+
+private data class SparkSessionKey(
+    val employeeId: String,
+    val scheduleDate: LocalDate,
+    val shiftId: String
+)
+
+private data class SparkSession(
+    var lastAcceptedAt: Instant? = null,
+    var openCheckInAt: Instant? = null,
+    var closed: Boolean = false
+)
+
+/**
+ * Resolves Spark raw scans locally without writing back to Firestore.
+ *
+ * Spark rules intentionally allow the device to create only SCAN/PENDING
+ * documents. The Android app can still provide the same attendance view as
+ * the optional Functions resolver by deriving an effective copy in memory.
+ */
+fun resolveSparkPendingAttendance(
+    rows: List<Attendance>,
+    schedules: List<WorkSchedule>,
+    shifts: List<WorkShift>,
+    zoneId: ZoneId
+): List<Attendance> {
+    if (rows.isEmpty() || schedules.isEmpty() || shifts.isEmpty()) return rows
+
+    val shiftsById = shifts.associateBy(WorkShift::id)
+    val candidates = schedules.flatMap { schedule ->
+        val date = runCatching { LocalDate.parse(schedule.date) }.getOrNull() ?: return@flatMap emptyList()
+        val scheduled = scheduledShifts(schedule, shiftsById)
+        scheduled.map { shift -> SparkScheduleCandidate(schedule, shift, shiftWindow(date, shift, zoneId)) }
+    }
+    if (candidates.isEmpty()) return rows
+
+    val sessions = mutableMapOf<SparkSessionKey, SparkSession>()
+    val resolved = rows.toMutableList()
+    rows.indices
+        .sortedWith(compareBy<Int> { rows[it].timestamp.toDate().time }.thenBy { rows[it].id })
+        .forEach { index ->
+            val row = rows[index]
+            val eventAt = row.timestamp.toDate().toInstant()
+            val pendingScan = row.type == "SCAN" &&
+                row.resolutionStatus == AttendanceResolutionStatus.PENDING.name
+            val employeeCandidates = candidates.filter { candidate ->
+                candidate.schedule.employeeId == row.employeeId &&
+                    (row.scheduleDate == null || row.scheduleDate == candidate.schedule.date) &&
+                    (row.shiftId == null || row.shiftId == candidate.shift.id)
+            }
+            if (employeeCandidates.isEmpty()) return@forEach
+
+            val selected = if (pendingScan) {
+                employeeCandidates
+                    .filter { candidate -> eventAt >= candidate.window.start.minusSeconds(effectiveOpenEarlySeconds(candidate.shift)) &&
+                        eventAt <= candidate.window.end.plusSeconds(effectiveCheckoutGraceSeconds(candidate.shift)) }
+                    .minWithOrNull(compareBy<SparkScheduleCandidate> {
+                        minOf(abs(eventAt.epochSecond - it.window.start.epochSecond),
+                            abs(eventAt.epochSecond - it.window.end.epochSecond))
+                    }.thenBy { it.window.start }.thenBy { it.shift.id })
+            } else {
+                employeeCandidates.minWithOrNull(compareBy<SparkScheduleCandidate> {
+                    distanceToShiftBoundary(eventAt, row.type, it.window)
+                }.thenBy { it.window.start }.thenBy { it.shift.id })
+            } ?: return@forEach
+
+            val date = selected.window.scheduleDate
+            val key = SparkSessionKey(row.employeeId, date, selected.shift.id)
+            val session = sessions.getOrPut(key) { SparkSession() }
+
+            if (!pendingScan) {
+                if (isAcceptedAttendance(row)) {
+                    when (row.type) {
+                        AttendanceType.CHECK_IN.name -> {
+                            session.lastAcceptedAt = eventAt
+                            session.openCheckInAt = eventAt
+                            session.closed = false
+                        }
+                        AttendanceType.CHECK_OUT.name -> {
+                            session.lastAcceptedAt = eventAt
+                            session.openCheckInAt = null
+                            session.closed = true
+                        }
+                    }
+                }
+                return@forEach
+            }
+
+            val duplicate = session.lastAcceptedAt?.let {
+                abs(eventAt.epochSecond - it.epochSecond) <= DUPLICATE_WINDOW_SECONDS
+            } == true
+            val outOfOrder = session.lastAcceptedAt?.let { eventAt.isBefore(it) } == true
+            val type = if (session.openCheckInAt != null || !eventAt.isBefore(selected.window.end)) {
+                AttendanceType.CHECK_OUT.name
+            } else {
+                AttendanceType.CHECK_IN.name
+            }
+
+            resolved[index] = when {
+                duplicate -> row.copy(
+                    type = "DUPLICATE",
+                    status = "ABNORMAL",
+                    resolutionStatus = AttendanceResolutionStatus.DUPLICATE.name,
+                    scheduleDate = selected.schedule.date,
+                    shiftId = selected.shift.id,
+                    syncStatus = "SYNCED"
+                )
+                outOfOrder -> row.copy(
+                    type = "OUT_OF_ORDER",
+                    status = "ABNORMAL",
+                    resolutionStatus = AttendanceResolutionStatus.OUT_OF_ORDER.name,
+                    scheduleDate = selected.schedule.date,
+                    shiftId = selected.shift.id,
+                    syncStatus = "SYNCED"
+                )
+                session.closed -> row.copy(
+                    type = "UNSCHEDULED",
+                    status = "ABNORMAL",
+                    resolutionStatus = AttendanceResolutionStatus.UNSCHEDULED.name,
+                    scheduleDate = selected.schedule.date,
+                    shiftId = selected.shift.id,
+                    syncStatus = "SYNCED"
+                )
+                else -> {
+                    val status = when {
+                        type == AttendanceType.CHECK_IN.name && eventAt.isAfter(
+                            selected.window.start.plusSeconds(selected.shift.lateGraceMinutes * 60L)
+                        ) -> "LATE"
+                        type == AttendanceType.CHECK_OUT.name && eventAt.isBefore(
+                            selected.window.end.minusSeconds(selected.shift.earlyLeaveAllowedMinutes * 60L)
+                        ) -> "EARLY_LEAVE"
+                        else -> "NORMAL"
+                    }
+                    if (type == AttendanceType.CHECK_IN.name) {
+                        session.openCheckInAt = eventAt
+                    } else {
+                        session.openCheckInAt = null
+                        session.closed = true
+                    }
+                    session.lastAcceptedAt = eventAt
+                    row.copy(
+                        type = type,
+                        status = status,
+                        resolutionStatus = AttendanceResolutionStatus.ACCEPTED.name,
+                        scheduleDate = selected.schedule.date,
+                        shiftId = selected.shift.id,
+                        syncStatus = "SYNCED"
+                    )
+                }
+            }
+        }
+    return resolved
+}
+
+private const val DUPLICATE_WINDOW_SECONDS = 180L
+
+private fun effectiveOpenEarlySeconds(shift: WorkShift): Long {
+    val earlyMinutes = if (isStandardMorning(shift)) maxOf(120, shift.allowEarlyMinutes) else shift.allowEarlyMinutes
+    return earlyMinutes * 60L
 }

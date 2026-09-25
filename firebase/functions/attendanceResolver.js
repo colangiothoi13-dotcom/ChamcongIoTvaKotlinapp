@@ -1,6 +1,6 @@
 const DUPLICATE_WINDOW_MS = 180000;
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
-const SUPPLEMENTARY_SHIFT_ID = "SUPPLEMENTARY_1730_2030";
+const SUPPLEMENTARY_SHIFT_ID = "SUPPLEMENTARY_1800_2200";
 const SUPPLEMENTARY_START_TIME = "18:00";
 const SUPPLEMENTARY_END_TIME = "22:00";
 
@@ -42,8 +42,8 @@ function buildSupplementarySchedule(workDate, request) {
     overtimeRequestId: request && request.id ? request.id : null,
     shift: {
       id: SUPPLEMENTARY_SHIFT_ID,
-      startTime: request && request.startTime ? request.startTime : SUPPLEMENTARY_START_TIME,
-      endTime: request && request.endTime ? request.endTime : SUPPLEMENTARY_END_TIME,
+      startTime: SUPPLEMENTARY_START_TIME,
+      endTime: SUPPLEMENTARY_END_TIME,
       allowEarlyMinutes: 0,
       missingCheckOutGraceMinutes: 120
     }
@@ -74,14 +74,15 @@ function pickSchedule(scanMs, schedules) {
       ? Math.max(120, Number(shift.allowEarlyMinutes || 0))
       : Number(shift.allowEarlyMinutes || 0);
     const opensAt = candidate.startMs - opensEarlyMinutes * 60000;
-    const strictCheckoutWindow = candidate.shift.id === SUPPLEMENTARY_SHIFT_ID || standardMorning || standardAfternoon;
     const checkoutGrace = candidate.shift.id === SUPPLEMENTARY_SHIFT_ID
       ? 120 * 60000
       : standardMorning || standardAfternoon
         ? 30 * 60000
         : Number(candidate.shift.missingCheckOutGraceMinutes ?? 60) * 60000;
     const closesAt = candidate.endMs + checkoutGrace;
-    return scanMs >= opensAt && (strictCheckoutWindow ? scanMs < closesAt : scanMs <= closesAt);
+    // Keep the checkout boundary inclusive: 17:30 belongs to the standard
+    // afternoon shift and represents 30 minutes of overtime.
+    return scanMs >= opensAt && scanMs <= closesAt;
   });
   if (!candidates.length) return null;
   return candidates.sort((left, right) => {
@@ -99,6 +100,14 @@ function unchanged(type, resolutionStatus, schedule, session) {
     status: "ABNORMAL",
     nextSession: session
   };
+}
+
+function attendanceStatus(scanMs, schedule, type) {
+  if (type === "CHECK_IN" && scanMs > schedule.startMs +
+      Number(schedule.shift.lateGraceMinutes || 0) * 60000) return "LATE";
+  if (type === "CHECK_OUT" && scanMs < schedule.endMs -
+      Number(schedule.shift.earlyLeaveAllowedMinutes || 0) * 60000) return "EARLY_LEAVE";
+  return "NORMAL";
 }
 
 function supplementaryWindowForMs(timestampMs) {
@@ -146,7 +155,9 @@ function resolveScan({ scan, schedules, session, latestAccepted, requestStatus }
     supplementaryStatus === "REJECTED" ? "OVERTIME_REJECTED" : "ACCEPTED";
   return {
     type, resolutionStatus, scheduleDate: schedule.scheduleDate,
-    shiftId: schedule.shiftId, status: resolutionStatus === "ACCEPTED" ? "NORMAL" : "ABNORMAL", nextSession
+    shiftId: schedule.shiftId,
+    status: resolutionStatus === "ACCEPTED" ? attendanceStatus(scan.timestampMs, schedule, type) : "ABNORMAL",
+    nextSession
   };
 }
 
@@ -171,6 +182,7 @@ module.exports = {
   buildSupplementarySchedule,
   buildShiftWindow,
   pickSchedule,
+  attendanceStatus,
   resolveScan,
   localDateForMs,
   resolveMappedEmployee

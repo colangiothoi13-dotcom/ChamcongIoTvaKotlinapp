@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,9 +38,15 @@ import vn.chamcong.iot.domain.weekDates
 import vn.chamcong.iot.ui.AppTouchTarget
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import kotlinx.coroutines.delay
+import vn.chamcong.iot.model.Attendance
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
+
+private val adminScheduleZone = ZoneId.of("Asia/Ho_Chi_Minh")
 
 @Composable
 fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
@@ -49,6 +56,14 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
     var reviewRequest by remember { mutableStateOf<WeeklyScheduleRequest?>(null) }
     val dates = weekDates(state.selectedWeekStart)
     val activeEmployees = state.employees.filter { it.active }
+    val attendance = state.attendanceForSummaries
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = Instant.now()
+            delay(60_000L)
+        }
+    }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Lịch phân ca", style = MaterialTheme.typography.titleLarge)
         WeeklyScheduleWarning(state)
@@ -81,7 +96,7 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
                 assignment = AssignmentTarget(null, date, false)
             }
         } else {
-            WeeklyScheduleGrid(state, dates, activeEmployees) { employee, date ->
+            WeeklyScheduleGrid(state, dates, activeEmployees, attendance, now) { employee, date ->
                 vm.clearError()
                 assignment = AssignmentTarget(employee, date, false)
             }
@@ -228,7 +243,14 @@ private fun WeeklyScheduleRequestReviewDialog(
 private data class AssignmentTarget(val employee: vn.chamcong.iot.model.Employee?, val date: LocalDate, val departmentMode: Boolean)
 
 @Composable
-private fun WeeklyScheduleGrid(state: MainUiState, dates: List<LocalDate>, employees: List<vn.chamcong.iot.model.Employee>, onCell: (vn.chamcong.iot.model.Employee, LocalDate) -> Unit) {
+private fun WeeklyScheduleGrid(
+    state: MainUiState,
+    dates: List<LocalDate>,
+    employees: List<vn.chamcong.iot.model.Employee>,
+    attendance: List<Attendance>,
+    now: Instant,
+    onCell: (vn.chamcong.iot.model.Employee, LocalDate) -> Unit
+) {
     Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
         Row {
             Text("Nhân viên", Modifier.width(150.dp).padding(AppSpacing.small))
@@ -247,9 +269,27 @@ private fun WeeklyScheduleGrid(state: MainUiState, dates: List<LocalDate>, emplo
                             .heightIn(min = AppTouchTarget.minimum)
                     ) {
                         Column(Modifier.padding(AppSpacing.small)) {
+                            val assignedShifts = schedule?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
+                                .mapNotNull { shiftId -> state.shifts.firstOrNull { it.id == shiftId } }
                             val assignedNames = schedule?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
                                 .mapNotNull { shiftId -> state.shifts.firstOrNull { it.id == shiftId }?.name?.takeIf(String::isNotBlank) }
                             Text(assignedNames.joinToString(" + ").ifBlank { schedule?.shiftName ?: "Chưa phân" }, style = MaterialTheme.typography.labelSmall)
+                            assignedShifts.forEach { shift ->
+                                val status = scheduleShiftStatus(
+                                    employeeId = employee.id,
+                                    date = date,
+                                    shift = shift,
+                                    attendance = attendance,
+                                    zoneId = adminScheduleZone,
+                                    now = now
+                                )
+                                Text(
+                                    text = status.label,
+                                    color = scheduleStatusTextColor(status.tone),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 2
+                                )
+                            }
                             if (schedule != null && schedule.overtimeHours > 0) Text("+${schedule.overtimeHours} giờ", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
                         }
                     }
@@ -258,6 +298,15 @@ private fun WeeklyScheduleGrid(state: MainUiState, dates: List<LocalDate>, emplo
         }
         if (employees.isEmpty()) Text("Chưa có nhân viên đang làm")
     }
+}
+
+@Composable
+private fun scheduleStatusTextColor(tone: ScheduleStatusTone) = when (tone) {
+    ScheduleStatusTone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+    ScheduleStatusTone.ACTIVE -> MaterialTheme.colorScheme.primary
+    ScheduleStatusTone.SUCCESS -> MaterialTheme.colorScheme.secondary
+    ScheduleStatusTone.WARNING -> MaterialTheme.colorScheme.tertiary
+    ScheduleStatusTone.ERROR -> MaterialTheme.colorScheme.error
 }
 
 @Composable

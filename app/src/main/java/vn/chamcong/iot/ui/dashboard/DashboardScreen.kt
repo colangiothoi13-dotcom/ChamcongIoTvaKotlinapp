@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -56,8 +57,9 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
         verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
-            Text("Tổng quan hôm nay", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(daily.date.toString(), style = MaterialTheme.typography.bodyMedium)
+            Text("Tổng quan hệ thống", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("Theo dõi nhân sự và chấm công trong ngày", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Hôm nay · ${daily.date}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
         }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
@@ -206,10 +208,10 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onOpenAttendance: () 
                 Button(onClick = onOpenAttendance) { Text("Xem tất cả") }
             }
         }
-        if (state.attendance.isEmpty()) {
+        if (state.attendanceForSummaries.isEmpty()) {
             item { EmptyDashboardState() }
         } else {
-            items(state.attendance.take(5), key = { it.id }) { DashboardAttendanceRow(it) }
+            items(state.attendanceForSummaries.take(5), key = { it.id }) { DashboardAttendanceRow(it) }
         }
         item {
             val failedCommands = state.commands.count { it["status"] == "FAILED" }
@@ -234,11 +236,23 @@ private fun DashboardMetric(
     modifier: Modifier,
     tint: Color = MaterialTheme.colorScheme.primary
 ) {
-    Card(modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-            Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
+            Surface(
+                modifier = Modifier.size(42.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = tint.copy(alpha = 0.12f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
+                }
+            }
             Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(label, style = MaterialTheme.typography.bodySmall)
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

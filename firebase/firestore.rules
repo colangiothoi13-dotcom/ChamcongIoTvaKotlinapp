@@ -27,6 +27,8 @@ service cloud.firestore {
     function isOwnEmployee(employeeId) {
       return isEmployee() && get(userProfilePath()).data.employeeId == employeeId;
     }
+    // Spark/free mode: the ESP8266 uses Firebase Anonymous Auth.
+    // This is suitable for a prototype only; there is no per-device secret boundary.
     function isDevice() {
       return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
@@ -34,6 +36,7 @@ service cloud.firestore {
       return (!('wifiStatus' in data) || data.wifiStatus in ['ONLINE', 'OFFLINE', 'UNKNOWN'])
         && (!('firebaseSyncStatus' in data) || data.firebaseSyncStatus in ['ONLINE', 'PENDING', 'ERROR', 'UNKNOWN'])
         && (!('sensorStatus' in data) || data.sensorStatus in ['OK', 'ERROR', 'UNKNOWN'])
+        && (!('doorStatus' in data) || data.doorStatus in ['OPEN', 'CLOSED', 'UNKNOWN'])
         && (!('failedScanCount' in data)
           || (data.failedScanCount is int && data.failedScanCount >= 0 && data.failedScanCount <= 100000))
         && (!('lastError' in data) || (data.lastError is string && data.lastError.size() <= 240));
@@ -45,7 +48,7 @@ service cloud.firestore {
         && data.type in [
           'ENROLL_FINGERPRINT', 'DELETE_FINGERPRINT',
           'TEST_LED_GREEN', 'TEST_LED_RED', 'TEST_BUZZER',
-          'SYNC_ATTENDANCE', 'RESTART_DEVICE'
+          'SYNC_ATTENDANCE', 'RESTART_DEVICE', 'OPEN_DOOR', 'CLOSE_DOOR'
         ]
         && data.status == 'REQUESTED'
         && data.applied is bool;
@@ -55,9 +58,9 @@ service cloud.firestore {
       return exists(mappingPath)
         && get(mappingPath).data.enabled == true
         && get(mappingPath).data.employeeId == request.resource.data.employeeId
+        && exists(/databases/$(database)/documents/employees/$(get(mappingPath).data.employeeId))
         && get(/databases/$(database)/documents/employees/$(get(mappingPath).data.employeeId)).data.active == true;
     }
-
     function nonBlank(value) { return value is string && value.matches('(?s).*[^\\s].*'); }
     function dateParts(value) { return value.split('-'); }
     function isoDate(value) {
@@ -528,7 +531,7 @@ service cloud.firestore {
     }
     match /attendance/{id} {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
-      // Chế độ Spark/prototype: thiết bị anonymous chỉ được tạo bản ghi mới.
+      // Spark prototype: only anonymous devices may create raw scans.
       allow create: if isDevice()
         && request.resource.data.keys().hasOnly(['employeeId', 'employeeName', 'deviceId',
           'templateId', 'confidence', 'type', 'resolutionStatus', 'status', 'syncStatus', 'timestamp', 'verified'])
@@ -575,7 +578,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'deviceId', 'name', 'location', 'status', 'lastHeartbeat',
           'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities',
-          'wifiStatus', 'firebaseSyncStatus', 'sensorStatus', 'failedScanCount', 'lastError'
+          'wifiStatus', 'firebaseSyncStatus', 'sensorStatus', 'doorStatus', 'failedScanCount', 'lastError'
         ])
         && (!('pendingAttendanceCount' in request.resource.data)
           || (request.resource.data.pendingAttendanceCount is int
@@ -588,7 +591,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'deviceId', 'name', 'location', 'status', 'lastHeartbeat',
           'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities',
-          'wifiStatus', 'firebaseSyncStatus', 'sensorStatus', 'failedScanCount', 'lastError'
+          'wifiStatus', 'firebaseSyncStatus', 'sensorStatus', 'doorStatus', 'failedScanCount', 'lastError'
         ])
         && (!('pendingAttendanceCount' in request.resource.data)
           || (request.resource.data.pendingAttendanceCount is int
@@ -618,7 +621,8 @@ service cloud.firestore {
       let path = /databases/$(database)/documents/shifts/$(shiftId);
       // Check the resulting document so templates created in the same batch work,
       // and changing a main template to supplementary in that batch cannot bypass this.
-      return shiftId != 'SUPPLEMENTARY_1730_2030'
+      return shiftId != 'SUPPLEMENTARY_1800_2200'
+        && shiftId != 'SUPPLEMENTARY_1730_2030'
         && existsAfter(path)
         && getAfter(path).data.category in ['MORNING', 'EVENING']
         && validShiftTimeWindow(getAfter(path).data);
@@ -686,8 +690,7 @@ service cloud.firestore {
         && data.workDate is string
         && data.workDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
         && !isSundayDate(data.workDate)
-        && ((data.startTime == '18:00' && data.endTime == '22:00')
-          || (data.startTime == '17:30' && data.endTime == '20:30'))
+        && data.startTime == '18:00' && data.endTime == '22:00'
         && (!('reason' in data) || data.reason is string)
         && data.status in ['PENDING', 'APPROVED', 'REJECTED']
         && data.createdAt is timestamp

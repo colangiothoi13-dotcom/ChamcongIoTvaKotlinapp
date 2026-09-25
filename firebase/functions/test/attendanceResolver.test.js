@@ -16,6 +16,14 @@ const {
 
 const dayShift = { id: "day", startTime: "08:00", endTime: "17:00", allowEarlyMinutes: 15, missingCheckOutGraceMinutes: 60 };
 const nightShift = { id: "night", startTime: "22:00", endTime: "06:00", allowEarlyMinutes: 30, missingCheckOutGraceMinutes: 60 };
+const morningShift = {
+  id: "morning", category: "MORNING", startTime: "08:00", endTime: "12:00",
+  allowEarlyMinutes: 120, lateGraceMinutes: 0, earlyLeaveAllowedMinutes: 0
+};
+const afternoonShift = {
+  id: "afternoon", category: "EVENING", startTime: "13:00", endTime: "17:00",
+  allowEarlyMinutes: 0, lateGraceMinutes: 0, earlyLeaveAllowedMinutes: 0
+};
 const at = value => Date.parse(value);
 const schedule = (scheduleDate, shift) => ({ scheduleDate, shiftId: shift.id, shift });
 const scan = (timestampMs, eventId = "event") => ({ timestampMs, eventId });
@@ -37,20 +45,20 @@ test("buildSupplementarySchedule creates the fixed Asia/Ho_Chi_Minh window", () 
   const candidate = buildSupplementarySchedule("2026-09-17", { id: "request-1", status: "PENDING" });
   const window = buildShiftWindow(candidate.scheduleDate, candidate.shift);
 
-  assert.equal(SUPPLEMENTARY_SHIFT_ID, "SUPPLEMENTARY_1730_2030");
+  assert.equal(SUPPLEMENTARY_SHIFT_ID, "SUPPLEMENTARY_1800_2200");
   assert.equal(SUPPLEMENTARY_START_TIME, "18:00");
   assert.equal(SUPPLEMENTARY_END_TIME, "22:00");
   assert.equal(candidate.shiftId, SUPPLEMENTARY_SHIFT_ID);
   assert.equal(candidate.overtimeRequestId, "request-1");
-  assert.equal(window.startMs, at("2026-09-17T10:30:00Z"));
-  assert.equal(window.endMs, at("2026-09-17T13:30:00Z"));
+  assert.equal(window.startMs, at("2026-09-17T11:00:00Z"));
+  assert.equal(window.endMs, at("2026-09-17T15:00:00Z"));
 });
 
 test("attendanceSessionId isolates supplementary attendance from the legacy main session", () => {
   assert.equal(attendanceSessionId("employee-1", "2026-09-17", "afternoon"), "employee-1_2026-09-17");
   assert.equal(
     attendanceSessionId("employee-1", "2026-09-17", SUPPLEMENTARY_SHIFT_ID),
-    "employee-1_2026-09-17_SUPPLEMENTARY_1730_2030"
+    "employee-1_2026-09-17_SUPPLEMENTARY_1800_2200"
   );
 });
 
@@ -88,8 +96,62 @@ test("resolveScan makes a first scan near shift start a check-in", () => {
   assert.equal(result.nextSession.openCheckInAt, at("2026-09-17T01:05:00Z"));
 });
 
+test("two standard shifts remain separate and a 10:00 scan is late in the morning shift", () => {
+  const schedules = [
+    schedule("2026-09-17", morningShift),
+    schedule("2026-09-17", afternoonShift)
+  ];
+
+  const morningIn = resolveScan({
+    scan: scan(at("2026-09-17T03:00:00Z"), "morning-in"),
+    schedules, session: null, latestAccepted: null
+  });
+  assert.equal(morningIn.shiftId, "morning");
+  assert.equal(morningIn.type, "CHECK_IN");
+  assert.equal(morningIn.status, "LATE");
+
+  const morningOut = resolveScan({
+    scan: scan(at("2026-09-17T05:00:00Z"), "morning-out"),
+    schedules, session: morningIn.nextSession,
+    latestAccepted: { timestampMs: morningIn.nextSession.lastAcceptedAt, eventId: "morning-in" }
+  });
+  assert.equal(morningOut.shiftId, "morning");
+  assert.equal(morningOut.type, "CHECK_OUT");
+  assert.equal(morningOut.status, "NORMAL");
+
+  const afternoonIn = resolveScan({
+    scan: scan(at("2026-09-17T06:00:00Z"), "afternoon-in"),
+    schedules, session: null, latestAccepted: null
+  });
+  assert.equal(afternoonIn.shiftId, "afternoon");
+  assert.equal(afternoonIn.type, "CHECK_IN");
+});
+
+test("17:30 is the inclusive afternoon checkout boundary", () => {
+  const result = resolveScan({
+    scan: scan(at("2026-09-17T10:30:00Z"), "afternoon-out"),
+    schedules: [schedule("2026-09-17", afternoonShift)],
+    session: { openCheckInAt: at("2026-09-17T06:00:00Z"), closed: false },
+    latestAccepted: { timestampMs: at("2026-09-17T06:00:00Z"), eventId: "afternoon-in" }
+  });
+  assert.equal(result.shiftId, "afternoon");
+  assert.equal(result.type, "CHECK_OUT");
+  assert.equal(result.status, "NORMAL");
+});
+
+test("a checkout before the shift end is marked early leave", () => {
+  const result = resolveScan({
+    scan: scan(at("2026-09-17T04:30:00Z"), "morning-early-out"),
+    schedules: [schedule("2026-09-17", morningShift)],
+    session: { openCheckInAt: at("2026-09-17T03:00:00Z"), closed: false },
+    latestAccepted: { timestampMs: at("2026-09-17T03:00:00Z"), eventId: "morning-in" }
+  });
+  assert.equal(result.type, "CHECK_OUT");
+  assert.equal(result.status, "EARLY_LEAVE");
+});
+
 test("resolveScan makes a first scan near shift end a check-out to expose a missing check-in", () => {
-  const result = resolveScan({ scan: scan(at("2026-09-17T09:55:00Z")), schedules: [schedule("2026-09-17", dayShift)], session: null, latestAccepted: null });
+  const result = resolveScan({ scan: scan(at("2026-09-17T10:00:00Z")), schedules: [schedule("2026-09-17", dayShift)], session: null, latestAccepted: null });
   assert.equal(result.type, "CHECK_OUT");
   assert.equal(result.resolutionStatus, "ACCEPTED");
   assert.equal(result.nextSession.closed, true);

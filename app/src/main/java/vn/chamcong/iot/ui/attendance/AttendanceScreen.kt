@@ -118,7 +118,16 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 )
             }
         }
-        val unresolvedReviews = state.offScheduleAttendanceReviews.filter { it.status in setOf("PENDING", "FAILED") }
+        val rejectedReviewTargets = state.offScheduleAttendanceReviews
+            .filter { it.decision == "REJECT" && it.status in setOf("PENDING", "REJECTED") }
+            .map { "${it.employeeId}|${it.scheduleDate}|${it.shiftId}" }
+            .toSet()
+        val unresolvedReviews = state.offScheduleAttendanceReviews.filter { review ->
+            val targetKey = "${review.employeeId}|${review.scheduleDate}|${review.shiftId}"
+            val alreadyRejected = targetKey in rejectedReviewTargets
+            !alreadyRejected && (review.status == "FAILED" ||
+                (review.status == "PENDING" && review.decision == "APPROVE"))
+        }
         if (unresolvedReviews.isNotEmpty()) {
             androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(AppSpacing.medium), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
@@ -158,7 +167,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
     offScheduleTarget?.let { selected ->
         OffScheduleReviewDialog(
             row = selected,
-            attendance = state.attendance,
+            attendance = state.attendanceForSummaries,
             shifts = state.shifts,
             busy = state.saving,
             error = state.error,
@@ -230,7 +239,7 @@ internal fun attendanceAdjustmentTarget(row: Attendance, state: MainUiState): At
     val shift = state.shifts.firstOrNull { it.id == (row.shiftId ?: schedule?.shiftId) }
     val summary = employeeDaySummary(
         employeeId = row.employeeId, date = date,
-        attendance = assignAttendanceScheduleDates(state.attendance, state.schedules, state.shifts, attendanceZone),
+        attendance = assignAttendanceScheduleDates(state.attendanceForSummaries, state.schedules, state.shifts, attendanceZone),
         schedule = schedule, shift = shift, approvedLeave = false, zoneId = attendanceZone,
         adjustments = state.attendanceAdjustments
     )

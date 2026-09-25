@@ -25,7 +25,7 @@ class KpiBonusRulesTest {
     private val employee = Employee(id = "e1", code = "NV0001", fullName = "An")
 
     @Test
-    fun countsOnlyApprovedCompleteOvertimeAsOneFixedThreeHourShift() {
+    fun countsOnlyApprovedCompleteOvertimeAsOneFixedFourHourShift() {
         val approvedDate = LocalDate.of(2026, 9, 10)
         val pendingDate = LocalDate.of(2026, 9, 11)
         val rejectedDate = LocalDate.of(2026, 9, 12)
@@ -43,7 +43,7 @@ class KpiBonusRulesTest {
         ).getValue(employee.id)
 
         assertEquals(1, result.overtimeShiftCount)
-        assertEquals(3.0, result.overtimeHours, 0.001)
+        assertEquals(4.0, result.overtimeHours, 0.001)
         assertEquals(50_000L, result.overtimeBonus)
     }
 
@@ -96,7 +96,7 @@ class KpiBonusRulesTest {
         ).getValue(employee.id)
 
         assertEquals(1, result.overtimeShiftCount)
-        assertEquals(3.0, result.overtimeHours, 0.001)
+        assertEquals(4.0, result.overtimeHours, 0.001)
     }
 
     @Test
@@ -281,15 +281,16 @@ class KpiBonusRulesTest {
         val date = LocalDate.of(2026, 9, 10)
         val approved = request(employee, date, OvertimeRequestStatus.APPROVED)
         val cases = listOf(
-            Triple("17:29", "20:30", 0),
-            Triple("17:30", "20:31", 0),
-            Triple("19:00", "19:00", 0),
-            Triple("19:00", "18:00", 0),
-            Triple("17:30", "20:30", 1),
-            Triple("18:00", "20:00", 1)
+            Triple("17:59", "22:00", 0.0),
+            Triple("18:00", "22:01", 0.0),
+            Triple("19:00", "19:00", 0.0),
+            Triple("19:00", "18:00", 0.0),
+            Triple("17:30", "20:30", 0.0),
+            Triple("18:00", "22:00", 4.0),
+            Triple("18:00", "20:00", 2.0)
         )
         for (scheduleDate in listOf(date.toString(), null)) {
-            for ((start, end, expectedCount) in cases) {
+            for ((start, end, expectedHours) in cases) {
                 val rows = listOf(
                     overtimeAttendance(employee.id, date, AttendanceType.CHECK_IN.name, start),
                     overtimeAttendance(employee.id, date, AttendanceType.CHECK_OUT.name, end)
@@ -297,8 +298,8 @@ class KpiBonusRulesTest {
                 val result = calculateMonthlyKpiBonuses(
                     listOf(employee), month, rows, emptyList(), emptyList(), listOf(approved), emptyList(), zone
                 ).getValue(employee.id)
-                assertEquals(expectedCount, result.overtimeShiftCount)
-                assertEquals(if (expectedCount == 1) 3.0 else 0.0, result.overtimeHours, 0.001)
+                assertEquals(if (expectedHours > 0.0) 1 else 0, result.overtimeShiftCount)
+                assertEquals(expectedHours, result.overtimeHours, 0.001)
                 assertEquals(0, result.lateCount)
             }
         }
@@ -316,7 +317,7 @@ class KpiBonusRulesTest {
             listOf(approved, approved.copy(id = "duplicate"), next), emptyList(), zone
         ).getValue(employee.id)
         assertEquals(1, result.overtimeShiftCount)
-        assertEquals(3.0, result.overtimeHours, 0.001)
+        assertEquals(4.0, result.overtimeHours, 0.001)
     }
 
     @Test
@@ -426,8 +427,8 @@ class KpiBonusRulesTest {
     )
 
     private fun completePair(employeeId: String, date: LocalDate) = listOf(
-        overtimeAttendance(employeeId, date, AttendanceType.CHECK_IN.name, "17:30"),
-        overtimeAttendance(employeeId, date, AttendanceType.CHECK_OUT.name, "20:30")
+        overtimeAttendance(employeeId, date, AttendanceType.CHECK_IN.name, "18:00"),
+        overtimeAttendance(employeeId, date, AttendanceType.CHECK_OUT.name, "22:00")
     )
 
     private fun overtimeAttendance(employeeId: String, date: LocalDate, type: String, time: String) =

@@ -68,6 +68,90 @@ class SchedulingRulesTest {
     }
 
     @Test
+    fun tenOclockCheckInForMorningShiftIsTwoHoursAndOneHundredTwentyMinutesLate() {
+        val morning = WorkShift(
+            name = "Ca sáng", category = ShiftCategory.MORNING.name,
+            startTime = "08:00", endTime = "12:00",
+            allowEarlyMinutes = 120, effectiveFrom = "2026-09-14"
+        )
+
+        val result = calculateWorkTime(
+            checkIn = Instant.parse("2026-09-14T03:00:00Z"),
+            checkOut = Instant.parse("2026-09-14T05:00:00Z"),
+            shift = morning, overtimeHours = 0,
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            scheduleDate = LocalDate.of(2026, 9, 14)
+        )
+
+        assertEquals(2.0, result.workedHours, 0.01)
+        assertEquals(120, result.lateMinutes)
+        assertEquals(0, result.earlyLeaveMinutes)
+    }
+
+    @Test
+    fun workedHoursUseActualCheckInAndCheckOutWithoutBoundaryRounding() {
+        val morning = WorkShift(
+            name = "Ca sáng", category = ShiftCategory.MORNING.name,
+            startTime = "08:00", endTime = "12:00",
+            effectiveFrom = "2026-09-14"
+        )
+
+        val result = calculateWorkTime(
+            checkIn = Instant.parse("2026-09-14T01:05:00Z"),
+            checkOut = Instant.parse("2026-09-14T04:55:00Z"),
+            shift = morning, overtimeHours = 0,
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            scheduleDate = LocalDate.of(2026, 9, 14)
+        )
+
+        // 08:05 -> 11:55 is 3 hours 50 minutes, not a rounded 4 hours.
+        assertEquals(3.83, result.workedHours, 0.01)
+        assertEquals(3 * 60L * 60L + 50 * 60L, result.workedSeconds)
+    }
+
+    @Test
+    fun afternoonCheckoutAtSeventeenThirtyCountsThirtyMinutesOfOvertime() {
+        val afternoon = WorkShift(
+            name = "Ca chiều", category = ShiftCategory.EVENING.name,
+            startTime = "13:00", endTime = "17:00",
+            effectiveFrom = "2026-09-14"
+        )
+
+        val result = calculateWorkTime(
+            checkIn = Instant.parse("2026-09-14T06:00:00Z"),
+            checkOut = Instant.parse("2026-09-14T10:30:00Z"),
+            shift = afternoon, overtimeHours = 0,
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            scheduleDate = LocalDate.of(2026, 9, 14)
+        )
+
+        assertEquals(4.0, result.workedHours, 0.01)
+        assertEquals(0.5, result.overtimeHours, 0.01)
+        assertEquals(0, result.earlyLeaveMinutes)
+    }
+
+    @Test
+    fun checkoutAtElevenThirtyForMorningShiftIsThirtyMinutesEarly() {
+        val morning = WorkShift(
+            name = "Ca sáng", category = ShiftCategory.MORNING.name,
+            startTime = "08:00", endTime = "12:00",
+            effectiveFrom = "2026-09-14"
+        )
+
+        val result = calculateWorkTime(
+            checkIn = Instant.parse("2026-09-14T03:00:00Z"),
+            checkOut = Instant.parse("2026-09-14T04:30:00Z"),
+            shift = morning, overtimeHours = 0,
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            scheduleDate = LocalDate.of(2026, 9, 14)
+        )
+
+        assertEquals(1.5, result.workedHours, 0.01)
+        assertEquals(0, result.lateMinutes)
+        assertEquals(30, result.earlyLeaveMinutes)
+    }
+
+    @Test
     fun calculatesPostMidnightOvernightBoundariesFromTheResolvedScheduleDate() {
         val scheduleDate = LocalDate.of(2026, 9, 14)
         val shift = WorkShift(

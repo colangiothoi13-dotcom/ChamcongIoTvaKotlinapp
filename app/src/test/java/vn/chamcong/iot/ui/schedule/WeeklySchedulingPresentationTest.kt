@@ -5,9 +5,14 @@ import org.junit.Test
 import vn.chamcong.iot.domain.defaultShiftTemplates
 import vn.chamcong.iot.domain.weeklyAssignmentPayload
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.Attendance
+import vn.chamcong.iot.model.AttendanceResolutionStatus
 import vn.chamcong.iot.model.ShiftCategory
 import vn.chamcong.iot.model.WorkShift
+import com.google.firebase.Timestamp
+import java.time.Instant
 import java.time.LocalDate
+import java.util.Date
 
 class WeeklySchedulingPresentationTest {
     @Test fun staleAndInactiveSelectionsAreIdentifiedAndCanBeRemovedToRestoreSave() {
@@ -52,5 +57,41 @@ class WeeklySchedulingPresentationTest {
         )
 
         assertEquals(listOf("morning", "evening"), assignableScheduleShifts(shifts).map { it.id })
+    }
+
+    @Test fun scheduleShowsEmployeeAsWorkingAfterLateCheckIn() {
+        val date = LocalDate.parse("2026-09-21")
+        val shift = WorkShift(
+            id = "morning",
+            name = "Ca sáng",
+            category = ShiftCategory.MORNING.name,
+            startTime = "08:00",
+            endTime = "12:00",
+            allowEarlyMinutes = 120
+        )
+        val attendance = listOf(
+            Attendance(
+                id = "scan-1",
+                employeeId = "employee-1",
+                type = "CHECK_IN",
+                status = "LATE",
+                resolutionStatus = AttendanceResolutionStatus.ACCEPTED.name,
+                shiftId = shift.id,
+                scheduleDate = date.toString(),
+                timestamp = Timestamp(Date.from(Instant.parse("2026-09-21T03:00:00Z")))
+            )
+        )
+
+        val status = scheduleShiftStatus(
+            employeeId = "employee-1",
+            date = date,
+            shift = shift,
+            attendance = attendance,
+            zoneId = java.time.ZoneId.of("Asia/Ho_Chi_Minh"),
+            now = Instant.parse("2026-09-21T03:30:00Z")
+        )
+
+        assertEquals(ScheduleStatusTone.ACTIVE, status.tone)
+        assertTrue(status.label.contains("2 giờ"))
     }
 }

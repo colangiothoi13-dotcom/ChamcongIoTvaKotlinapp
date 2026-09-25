@@ -20,9 +20,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,8 +39,6 @@ import vn.chamcong.iot.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-private val profileTabs = listOf("Cá nhân", "Công việc", "Lịch sử hoạt động")
-
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun EmployeeProfileScreen(
@@ -57,55 +53,45 @@ fun EmployeeProfileScreen(
         Text("Chưa tải được hồ sơ cá nhân")
         return
     }
-    var selectedTab by remember { mutableStateOf(1) }
-    val activity = remember(state.employeeAttendance) {
-        state.employeeAttendance.sortedByDescending { it.timestamp.seconds }
+    val activity = remember(state.employeeAttendanceForSummaries) {
+        state.employeeAttendanceForSummaries.sortedByDescending { it.timestamp.seconds }
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item { ProfileHeader(employee) }
         item {
-            ScrollableTabRow(selectedTabIndex = selectedTab) {
-                profileTabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        text = { Text(title, maxLines = 1) }
-                    )
-                }
-            }
+            Text("Liên hệ & địa chỉ", style = MaterialTheme.typography.headlineSmall)
+            PersonalInformationCard(employee, state.userProfile?.email.orEmpty(), onSaveContact)
         }
-        when (selectedTab) {
-            0 -> item {
-                PersonalInformationCard(employee, state.userProfile?.email.orEmpty(), onSaveContact)
-            }
-            1 -> {
-                item { WorkInformationCard(employee) }
-                item {
-                    FingerprintCard(
-                        employee,
-                        state.devices.firstOrNull { it.id == employee.fingerprintDeviceId }?.name.orEmpty(),
-                        onRequestFingerprintSupport
+        item {
+            Text("Công việc", style = MaterialTheme.typography.headlineSmall)
+            WorkInformationCard(employee)
+        }
+        item {
+            Text("Vân tay chấm công", style = MaterialTheme.typography.headlineSmall)
+            FingerprintCard(
+                employee,
+                state.devices.firstOrNull { it.id == employee.fingerprintDeviceId }?.name.orEmpty(),
+                onRequestFingerprintSupport
+            )
+        }
+        item {
+            Text("Hoạt động gần đây", style = MaterialTheme.typography.headlineSmall)
+        }
+        if (activity.isEmpty()) {
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Text(
+                        "Chưa có hoạt động chấm công",
+                        modifier = Modifier.padding(AppSpacing.large)
                     )
                 }
             }
-            else -> {
-                if (activity.isEmpty()) {
-                    item {
-                        Card(Modifier.fillMaxWidth()) {
-                            Text(
-                                "Chưa có hoạt động chấm công",
-                                modifier = Modifier.padding(AppSpacing.large)
-                            )
-                        }
-                    }
-                } else {
-                    items(
-                        items = activity,
-                        key = { attendance -> attendance.id.ifBlank { "${attendance.timestamp.seconds}-${attendance.type}" } }
-                    ) { attendance -> AttendanceActivityCard(attendance) }
-                }
-            }
+        } else {
+            items(
+                items = activity,
+                key = { attendance -> attendance.id.ifBlank { "${attendance.timestamp.seconds}-${attendance.type}" } }
+            ) { attendance -> AttendanceActivityCard(attendance) }
         }
         item {
             Button(onClick = onChangePassword, modifier = Modifier.fillMaxWidth()) {
@@ -117,12 +103,14 @@ fun EmployeeProfileScreen(
 
 @Composable
 private fun ProfileHeader(employee: Employee) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = AppSpacing.small),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = AppSpacing.xLarge),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
+        ) {
         Surface(
-            modifier = Modifier.size(72.dp),
+            modifier = Modifier.size(88.dp),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.primaryContainer
         ) {
@@ -135,16 +123,23 @@ private fun ProfileHeader(employee: Employee) {
                 )
             }
         }
-        Spacer(Modifier.width(AppSpacing.large))
-        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
-            Text(employee.fullName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(employee.fullName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(
+            employee.position.ifBlank { "Nhân viên" },
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = MaterialTheme.shapes.small
+        ) {
             Text(
-                employee.position.ifBlank { "Nhân viên" },
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                "Mã: ${employee.code}",
+                modifier = Modifier.padding(horizontal = AppSpacing.large, vertical = AppSpacing.small),
+                fontWeight = FontWeight.SemiBold
             )
-            Text("Mã nhân viên: ${employee.code}", style = MaterialTheme.typography.bodyMedium)
         }
+    }
     }
 }
 

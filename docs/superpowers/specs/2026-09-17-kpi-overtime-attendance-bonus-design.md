@@ -17,22 +17,22 @@ Tự động tính phần thưởng trong phiếu lương theo dữ liệu chấ
 
 ### Ca tăng ca
 
-- Ca `SUPPLEMENTARY` được cố định từ `17:30` đến `20:30` theo múi giờ `Asia/Ho_Chi_Minh`, không cho Admin thay đổi giờ và không đưa vào lịch phân ca tuần.
+- Ca `SUPPLEMENTARY` được cố định từ `18:00` đến `22:00` theo múi giờ `Asia/Ho_Chi_Minh`, không cho Admin thay đổi giờ và không đưa vào lịch phân ca tuần. ID chuẩn là `SUPPLEMENTARY_1800_2200`.
 - Nhân viên được gửi đơn cho ngày hiện tại hoặc ngày làm việc sắp tới. Mỗi nhân viên chỉ có một đơn cho một ngày; đơn có trạng thái `PENDING`, `APPROVED` hoặc `REJECTED`.
 - Khi đơn `PENDING`, nhân viên vẫn được check-in/check-out trong khung ca; hệ thống lưu các lượt quét và đánh dấu ứng viên tăng ca đang chờ duyệt, không chặn thiết bị và không coi là quét trùng với ca chính.
 - Admin duyệt sau vẫn làm cho các lượt quét hợp lệ trong ngày được resolver tính lại thành ca tăng ca. Admin từ chối không xóa lượt quét, nhưng các lượt đó không được tính tiền tăng ca, thưởng theo ca hoặc Top 3.
-- Một ca chỉ được tính là hoàn thành khi đơn đã `APPROVED`, có cặp check-in/check-out hợp lệ, được resolver chấp nhận và nằm trong khung `17:30–20:30` theo cùng ngày địa phương.
+- Một ca chỉ được tính là hoàn thành khi đơn đã `APPROVED`, có cặp check-in/check-out hợp lệ, được resolver chấp nhận và nằm trong khung `18:00–22:00` theo cùng ngày địa phương.
 - Mỗi ca tăng ca hoàn thành:
   - tính tiền giờ theo đơn giá hiện có và 3 giờ làm;
   - cộng thêm `50.000đ` vào tiền thưởng.
 
 ### Đơn xin ca bổ sung
 
-- `overtimeRequests` lưu tối thiểu: `employeeId`, `workDate`, `startTime = 17:30`, `endTime = 20:30`, `status`, `submittedAt`, `reviewedAt`, `reviewedBy` và `rejectionReason` khi bị từ chối.
+- `overtimeRequests` lưu tối thiểu: `employeeId`, `workDate`, `startTime = 18:00`, `endTime = 22:00`, `status`, `submittedAt`, `reviewedAt`, `reviewedBy` và `rejectionReason` khi bị từ chối.
 - Khóa logic của đơn là `employeeId + workDate`; không tạo hai đơn đang hoạt động cho cùng một nhân viên và ngày.
 - Admin nhìn thấy danh sách đơn chờ duyệt, có thể duyệt hoặc từ chối. Từ chối bắt buộc nhập lý do để nhân viên và audit log giải thích được quyết định.
 - Duyệt/từ chối phải ghi audit log; thao tác duyệt làm mới kết quả resolve và breakdown payroll liên quan nếu phiếu lương chưa được lưu.
-- Đơn được gửi sau 17:30 vẫn không bị mất; nếu còn trong khung đến 20:30, các lượt quét hợp lệ vẫn được gắn vào đơn đang chờ duyệt.
+- Đơn được gửi sau 18:00 vẫn không bị mất; nếu còn trong khung đến 22:00, các lượt quét hợp lệ vẫn được gắn vào đơn đang chờ duyệt.
 
 ### Top 3 chuyên cần tăng ca
 
@@ -61,7 +61,7 @@ Thêm bộ tính thuần Kotlin, nhận employees, attendance, schedules, shifts
 
 ### Ca bổ sung
 
-Tại luồng quản lý ca tuần chỉ hiển thị các ca chính. Ca bổ sung dùng mốc cố định `17:30–20:30` và được tạo từ đơn của nhân viên, không lưu như một lịch phân trước trong `WorkSchedule`. Resolver phải tách phiên ca chính và phiên tăng ca để lượt quét lúc 17:30 không bị coi là duplicate của lượt quét ca chính.
+Tại luồng quản lý ca tuần chỉ hiển thị các ca chính. Ca bổ sung dùng mốc cố định `18:00–22:00` và được tạo từ đơn của nhân viên, không lưu như một lịch phân trước trong `WorkSchedule`. Resolver phải tách phiên ca chính và phiên tăng ca để lượt quét lúc 18:00 không bị coi là duplicate của lượt quét ca chính.
 
 ### Payroll/UI
 
@@ -80,10 +80,10 @@ Tại luồng quản lý ca tuần chỉ hiển thị các ca chính. Ca bổ su
 
 ## Kiểm thử
 
-- Ca supplementary luôn cố định `17:30–20:30` và dài đúng 3 giờ.
+- Ca supplementary luôn cố định `18:00–22:00` và dài đúng 4 giờ.
 - Đơn xin ca được tạo đúng theo nhân viên/ngày, trạng thái chuyển đúng `PENDING → APPROVED/REJECTED`, và lý do từ chối bắt buộc.
 - Request `PENDING` không chặn check-in/check-out; khi được duyệt, lượt quét hợp lệ trước đó được resolve lại; khi bị từ chối, dữ liệu vẫn còn nhưng không tính tăng ca.
-- Khung cố định `17:30–20:30` không bị nhập sai hoặc bị phân trước trong lịch tuần; lượt quét không bị nhầm với ca chính 13:00–17:00.
+- Khung cố định `18:00–22:00` không bị nhập sai hoặc bị phân trước trong lịch tuần; lượt quét không bị nhầm với ca chính 13:00–17:00.
 - Ca thiếu check-out, rejected/unverified hoặc duplicate không được tính.
 - Top 3 chỉ chọn người không đi muộn; kiểm tra đồng hạng và ít hơn 3 người.
 - Một ca tăng ca cộng đúng `50.000đ`; mỗi lần đi muộn trừ đúng `100.000đ`; thưởng âm bị chặn về 0.

@@ -126,7 +126,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
         val calculatedHours = payrollHoursForMonth(
             employeeId = e.id,
             month = selectedMonth,
-            attendance = state.attendance,
+            attendance = state.attendanceForSummaries,
             schedules = state.schedules,
             shifts = state.shifts,
             overtimeRequests = state.overtimeRequests,

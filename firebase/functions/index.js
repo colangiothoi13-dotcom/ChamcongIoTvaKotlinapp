@@ -116,6 +116,39 @@ function safeEqual(a, b) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
+function validDeviceId(deviceId) {
+  return typeof deviceId === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(deviceId);
+}
+
+function authenticateDevice(req, res) {
+  if (!safeEqual(req.get("x-device-key"), deviceApiKey.value())) {
+    res.status(401).json({ ok: false, message: "Thiết bị không hợp lệ" });
+    return false;
+  }
+  return true;
+}
+
+function validBoundedString(value, maxLength) {
+  return typeof value === "string" && value.length <= maxLength;
+}
+
+function validDeviceSnapshot(snapshot) {
+  const integerInRange = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+  return snapshot.status === "ONLINE"
+    && validBoundedString(snapshot.firmwareVersion, 120)
+    && integerInRange(snapshot.capacity, 1, 127)
+    && integerInRange(snapshot.pendingAttendanceCount, 0, 500)
+    && (snapshot.fingerprintCount == null || integerInRange(snapshot.fingerprintCount, 0, 127))
+    && Array.isArray(snapshot.capabilities)
+    && snapshot.capabilities.length <= 32
+    && snapshot.capabilities.every(capability => validBoundedString(capability, 64))
+    && ["ONLINE", "OFFLINE", "UNKNOWN"].includes(snapshot.wifiStatus)
+    && ["ONLINE", "PENDING", "ERROR", "UNKNOWN"].includes(snapshot.firebaseSyncStatus)
+    && ["OK", "ERROR", "UNKNOWN"].includes(snapshot.sensorStatus)
+    && integerInRange(snapshot.failedScanCount, 0, 100000)
+    && validBoundedString(snapshot.lastError, 240);
+}
+
 function notificationDocumentId(kind, sourceId) {
   const digest = crypto.createHash("sha256").update(`${kind}:${sourceId}`).digest("hex");
   return `SYS_${digest}`;
@@ -143,10 +176,15 @@ async function createEmployeeNotification({ kind, sourceId, referenceId, employe
 
 exports.recordAttendance = onRequest({ region: "asia-southeast1", secrets: [deviceApiKey] }, async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ ok: false, message: "POST only" });
-  if (!safeEqual(req.get("x-device-key"), deviceApiKey.value())) return res.status(401).json({ ok: false, message: "Thiết bị không hợp lệ" });
+  if (!authenticateDevice(req, res)) return;
 
-  const { deviceId, templateId, confidence, eventId } = req.body || {};
-  if (!deviceId || !Number.isInteger(templateId) || !eventId) return res.status(400).json({ ok: false, message: "Thiếu dữ liệu" });
+  const { deviceId, templateId, eventId } = req.body || {};
+  const confidence = Number.isInteger(req.body?.confidence) ? req.body.confidence : 0;
+  if (!validDeviceId(deviceId) || !Number.isInteger(templateId) || templateId < 1 || templateId > 127
+      || !Number.isInteger(confidence) || confidence < 0 || confidence > 1000
+      || typeof eventId !== "string" || !/^[A-Za-z0-9._-]{1,160}$/.test(eventId)) {
+    return res.status(400).json({ ok: false, message: "Thiếu hoặc sai dữ liệu thiết bị" });
+  }
   const eventRef = db.collection("attendance").doc(String(eventId));
 
   try {
@@ -581,6 +619,40 @@ exports.reviewOffScheduleAttendance = onDocumentCreated({
   }
 });
 
+exports.updateDeviceSnapshot = onRequest({ region: "asia-southeast1", secrets: [deviceApiKey] }, async (req, res) => {
+  if (req.method !== "POST") return res.status(405).json({ ok: false, message: "POST only" });
+  if (!authenticateDevice(req, res)) return;
+
+  const snapshot = req.body || {};
+  const deviceId = String(snapshot.deviceId || "");
+  if (!validDeviceId(deviceId) || !validDeviceSnapshot(snapshot)) {
+    return res.status(400).json({ ok: false, message: "Snapshot thiết bị không hợp lệ" });
+  }
+
+  const data = {
+    deviceId,
+    status: snapshot.status,
+    lastHeartbeat: admin.firestore.FieldValue.serverTimestamp(),
+    firmwareVersion: snapshot.firmwareVersion,
+    fingerprintCount: snapshot.fingerprintCount == null ? null : snapshot.fingerprintCount,
+    capacity: snapshot.capacity,
+    pendingAttendanceCount: snapshot.pendingAttendanceCount,
+    capabilities: snapshot.capabilities,
+    wifiStatus: snapshot.wifiStatus,
+    firebaseSyncStatus: snapshot.firebaseSyncStatus,
+    sensorStatus: snapshot.sensorStatus,
+    failedScanCount: snapshot.failedScanCount,
+    lastError: snapshot.lastError
+  };
+  try {
+    await db.collection("devices").doc(deviceId).set(data, { merge: true });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("Unable to update device snapshot", error);
+    return res.status(500).json({ ok: false, message: "Không thể cập nhật trạng thái thiết bị" });
+  }
+});
+
 async function resolveOvertimeRequestEvents(requestId, status) {
   if (!["APPROVED", "REJECTED"].includes(status)) return null;
   const attendanceQuery = db.collection("attendance").where("overtimeRequestId", "==", requestId);
@@ -740,40 +812,70 @@ exports.notifyAdminWorkScheduleChange = onDocumentWritten({ document: "workSched
 });
 
 exports.getEnrollmentCommand = onRequest({ region: "asia-southeast1", secrets: [deviceApiKey] }, async (req, res) => {
-  if (!safeEqual(req.get("x-device-key"), deviceApiKey.value())) return res.status(401).json({ ok: false });
+  if (req.method !== "GET") return res.status(405).json({ ok: false, message: "GET only" });
+  if (!authenticateDevice(req, res)) return;
   const deviceId = String(req.query.deviceId || "");
-  if (!deviceId) return res.status(400).json({ ok: false, message: "Missing deviceId" });
-  const commands = await db.collection("deviceCommands")
-    .where("deviceId", "==", deviceId).where("status", "==", "REQUESTED").limit(1).get();
-  if (commands.empty) return res.json({ ok: true, hasCommand: false });
-  const command = commands.docs[0];
-  await command.ref.update({ status: "PROCESSING", startedAt: admin.firestore.FieldValue.serverTimestamp() });
-  return res.json({ ok: true, hasCommand: true, commandId: command.id, ...command.data() });
+  if (!validDeviceId(deviceId)) return res.status(400).json({ ok: false, message: "Invalid deviceId" });
+  try {
+    const command = await db.runTransaction(async transaction => {
+      const commandRef = db.collection("deviceCommands").doc(deviceId);
+      const snapshot = await transaction.get(commandRef);
+      if (!snapshot.exists) return null;
+      const data = snapshot.data();
+      if (data.deviceId !== deviceId || !["REQUESTED", "PROCESSING"].includes(data.status)) return null;
+      const wasProcessing = data.status === "PROCESSING";
+      if (!wasProcessing) {
+        transaction.update(commandRef, {
+          status: "PROCESSING",
+          startedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+      return { commandId: snapshot.id, wasProcessing, ...data, status: "PROCESSING" };
+    });
+    return res.json(command
+      ? { ok: true, hasCommand: true, ...command }
+      : { ok: true, hasCommand: false });
+  } catch (error) {
+    console.error("Unable to read device command", error);
+    return res.status(500).json({ ok: false, message: "Không thể đọc lệnh thiết bị" });
+  }
 });
 
 exports.completeEnrollment = onRequest({ region: "asia-southeast1", secrets: [deviceApiKey] }, async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ ok: false });
-  if (!safeEqual(req.get("x-device-key"), deviceApiKey.value())) return res.status(401).json({ ok: false });
-  const { commandId, success, message } = req.body || {};
-  if (!commandId) return res.status(400).json({ ok: false, message: "Missing commandId" });
+  if (!authenticateDevice(req, res)) return;
+  const { deviceId, commandId, success, message } = req.body || {};
+  if (!validDeviceId(deviceId) || !commandId || typeof success !== "boolean"
+      || !validBoundedString(String(message || ""), 240)) {
+    return res.status(400).json({ ok: false, message: "Thiếu hoặc sai dữ liệu hoàn tất lệnh" });
+  }
   try {
-    await db.runTransaction(async transaction => {
+    const result = await db.runTransaction(async transaction => {
       const commandRef = db.collection("deviceCommands").doc(String(commandId));
       const command = await transaction.get(commandRef);
       if (!command.exists) throw new Error("COMMAND_NOT_FOUND");
       const data = command.data();
+      if (data.deviceId !== deviceId) throw new Error("COMMAND_DEVICE_MISMATCH");
+      if (["COMPLETED", "FAILED"].includes(data.status)) return { duplicate: true };
+      if (data.status !== "PROCESSING") throw new Error("COMMAND_NOT_PROCESSING");
       transaction.update(commandRef, {
         status: success ? "COMPLETED" : "FAILED",
         message: String(message || ""),
         completedAt: admin.firestore.FieldValue.serverTimestamp()
       });
-      if (success) transaction.update(db.collection("employees").doc(data.employeeId), {
+      // The Android client still applies the mapping transaction after it
+      // observes COMPLETED. Keep the legacy employee snapshot update for
+      // enrollment, but never apply it to delete or test commands.
+      if (success && data.type === "ENROLL_FINGERPRINT" && data.employeeId) transaction.update(db.collection("employees").doc(data.employeeId), {
         fingerprintTemplateId: Number(data.templateId)
       });
+      return { duplicate: false };
     });
-    return res.json({ ok: true });
+    return res.json({ ok: true, duplicate: result.duplicate });
   } catch (error) {
-    return res.status(500).json({ ok: false, message: error.message });
+    const status = error.message === "COMMAND_NOT_FOUND" ? 404
+      : ["COMMAND_DEVICE_MISMATCH", "COMMAND_NOT_PROCESSING"].includes(error.message) ? 409 : 500;
+    return res.status(status).json({ ok: false, message: error.message });
   }
 });
 

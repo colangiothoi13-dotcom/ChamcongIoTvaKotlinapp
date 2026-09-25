@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VolumeUp
@@ -104,7 +106,8 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
             (it["status"] == "COMPLETED" && it["applied"] != true)
     }
     val canAct = online && !pending && !state.saving
-    val latestAttendance = state.attendance
+    val canControlDoor = canAct && device.capabilities.contains("door")
+    val latestAttendance = state.attendanceForSummaries
         .filter { it.deviceId == device.id }
         .maxByOrNull { it.timestamp.toDate().time }
     val statusColor = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -124,6 +127,7 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
             Text("Phiên bản: ${device.firmwareVersion.ifBlank { "Chưa có dữ liệu" }}")
             Text("Vân tay: ${device.fingerprintCount?.toString() ?: "?"}/${device.capacity?.toString() ?: "?"}")
             Text("Wi-Fi: ${device.wifiStatus} · Firebase: ${device.firebaseSyncStatus} · Cảm biến: ${device.sensorStatus}")
+            Text("Cửa: ${device.doorStatus}")
             Text("Quét lỗi trong 5 phút: ${device.failedScanCount}")
             if (device.lastError.isNotBlank()) Text("Lỗi gần nhất: ${device.lastError}", color = MaterialTheme.colorScheme.error)
             if (device.pendingAttendanceCount > 0) {
@@ -144,6 +148,8 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
                 DeviceActionButton(DeviceCommandType.TEST_LED_GREEN, canAct, vm, device.id)
                 DeviceActionButton(DeviceCommandType.TEST_LED_RED, canAct, vm, device.id)
                 DeviceActionButton(DeviceCommandType.TEST_BUZZER, canAct, vm, device.id)
+                DeviceActionButton(DeviceCommandType.OPEN_DOOR, canControlDoor, vm, device.id)
+                DeviceActionButton(DeviceCommandType.CLOSE_DOOR, canControlDoor, vm, device.id)
                 DeviceActionButton(DeviceCommandType.SYNC_ATTENDANCE, canAct, vm, device.id)
                 OutlinedButton(onClick = { restartConfirm = true }, enabled = canAct) {
                     Icon(Icons.Default.RestartAlt, null)
@@ -181,6 +187,8 @@ private fun DeviceActionButton(type: DeviceCommandType, enabled: Boolean, vm: Ma
         val icon = when (type) {
             DeviceCommandType.TEST_LED_GREEN, DeviceCommandType.TEST_LED_RED -> Icons.Default.Lightbulb
             DeviceCommandType.TEST_BUZZER -> Icons.Default.VolumeUp
+            DeviceCommandType.OPEN_DOOR -> Icons.Default.LockOpen
+            DeviceCommandType.CLOSE_DOOR -> Icons.Default.Lock
             DeviceCommandType.SYNC_ATTENDANCE -> Icons.Default.Sync
             DeviceCommandType.RESTART_DEVICE -> Icons.Default.RestartAlt
         }
@@ -241,6 +249,8 @@ private fun commandTypeLabel(type: String?): String = when (type) {
     DeviceCommandType.TEST_LED_GREEN.name -> "Kiểm tra LED xanh"
     DeviceCommandType.TEST_LED_RED.name -> "Kiểm tra LED đỏ"
     DeviceCommandType.TEST_BUZZER.name -> "Kiểm tra còi"
+    DeviceCommandType.OPEN_DOOR.name -> "Mở cửa"
+    DeviceCommandType.CLOSE_DOOR.name -> "Đóng cửa"
     DeviceCommandType.SYNC_ATTENDANCE.name -> "Đồng bộ chấm công"
     DeviceCommandType.RESTART_DEVICE.name -> "Khởi động lại thiết bị"
     "DELETE_FINGERPRINT" -> "Xóa vân tay"

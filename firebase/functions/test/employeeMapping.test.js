@@ -21,7 +21,11 @@ test("recordAttendance uses snapshot identity for Android employee data with bla
     exports, Buffer, console,
     require(name) {
       if (name === "firebase-functions/v2/https") return { onRequest: (_, handler) => handler };
-      if (name === "firebase-functions/v2/firestore") return { onDocumentCreated: (_, handler) => handler, onDocumentUpdated: (_, handler) => handler };
+      if (name === "firebase-functions/v2/firestore") return {
+        onDocumentCreated: (_, handler) => handler,
+        onDocumentUpdated: (_, handler) => handler,
+        onDocumentWritten: (_, handler) => handler
+      };
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "local-test-key" }) };
       if (name === "firebase-admin") return { initializeApp() {}, firestore };
       if (name.startsWith("./")) return require(`../${name.slice(2)}`);
@@ -38,4 +42,66 @@ test("recordAttendance uses snapshot identity for Android employee data with bla
   assert.equal(created[0].data.employeeId, "employee-1");
   assert.equal(created[0].data.type, "SCAN");
   assert.equal(created[0].data.resolutionStatus, "PENDING");
+});
+
+test("recordAttendance is idempotent when an offline retry reuses its eventId", async () => {
+  const created = [];
+  const previousData = {
+    employeeId: "employee-1",
+    employeeName: "An",
+    deviceId: "GATE-01",
+    templateId: 7,
+    type: "SCAN",
+    resolutionStatus: "PENDING",
+    status: "PENDING",
+    syncStatus: "PENDING_SYNC"
+  };
+  const transaction = {
+    async get(ref) {
+      assert.equal(ref, "attendance/offline-event-1");
+      return { exists: true, data: () => previousData };
+    },
+    create(ref, data) { created.push({ ref, data }); }
+  };
+  const db = {
+    collection: name => ({ doc: id => `${name}/${id}` }),
+    runTransaction: callback => callback(transaction)
+  };
+  const firestore = Object.assign(() => db, {
+    Timestamp: { now: () => new Date() },
+    FieldValue: { serverTimestamp: () => "server-time" }
+  });
+  const exported = {};
+  vm.runInNewContext(fs.readFileSync(require.resolve("../index.js"), "utf8"), {
+    exports: exported, Buffer, console,
+    require(name) {
+      if (name === "firebase-functions/v2/https") return { onRequest: (_, handler) => handler };
+      if (name === "firebase-functions/v2/firestore") return {
+        onDocumentCreated: (_, handler) => handler,
+        onDocumentUpdated: (_, handler) => handler,
+        onDocumentWritten: (_, handler) => handler
+      };
+      if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "local-test-key" }) };
+      if (name === "firebase-admin") return { initializeApp() {}, firestore };
+      if (name.startsWith("./")) return require(`../${name.slice(2)}`);
+      return require(name);
+    }
+  });
+  let status = 200;
+  let body;
+  const response = {
+    status(value) { status = value; return this; },
+    json(value) { body = value; return this; }
+  };
+  await exported.recordAttendance({
+    method: "POST",
+    get: () => "local-test-key",
+    body: { deviceId: "GATE-01", templateId: 7, eventId: "offline-event-1" }
+  }, response);
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.ok, true);
+  assert.equal(body.employeeName, "An");
+  assert.equal(body.status, "PENDING");
+  assert.equal(body.duplicate, true);
+  assert.equal(created.length, 0);
 });

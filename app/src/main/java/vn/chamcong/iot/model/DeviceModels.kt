@@ -8,6 +8,8 @@ enum class DeviceCommandType {
     TEST_LED_GREEN,
     TEST_LED_RED,
     TEST_BUZZER,
+    OPEN_DOOR,
+    CLOSE_DOOR,
     SYNC_ATTENDANCE,
     RESTART_DEVICE
 }
@@ -26,6 +28,7 @@ data class DeviceSnapshot(
     val wifiStatus: String = "UNKNOWN",
     val firebaseSyncStatus: String = "UNKNOWN",
     val sensorStatus: String = "UNKNOWN",
+    val doorStatus: String = "UNKNOWN",
     val failedScanCount: Int = 0,
     val lastError: String = ""
 )
@@ -51,6 +54,7 @@ fun deviceSnapshotFromFields(id: String, fields: Map<String, Any?>): DeviceSnaps
     wifiStatus = (fields["wifiStatus"] as? String)?.uppercase() ?: "UNKNOWN",
     firebaseSyncStatus = (fields["firebaseSyncStatus"] as? String)?.uppercase() ?: "UNKNOWN",
     sensorStatus = (fields["sensorStatus"] as? String)?.uppercase() ?: "UNKNOWN",
+    doorStatus = (fields["doorStatus"] as? String)?.uppercase() ?: "UNKNOWN",
     failedScanCount = ((fields["failedScanCount"] as? Number)?.toInt() ?: 0).coerceIn(0, 100000),
     lastError = (fields["lastError"] as? String)?.take(240).orEmpty()
 )
@@ -74,6 +78,8 @@ fun commandStatusLabel(command: Map<String, Any>): String {
         DeviceCommandType.TEST_LED_GREEN.name -> "Kiểm tra LED xanh"
         DeviceCommandType.TEST_LED_RED.name -> "Kiểm tra LED đỏ"
         DeviceCommandType.TEST_BUZZER.name -> "Kiểm tra còi"
+        DeviceCommandType.OPEN_DOOR.name -> "Mở cửa"
+        DeviceCommandType.CLOSE_DOOR.name -> "Đóng cửa"
         DeviceCommandType.SYNC_ATTENDANCE.name -> "Đồng bộ chấm công"
         DeviceCommandType.RESTART_DEVICE.name -> "Khởi động lại thiết bị"
         "DELETE_FINGERPRINT" -> "Xóa vân tay"
@@ -105,6 +111,8 @@ fun deviceCommandLabel(type: DeviceCommandType): String = when (type) {
     DeviceCommandType.TEST_LED_GREEN -> "Kiểm tra LED xanh"
     DeviceCommandType.TEST_LED_RED -> "Kiểm tra LED đỏ"
     DeviceCommandType.TEST_BUZZER -> "Kiểm tra còi"
+    DeviceCommandType.OPEN_DOOR -> "Mở cửa"
+    DeviceCommandType.CLOSE_DOOR -> "Đóng cửa"
     DeviceCommandType.SYNC_ATTENDANCE -> "Đồng bộ chấm công"
     DeviceCommandType.RESTART_DEVICE -> "Khởi động lại thiết bị"
 }

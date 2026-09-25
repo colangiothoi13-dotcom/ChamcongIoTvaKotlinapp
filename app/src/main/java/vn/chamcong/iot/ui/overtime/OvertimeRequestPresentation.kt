@@ -22,7 +22,6 @@ fun overtimeWindowLabel(request: OvertimeRequest): String {
     if (request.startTime == SUPPLEMENTARY_START_TIME && request.endTime == SUPPLEMENTARY_END_TIME) {
         return fixedWindow
     }
-    if (request.startTime == "17:30" && request.endTime == "20:30") return "17:30–20:30 • Đơn cũ"
     return "$fixedWindow • Dữ liệu giờ đã lưu không hợp lệ"
 }
 

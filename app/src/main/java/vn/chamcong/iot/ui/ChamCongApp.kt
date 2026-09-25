@@ -79,10 +79,10 @@ enum class EmployeeDestination(val title: String) {
 
 val adminPrimaryDestinations = listOf(
     AppDestination.DASHBOARD,
-    AppDestination.ATTENDANCE,
-    AppDestination.EMPLOYEES,
+    AppDestination.TASKS,
     AppDestination.REQUESTS,
-    AppDestination.TASKS
+    AppDestination.SHIFT_MANAGEMENT,
+    AppDestination.EMPLOYEES
 )
 
 val adminTaskDestinations = listOf(
@@ -103,6 +103,7 @@ val adminTaskDestinations = listOf(
 
 val employeePrimaryDestinations = listOf(
     EmployeeDestination.HOME,
+    EmployeeDestination.SCHEDULE,
     EmployeeDestination.ATTENDANCE,
     EmployeeDestination.REQUESTS,
     EmployeeDestination.PROFILE
@@ -179,34 +180,49 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var salaryEmployee by remember { mutableStateOf<Employee?>(null) }
     var showChangePassword by remember { mutableStateOf(false) }
     var showAccountMenu by remember { mutableStateOf(false) }
-    val icons = listOf(Icons.Default.Dashboard, Icons.Default.FactCheck, Icons.Default.Groups, Icons.Default.Description, Icons.Default.Assignment)
+    val icons = listOf(Icons.Default.Dashboard, Icons.Default.Assignment, Icons.Default.Description, Icons.Default.CalendarMonth, Icons.Default.Groups)
     Scaffold(
-        topBar = { TopAppBar(title = { Text(selected.title) }, actions = {
-            IconButton({ showAccountMenu = true }, enabled = !state.saving) { Icon(Icons.Default.AccountCircle, "Menu cá nhân") }
-            DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
-                DropdownMenuItem(
-                    text = { Text("Đổi mật khẩu") },
-                    onClick = { showChangePassword = true; showAccountMenu = false }
-                )
-                DropdownMenuItem(
-                    text = { Text("Đăng xuất") },
-                    onClick = { showAccountMenu = false; vm.signOut() }
-                )
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { TopAppBar(
+            title = { Text(selected.title) },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+            actions = {
+                IconButton({ showAccountMenu = true }, enabled = !state.saving) { Icon(Icons.Default.AccountCircle, "Menu cá nhân") }
+                DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Đổi mật khẩu") },
+                        onClick = { showChangePassword = true; showAccountMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Đăng xuất") },
+                        onClick = { showAccountMenu = false; vm.signOut() }
+                    )
+                }
             }
-        }) },
-        bottomBar = { NavigationBar {
+        ) },
+        bottomBar = { NavigationBar(
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp
+        ) {
             adminPrimaryDestinations.forEachIndexed { index, destination ->
                 NavigationBarItem(
                     selected == destination,
                     { selected = destination },
                     { Icon(icons[index], destination.title) },
-                    label = { Text(destination.title, maxLines = 1) }
+                    label = { Text(destination.title, maxLines = 1) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 )
             }
         } },
         floatingActionButton = { if (selected == AppDestination.EMPLOYEES) FloatingActionButton({ vm.clearError(); showAdd = true }) { Icon(Icons.Default.PersonAdd, "Thêm nhân viên") } }
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().padding(AppSpacing.large)) {
+        Column(Modifier.padding(padding).fillMaxSize().padding(horizontal = AppSpacing.large, vertical = AppSpacing.medium)) {
             state.error?.let { Text(it, color=MaterialTheme.colorScheme.error) }
             state.message?.let { Text(it, color=MaterialTheme.colorScheme.primary, modifier=Modifier.padding(bottom=AppSpacing.small)) }
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -304,71 +320,88 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(EmployeeDestination.HOME) }
     var showAccountMenu by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
-    val icons = listOf(Icons.Default.Home, Icons.Default.FactCheck, Icons.Default.Description, Icons.Default.Person)
+    val icons = listOf(Icons.Default.Home, Icons.Default.CalendarMonth, Icons.Default.LocationOn, Icons.Default.Description, Icons.Default.Person)
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text(selected.title) },
-                actions = {
-                    IconButton({ showAccountMenu = true }, enabled = !state.saving) {
-                        Icon(Icons.Default.AccountCircle, "Menu cá nhân")
+            if (selected != EmployeeDestination.HOME) {
+                TopAppBar(
+                    title = { Text(selected.title) },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+                    actions = {
+                        IconButton({ showAccountMenu = true }, enabled = !state.saving) {
+                            Icon(Icons.Default.AccountCircle, "Menu cá nhân")
+                        }
+                        DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Lịch làm việc") },
+                                onClick = { selected = EmployeeDestination.SCHEDULE; showAccountMenu = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Bảng lương") },
+                                onClick = { selected = EmployeeDestination.PAYROLL; showAccountMenu = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Đổi mật khẩu") },
+                                onClick = { showChangePassword = true; showAccountMenu = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Đăng xuất") },
+                                onClick = { showAccountMenu = false; vm.signOut() }
+                            )
+                        }
                     }
-                    DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Lịch làm việc") },
-                            onClick = { selected = EmployeeDestination.SCHEDULE; showAccountMenu = false }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Bảng lương") },
-                            onClick = { selected = EmployeeDestination.PAYROLL; showAccountMenu = false }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Đổi mật khẩu") },
-                            onClick = { showChangePassword = true; showAccountMenu = false }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Đăng xuất") },
-                            onClick = { showAccountMenu = false; vm.signOut() }
-                        )
-                    }
-                }
-            )
+                )
+            }
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 4.dp) {
                 employeePrimaryDestinations.forEachIndexed { index, destination ->
                     NavigationBarItem(
                         selected = selected == destination,
                         onClick = { selected = destination },
                         icon = { Icon(icons[index], destination.title) },
-                        label = { Text(destination.title, maxLines = 1) }
+                        label = { Text(destination.title, maxLines = 1) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     )
                 }
             }
         }
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().padding(AppSpacing.large)) {
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = AppSpacing.small)) }
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = AppSpacing.large)) }
+            state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = AppSpacing.large, vertical = AppSpacing.small)) }
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
-            when (selected) {
-                EmployeeDestination.HOME -> EmployeeHomeScreen(state, vm)
-                EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(
-                    state = state,
-                    vm = vm,
-                    onOpenRequests = { selected = EmployeeDestination.REQUESTS },
-                    onOpenPayroll = { selected = EmployeeDestination.PAYROLL }
-                )
-                EmployeeDestination.SCHEDULE -> EmployeeScheduleScreen(state, vm)
-                EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)
-                EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state)
-                EmployeeDestination.PROFILE -> EmployeeProfileScreen(
-                    state = state,
-                    vm = vm,
-                    onChangePassword = { showChangePassword = true },
-                    onSaveContact = { phone, address -> vm.updateEmployeeContact(phone, address) },
-                    onRequestFingerprintSupport = { reason, onSubmitted -> vm.submitFingerprintSupportRequest(reason, onSubmitted) }
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = if (selected == EmployeeDestination.HOME) 0.dp else AppSpacing.large, vertical = AppSpacing.medium)
+            ) {
+                when (selected) {
+                    EmployeeDestination.HOME -> EmployeeHomeScreen(state, vm)
+                    EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(
+                        state = state,
+                        vm = vm,
+                        onOpenRequests = { selected = EmployeeDestination.REQUESTS },
+                        onOpenPayroll = { selected = EmployeeDestination.PAYROLL }
+                    )
+                    EmployeeDestination.SCHEDULE -> EmployeeScheduleScreen(state, vm)
+                    EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)
+                    EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state)
+                    EmployeeDestination.PROFILE -> EmployeeProfileScreen(
+                        state = state,
+                        vm = vm,
+                        onChangePassword = { showChangePassword = true },
+                        onSaveContact = { phone, address -> vm.updateEmployeeContact(phone, address) },
+                        onRequestFingerprintSupport = { reason, onSubmitted -> vm.submitFingerprintSupportRequest(reason, onSubmitted) }
+                    )
+                }
             }
         }
     }
@@ -405,11 +438,11 @@ private fun Dashboard(state: MainUiState) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
                 Metric("Nhân viên", state.employees.count { it.active }.toString(), Icons.Default.Groups, Modifier.weight(1f))
-                Metric("Lượt gần đây", state.attendance.size.toString(), Icons.Default.Fingerprint, Modifier.weight(1f))
+                Metric("Lượt gần đây", state.attendanceForSummaries.size.toString(), Icons.Default.Fingerprint, Modifier.weight(1f))
             }
         }
         item { Text("Chấm công mới nhất", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = AppSpacing.small)) }
-        items(state.attendance.take(8), key = { it.id }) { AttendanceRow(it) }
+        items(state.attendanceForSummaries.take(8), key = { it.id }) { AttendanceRow(it) }
     }
 }
 
@@ -485,7 +518,8 @@ private fun Dashboard(state: MainUiState) {
     val resolution = attendanceResolutionPresentation(item)
     val tint = when {
         resolution.accepted -> MaterialTheme.colorScheme.primary
-        resolution.label.startsWith("SCAN/PENDING") -> MaterialTheme.colorScheme.tertiary
+        resolution.label.startsWith("SCAN/PENDING") ||
+            resolution.label.startsWith("Đã ghi nhận từ thiết bị") -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.error
     }
     Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically) {
@@ -496,17 +530,22 @@ private fun Dashboard(state: MainUiState) {
             Text("$time • ${item.deviceId} • ${item.type}", style = MaterialTheme.typography.bodySmall)
             Text(resolution.label, color = tint, style = MaterialTheme.typography.labelLarge)
             Text(
-                if (item.syncStatus == "PENDING_SYNC") "Đang chờ đồng bộ từ thiết bị"
+                if (item.type == "SCAN" && item.resolutionStatus == "PENDING") "Đã lưu lượt quét trên Firebase"
+                else if (item.syncStatus == "PENDING_SYNC") "Đang chờ đồng bộ từ thiết bị"
                 else "Đã đồng bộ lên hệ thống",
                 color = if (item.syncStatus == "PENDING_SYNC") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall
             )
             Text("Ngày ca: ${attendanceAdjustmentDate(item) ?: "Không hợp lệ"}", style = MaterialTheme.typography.bodySmall)
-            if (item.type == "UNSCHEDULED" && onReviewUnscheduled != null) TextButton(
-                onClick = { onReviewUnscheduled(item) },
-                enabled = adjustmentEnabled && item.offScheduleReviewStatus != "REJECTED"
-            ) { Text(if (item.offScheduleReviewStatus == "PENDING") "Duyệt ngoài lịch" else "Xử lý chấm ngoài lịch") }
-            if (onAdjust != null) TextButton(
+            if (item.type == "UNSCHEDULED" && item.offScheduleReviewStatus == "REJECTED") {
+                Text("Đã từ chối chấm ngoài lịch", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (item.type == "UNSCHEDULED" && onReviewUnscheduled != null) {
+                TextButton(
+                    onClick = { onReviewUnscheduled(item) },
+                    enabled = adjustmentEnabled
+                ) { Text(if (item.offScheduleReviewStatus == "PENDING") "Duyệt ngoài lịch" else "Xử lý chấm ngoài lịch") }
+            }
+            if (onAdjust != null && item.offScheduleReviewStatus != "REJECTED") TextButton(
                 onClick = { onAdjust(item) },
                 enabled = adjustmentEnabled && item.employeeId.isNotBlank() && attendanceAdjustmentDate(item) != null
             ) { Text("Điều chỉnh") }

@@ -7,6 +7,11 @@ import org.junit.Assert.*
 import org.junit.Test
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
+import vn.chamcong.iot.model.AttendanceResolutionStatus
+import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.ShiftCategory
+import vn.chamcong.iot.model.WorkSchedule
+import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.ui.MainUiState
 
 class AttendanceRowPresentationTest {
@@ -20,6 +25,46 @@ class AttendanceRowPresentationTest {
         assertTrue(presentations.first().accepted)
         assertTrue(presentations.drop(1).none { it.accepted })
         assertFalse(attendanceResolutionPresentation(row.copy(type = "SCAN")).accepted)
+    }
+
+    @Test fun sparkRawScanIsPresentedAsRecordedNotWaiting() {
+        val presentation = attendanceResolutionPresentation(row.copy(type = "SCAN", resolutionStatus = "PENDING"))
+
+        assertTrue(presentation.label.startsWith("Đã ghi nhận từ thiết bị"))
+        assertFalse(presentation.label.contains("Chờ hệ thống xử lý"))
+        assertFalse(presentation.accepted)
+    }
+
+    @Test fun allAttendanceListUsesSparkResolvedTypeForDeviceScan() {
+        val date = "2026-09-17"
+        val shift = WorkShift(
+            id = "morning",
+            name = "Ca sáng",
+            category = ShiftCategory.MORNING.name,
+            startTime = "08:00",
+            endTime = "12:00"
+        )
+        val rawScan = row.copy(
+            id = "scan",
+            type = "SCAN",
+            status = "PENDING",
+            resolutionStatus = AttendanceResolutionStatus.PENDING.name,
+            timestamp = Timestamp(Date.from(Instant.parse("2026-09-17T03:00:00Z")))
+        )
+        val state = MainUiState(
+            employees = listOf(Employee(id = "e1", fullName = "An")),
+            attendance = listOf(rawScan),
+            shifts = listOf(shift),
+            schedules = listOf(WorkSchedule(employeeId = "e1", date = date, shiftId = shift.id)),
+            attendanceTypeFilter = "CHECK_IN"
+        )
+
+        val visible = state.visibleAttendance.single()
+
+        assertEquals("CHECK_IN", visible.type)
+        assertEquals(AttendanceResolutionStatus.ACCEPTED.name, visible.resolutionStatus)
+        assertEquals("LATE", visible.status)
+        assertTrue(attendanceResolutionPresentation(visible).accepted)
     }
 
     @Test fun malformedAndUnverifiedRowsNeverLookAccepted() {

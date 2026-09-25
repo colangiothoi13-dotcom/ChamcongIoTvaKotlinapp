@@ -25,20 +25,20 @@ class PayrollRulesTest {
         val breakdown = payrollBreakdown(rows, requests)
         val payroll = createPayroll(kpiEmployee, kpiMonth.toString(), payrollHours(rows, requests), breakdown.totalBonus, 25_000)
 
-        assertEquals(11.0, payroll.hoursWorked, 0.001)
-        assertEquals(550_000L, payroll.baseSalary)
-        assertEquals(3.0, breakdown.overtimeHours, 0.001)
+        assertEquals(12.0, payroll.hoursWorked, 0.001)
+        assertEquals(600_000L, payroll.baseSalary)
+        assertEquals(4.0, breakdown.overtimeHours, 0.001)
         assertEquals(50_000L, breakdown.overtimeBonus)
         assertEquals(500_000L, breakdown.top3Bonus)
         assertEquals(550_000L, payroll.bonus)
         assertEquals(25_000L, payroll.deduction)
-        assertEquals(1_075_000L, payroll.netSalary)
+        assertEquals(1_125_000L, payroll.netSalary)
 
         // A later request change affects the next preview, never the saved snapshot.
         val refreshed = payrollBreakdown(rows, listOf(overtimeRequest("REJECTED")))
         assertEquals(0L, refreshed.overtimeBonus)
         assertEquals(550_000L, payroll.bonus)
-        assertEquals(11.0, payroll.hoursWorked, 0.001)
+        assertEquals(12.0, payroll.hoursWorked, 0.001)
     }
 
     @Test
@@ -98,7 +98,7 @@ class PayrollRulesTest {
         assertEquals(6.5, workedHoursForMonth(rows, "e1", kpiMonth, kpiZone,
             listOf(mainSchedule), listOf(mainShift), listOf(adjustment)), 0.001)
         assertEquals(6.5, payrollHours(rows, emptyList(), listOf(adjustment)), 0.001)
-        assertEquals(9.5, payrollHours(rows + overtimePair(), listOf(overtimeRequest()), listOf(adjustment)), 0.001)
+        assertEquals(10.5, payrollHours(rows + overtimePair(), listOf(overtimeRequest()), listOf(adjustment)), 0.001)
     }
 
     private fun payrollHours(rows: List<Attendance>, requests: List<OvertimeRequest>, adjustments: List<AttendanceAdjustment> = emptyList()) =
@@ -121,8 +121,8 @@ class PayrollRulesTest {
     ).map { it.copy(shiftId = "main", scheduleDate = "2026-09-10") }
 
     private fun overtimePair() = listOf(
-        attendance("e1", "CHECK_IN", "2026-09-10T17:30:00+07:00"),
-        attendance("e1", "CHECK_OUT", "2026-09-10T20:30:00+07:00")
+        attendance("e1", "CHECK_IN", "2026-09-10T18:00:00+07:00"),
+        attendance("e1", "CHECK_OUT", "2026-09-10T22:00:00+07:00")
     ).map { it.copy(shiftId = SUPPLEMENTARY_SHIFT_ID, scheduleDate = "2026-09-10") }
 
     @Test

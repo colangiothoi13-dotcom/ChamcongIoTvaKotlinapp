@@ -450,7 +450,16 @@ class FirebaseRepository(
             .addSnapshotListener { value, error ->
                 if (error != null) close(error)
                 else trySend(value?.documents.orEmpty()
-                    .mapNotNull { it.toObject(OffScheduleAttendanceReview::class.java)?.copy(id = it.id) })
+                    .mapNotNull { document ->
+                        document.toObject(OffScheduleAttendanceReview::class.java)?.copy(id = document.id)?.let { review ->
+                            // Spark has no trigger to turn a REJECT request from
+                            // PENDING into REJECTED. Treat that immutable request
+                            // as final for the client-side admin view.
+                            if (review.decision == "REJECT" && review.status == "PENDING") {
+                                review.copy(status = "REJECTED")
+                            } else review
+                        }
+                    })
             }
         awaitClose { listener.remove() }
     }

@@ -12,12 +12,10 @@ import java.time.LocalTime
 import java.time.DayOfWeek
 import java.time.ZoneId
 
-const val SUPPLEMENTARY_SHIFT_ID = "SUPPLEMENTARY_1730_2030"
+const val SUPPLEMENTARY_SHIFT_ID = "SUPPLEMENTARY_1800_2200"
 const val SUPPLEMENTARY_START_TIME = "18:00"
 const val SUPPLEMENTARY_END_TIME = "22:00"
 const val SUPPLEMENTARY_HOURS = 4.0
-private const val LEGACY_SUPPLEMENTARY_START_TIME = "17:30"
-private const val LEGACY_SUPPLEMENTARY_END_TIME = "20:30"
 val SUPPLEMENTARY_ZONE_ID: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh")
 
 fun createOvertimeRequest(employee: Employee, workDate: LocalDate, reason: String = ""): OvertimeRequest {
@@ -38,9 +36,7 @@ fun createOvertimeRequest(employee: Employee, workDate: LocalDate, reason: Strin
 fun validateOvertimeRequest(request: OvertimeRequest) {
     require(request.employeeId.isNotBlank()) { "Employee is required" }
     require(runCatching { LocalDate.parse(request.workDate) }.isSuccess) { "Work date is required" }
-    val currentWindow = request.startTime == SUPPLEMENTARY_START_TIME && request.endTime == SUPPLEMENTARY_END_TIME
-    val legacyWindow = request.startTime == LEGACY_SUPPLEMENTARY_START_TIME && request.endTime == LEGACY_SUPPLEMENTARY_END_TIME
-    require(currentWindow || legacyWindow) {
+    require(request.startTime == SUPPLEMENTARY_START_TIME && request.endTime == SUPPLEMENTARY_END_TIME) {
         "Overtime must use the fixed supplementary shift"
     }
     require(request.status in OvertimeRequestStatus.entries.map { it.name }) { "Invalid overtime status" }

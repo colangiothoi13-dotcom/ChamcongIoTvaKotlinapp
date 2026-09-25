@@ -19,8 +19,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.ShiftCategory
@@ -46,6 +52,9 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import vn.chamcong.iot.domain.mondayOfWeek
+import vn.chamcong.iot.ui.schedule.ScheduleShiftStatus
+import vn.chamcong.iot.ui.schedule.ScheduleStatusTone
+import vn.chamcong.iot.ui.schedule.scheduleShiftStatus
 
 private val employeeScheduleZone = ZoneId.of("Asia/Ho_Chi_Minh")
 private val employeeScheduleMonthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale("vi", "VN"))
@@ -64,8 +73,17 @@ fun EmployeeScheduleScreen(
 ) {
     val schedules = state.employeeSchedules
     val shifts = state.shifts
+    val attendance = state.employeeAttendanceForSummaries
+    var now by remember { mutableStateOf(Instant.now()) }
     var view by remember { mutableStateOf(EmployeeScheduleView.WEEK) }
     var anchorDate by remember { mutableStateOf(LocalDate.now(employeeScheduleZone)) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = Instant.now()
+            delay(60_000L)
+        }
+    }
 
     val dates = remember(view, anchorDate) {
         when (view) {
@@ -152,7 +170,9 @@ fun EmployeeScheduleScreen(
                     date = date,
                     schedules = schedulesByDate[date].orEmpty(),
                     shiftsById = shiftsById,
-                    overtimeRequests = state.employeeOvertimeRequests.filter { it.workDate == date.toString() }
+                    overtimeRequests = state.employeeOvertimeRequests.filter { it.workDate == date.toString() },
+                    attendance = attendance,
+                    now = now
                 )
             }
         }
@@ -280,7 +300,9 @@ private fun EmployeeScheduleDayCard(
     date: LocalDate,
     schedules: List<WorkSchedule>,
     shiftsById: Map<String, WorkShift>,
-    overtimeRequests: List<OvertimeRequest>
+    overtimeRequests: List<OvertimeRequest>,
+    attendance: List<Attendance>,
+    now: Instant
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(
@@ -326,6 +348,24 @@ private fun EmployeeScheduleDayCard(
                     }
                 }
             }
+            assignedSchedules.forEach { schedule ->
+                schedule.shiftIds.ifEmpty { listOf(schedule.shiftId) }
+                    .filter(String::isNotBlank)
+                    .forEach { shiftId ->
+                        shiftsById[shiftId]?.let { shift ->
+                            ScheduleStatusPill(
+                                scheduleShiftStatus(
+                                    employeeId = schedule.employeeId,
+                                    date = date,
+                                    shift = shift,
+                                    attendance = attendance,
+                                    zoneId = employeeScheduleZone,
+                                    now = now
+                                )
+                            )
+                        }
+                    }
+            }
             overtimeRequests.forEach { request ->
                 val status = when (request.status) {
                     OvertimeRequestStatus.APPROVED.name -> "đã duyệt"
@@ -337,5 +377,31 @@ private fun EmployeeScheduleDayCard(
                 request.rejectionReason?.takeIf(String::isNotBlank)?.let { Text("Phản hồi: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         }
+    }
+}
+
+@Composable
+private fun ScheduleStatusPill(status: ScheduleShiftStatus) {
+    val colors = MaterialTheme.colorScheme
+    val container = when (status.tone) {
+        ScheduleStatusTone.NEUTRAL -> colors.surfaceVariant
+        ScheduleStatusTone.ACTIVE -> colors.primaryContainer
+        ScheduleStatusTone.SUCCESS -> colors.secondaryContainer
+        ScheduleStatusTone.WARNING -> colors.tertiaryContainer
+        ScheduleStatusTone.ERROR -> colors.errorContainer
+    }
+    val content = when (status.tone) {
+        ScheduleStatusTone.NEUTRAL -> colors.onSurfaceVariant
+        ScheduleStatusTone.ACTIVE -> colors.onPrimaryContainer
+        ScheduleStatusTone.SUCCESS -> colors.onSecondaryContainer
+        ScheduleStatusTone.WARNING -> colors.onTertiaryContainer
+        ScheduleStatusTone.ERROR -> colors.onErrorContainer
+    }
+    Surface(color = container, contentColor = content, shape = RoundedCornerShape(8.dp)) {
+        Text(
+            text = status.label,
+            modifier = Modifier.padding(horizontal = AppSpacing.small, vertical = AppSpacing.xSmall),
+            style = MaterialTheme.typography.labelMedium
+        )
     }
 }

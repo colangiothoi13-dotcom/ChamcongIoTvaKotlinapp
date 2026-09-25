@@ -16,8 +16,9 @@
 Hệ thống thay thế việc chấm công thủ công bằng quy trình nhận dạng vân tay,
 phân ca theo lịch và xử lý dữ liệu tập trung trên Firebase. Thiết bị ESP8266
 nhận dạng vân tay tại nơi làm việc; ứng dụng Android cung cấp giao diện quản trị
-và giao diện nhân viên; Cloud Functions chịu trách nhiệm phân giải lượt quét
-theo ca, tính giờ và cập nhật trạng thái.
+và giao diện nhân viên. Ở chế độ Spark miễn phí, ESP8266 ghi raw scan trực tiếp
+vào Firestore bằng Anonymous Auth và Rules; phân giải lượt quét theo ca cần backend
+Cloud Functions hoặc dịch vụ riêng.
 
 Điểm trọng tâm của phiên bản hiện tại là không quyết định vào/ra theo mốc 12 giờ.
 Hệ thống dùng lịch làm trong ngày từ thứ Hai đến thứ Bảy, cửa sổ ca và lượt chấm
@@ -46,7 +47,7 @@ MVP quản trị nhân sự và chấm công bằng vân tay gồm:
 
 - Android: Kotlin, Jetpack Compose, Firebase Auth, Firestore, FCM và WorkManager.
 - Thiết bị: ESP8266 + cảm biến AS608/R307, LED xanh/đỏ và buzzer.
-- Backend: Firebase Anonymous Auth + Firestore REST dành cho ESP8266; Cloud Functions phân giải chấm công theo lịch ca.
+- Backend miễn phí: ESP8266 đăng nhập Firebase Anonymous Auth rồi ghi Firestore REST trực tiếp theo Rules giới hạn. Cloud Functions là tùy chọn khi nâng Blaze, không được dùng trong chế độ Spark.
 
 ## 1. Tổng quan hệ thống
 
@@ -62,9 +63,9 @@ lượt quét lên Firebase để hệ thống xử lý.
 | --- | --- |
 | Ứng dụng Android | Giao diện Admin/Nhân viên, nhập dữ liệu, hiển thị realtime và gọi các nghiệp vụ. |
 | ESP8266 + AS608/R307 | Đọc và đối chiếu vân tay cục bộ, điều khiển LED/còi, gửi lượt quét và trạng thái thiết bị. |
-| Firebase Authentication | Đăng nhập tài khoản Admin/Nhân viên; thiết bị dùng Anonymous Auth. |
+| Firebase Authentication | Admin/Nhân viên dùng Email/Password; ESP8266 dùng Anonymous Auth trong chế độ Spark. |
 | Firestore | Lưu nhân viên, ca, lịch, lượt chấm, đơn từ, lương, thiết bị và audit log. |
-| Cloud Functions | Phân giải lượt quét theo lịch ca trong ngày, tăng ca và thông báo. |
+| Cloud Functions | Tùy chọn cho bản Blaze; không có trong bản Spark miễn phí. |
 | Firestore Rules | Kiểm soát quyền đọc/ghi theo vai trò, bảo vệ dữ liệu chấm công và audit. |
 
 Hệ thống không lưu ảnh hoặc đặc trưng vân tay trên Firestore. Mẫu vân tay được
@@ -83,7 +84,7 @@ Nhân viên quét vân tay vào/ra
         ↓
 ESP8266 gửi SCAN/PENDING lên Firestore
         ↓
-Cloud Functions đối chiếu lịch, ca và lượt gần nhất
+Android hiển thị lượt quét raw; phân giải nâng cao cần Cloud Functions hoặc backend riêng
         ↓
 CHECK_IN / CHECK_OUT / quét trùng / ngoài lịch / sai thứ tự
         ↓
@@ -255,7 +256,7 @@ Luồng tăng ca dùng collection `overtimeRequests` với document ID xác đ�
   `OVERTIME_PENDING`; chúng không được tính là tăng ca trả lương.
 - Khi request `APPROVED`, Cloud Function đọc lại các lượt quét gắn request,
   sắp theo timestamp và resolve tuần tự vào session tăng ca độc lập
-  `..._SUPPLEMENTARY_1730_2030`; chỉ cặp `CHECK_IN`/`CHECK_OUT` hợp lệ mới
+  `..._SUPPLEMENTARY_1800_2200`; chỉ cặp `CHECK_IN`/`CHECK_OUT` hợp lệ mới
   được tính là một ca hoàn thành.
 - Khi request `REJECTED`, raw scans vẫn được giữ để audit/tra cứu, được đánh
   dấu `OVERTIME_REJECTED` và không tạo giờ hoặc tiền tăng ca phải trả.
@@ -280,7 +281,10 @@ composite index mới; file `firebase/firestore.indexes.json` hiện có index c
 định/runtime hiện có.
 
 Kiểm tra tích hợp đã ghi nhận `npm test --prefix firebase/functions` với
-**26/26 pass**. Gradle chưa thể chạy vì thiếu `gradle/wrapper/gradle-wrapper.jar`;
+**29/29 pass**. Gradle chưa thể chạy: `gradlew.bat` không nạp được
+`org.gradle.wrapper.GradleWrapperMain` khi chạy trực tiếp từ đường dẫn Unicode hiện tại;
+wrapper JAR vẫn có trong repository. Nếu chạy từ đường dẫn ASCII/Android Studio,
+Gradle còn cần tải distribution 8.9;
 Firestore emulator chưa thể chạy vì môi trường có Java 17 trong khi Firebase
 CLI yêu cầu Java 21. Task này chỉ cập nhật tài liệu và bàn giao local: không
 deploy Firebase, không seed production và không `git push`.
@@ -318,10 +322,9 @@ Bulk save dùng ID `${employeeId}_${date}`, merge các field phân ca, giữ `wo
 Ngón tay -> AS608/R307 (đối chiếu cục bộ)
                     |
                     v
-ESP8266 --Anonymous Auth/HTTPS--> Firestore <--realtime--> Android
-   |                                ^
- LED/còi                            | phân giải cùng document
-                              Cloud Functions
+ESP8266 --Anonymous Auth + Firestore REST--> Firestore <--realtime--> Android
+   |                                        ^
+ LED/còi                         Firestore Rules giới hạn field/mapping
 ```
 
 Không lưu ảnh hay đặc trưng vân tay trên Firestore. Module cảm biến giữ template; Firestore chỉ giữ số `fingerprintTemplateId` gắn với nhân viên. Bản production cần xin đồng ý xử lý dữ liệu sinh trắc học, phân quyền, nhật ký truy cập và chính sách xóa dữ liệu.
@@ -345,11 +348,11 @@ Hệ thống hoạt động theo chu trình sau:
 ### 2. Luồng đăng nhập và phân quyền
 
 - Tài khoản quản trị sử dụng phương thức Email/Password để truy cập app.
-- Tài khoản thiết bị dùng đăng nhập ẩn danh (Anonymous) để giao tiếp với hệ thống mà không cần người dùng thao tác trực tiếp.
+- Thiết bị đăng nhập Anonymous và truy cập Firestore REST trực tiếp; Rules chỉ cho phép các path/field thiết bị cần cho bản Spark demo.
 - Firestore và Firestore Rules phân quyền theo vai trò:
   - Admin: quản lý nhân viên, thiết bị, ca làm, lương, báo cáo, audit log.
   - Employee: xem thông tin cá nhân, lịch làm, chấm công của mình, gửi đơn từ.
-  - Device: chỉ có quyền ghi dữ liệu định danh cần thiết như trạng thái heartbeat, snapshot và sự kiện chấm công theo document thiết bị của mình.
+  - Device: chỉ dùng Anonymous Auth, tạo raw attendance, cập nhật heartbeat và xử lý lệnh trong các giới hạn của Rules.
 - Khi người dùng đăng nhập, hệ thống kiểm tra `role`, `active`, `employeeId` để xác định quyền truy cập từng màn hình.
 
 ### 3. Luồng quản lý nhân viên
@@ -382,7 +385,7 @@ Hệ thống hoạt động theo chu trình sau:
 - Sensor đọc mẫu vân tay và đối chiếu với template đã lưu trên AS608.
 - Nếu khớp:
   - Thiết bị kiểm tra mapping trên Firestore xem nhân viên có đang active và có quyền chấm công hay không.
-  - Nếu hợp lệ, thiết bị ghi lượt thô `SCAN/PENDING` với thời gian NTP UTC; Cloud Function phân giải theo lịch ca.
+  - Nếu hợp lệ, thiết bị ghi lượt thô `SCAN/PENDING` với thời gian NTP UTC; bản Spark giữ raw event để app hiển thị.
   - App Android theo dõi realtime collection `attendance` để cập nhật trạng thái chấm công ngay trên dashboard và màn hình chấm công.
 - Nếu không khớp hoặc mapping đã bị vô hiệu hóa:
   - Hệ thống từ chối xác thực.
@@ -390,7 +393,7 @@ Hệ thống hoạt động theo chu trình sau:
 
 #### Phân giải theo lịch ca và điều chỉnh chấm công
 
-`resolveAttendance` chạy khi tạo `attendance/{eventId}`, đọc lại lượt `SCAN` có `resolutionStatus=PENDING` trong transaction, xác minh mapping vân tay đang bật và nhân viên còn active. Hàm tra `workSchedules` của ngày quét và ngày trước đó theo `Asia/Ho_Chi_Minh`, đọc `shifts`, rồi cập nhật chính document này. ID lượt, thiết bị và thời điểm quét được giữ nguyên; loại/trạng thái được thay bằng kết quả server, kèm `scheduleDate`, `shiftId`, `receivedAt`, `resolvedAt`. Android và thiết bị không được update/delete attendance.
+Ở chế độ Blaze, `resolveAttendance` có thể chạy khi tạo `attendance/{eventId}` để phân giải raw scan trong transaction. Chế độ Spark không có trigger này: document giữ `SCAN/PENDING`, còn Rules vẫn cấm client update/delete attendance.
 
 - `scheduleDate` là ngày làm việc được phân (`yyyy-MM-dd`). Ca phải bắt đầu và kết thúc trong cùng ngày; giờ kết thúc phải sau giờ bắt đầu. Chấm ra trễ thực tế vẫn giữ timestamp của lượt chấm, nhưng không làm thay đổi giờ kết thúc đã phân.
 - Cửa sổ nhận lượt chạy từ đầu ca trừ `allowEarlyMinutes` đến cuối ca cộng `missingCheckOutGraceMinutes`, gồm cả hai mốc. Khi nhiều cửa sổ khớp, server chọn ca có mốc đầu/cuối gần lượt quét nhất, rồi ưu tiên ca bắt đầu sớm hơn nếu bằng nhau.
@@ -413,30 +416,32 @@ Lượt server `DUPLICATE` không ghi đè trạng thái của cặp hợp lệ;
 ### 6. Luồng xử lý thiết bị ESP8266
 
 - ESP8266 khởi động và tự động kết nối Wi-Fi.
-- Thiết bị cần xác thực với Firebase hoặc sử dụng Anonymous Auth nếu được cấu hình cho môi trường prototype.
+- Thiết bị gọi Firebase Anonymous Auth và Firestore REST trực tiếp; không cần `DEVICE_API_KEY` hoặc Secret Manager.
 - Thiết bị gửi `heartbeat` định kỳ cho Firestore, cho biết trạng thái online/offline, firmware đang chạy, số lượng mẫu vân tay và capability của thiết bị.
 - Nếu có lệnh từ hệ thống, ví dụ: đăng ký vân tay, xóa vân tay, cập nhật cấu hình, thiết bị thực hiện theo hàng đợi.
-- Nếu mất mạng, thiết bị lưu outbox và tự retry khi có kết nối trở lại.
-- Mỗi lần quét hợp lệ được gửi lên Firestore dưới dạng một sự kiện thô trong chính document `attendance/{eventId}`, với `type=SCAN`, `resolutionStatus=PENDING`, `status=PENDING`. `eventId`, `deviceId`, timestamp NTP UTC và provenance của lượt quét thô được giữ nguyên; sau đó Cloud Function cập nhật các trường phân giải (`type`, `resolutionStatus`, `status`, `scheduleDate`) ngay trên cùng document theo ca làm. Không tạo document hoặc type phân giải thứ hai, và `SCAN` không được lưu song song với một resolved document/type khác; firmware không suy đoán loại lượt theo giờ địa phương.
+- Nếu mất mạng, thiết bị vẫn nhận diện vân tay, lưu outbox trên LittleFS và tự retry theo thứ tự khi có kết nối trở lại.
+- Mỗi lần quét hợp lệ được gửi lên Firestore dưới dạng raw event `attendance/{eventId}`, với `type=SCAN`, `resolutionStatus=PENDING`, `status=PENDING`. Rules kiểm tra mapping vân tay đang bật và nhân viên còn active. Trong chế độ Spark không có Cloud Function để cập nhật `CHECK_IN`/`CHECK_OUT`; vì vậy bản này phù hợp demo/raw feed, chưa thay thế backend phân giải ca production.
 - Dashboard và màn hình Thiết bị trên Android nhận snapshot heartbeat để hiển thị trạng thái đầu vào, thời gian online, firmware version và tình trạng hoạt động.
 
 #### Chế độ offline của thiết bị
 
-Khi ESP8266 mất kết nối mạng hoặc Firebase không phản hồi, thiết bị không bỏ qua dữ liệu chấm công. Thay vào đó, thiết bị lưu các sự kiện chưa gửi vào bộ nhớ cục bộ dưới dạng hàng đợi offline, thường được triển khai trên filesystem như `LittleFS` với đường dẫn `/attendance.outbox`.
+Khi ESP8266 mất kết nối mạng hoặc Firebase không phản hồi, thiết bị không bỏ qua dữ liệu chấm công. Thay vào đó, thiết bị lưu các sự kiện chưa gửi vào bộ nhớ cục bộ dưới dạng hàng đợi JSON Lines trên `LittleFS` với đường dẫn `/attendance.outbox`. Hàng đợi được phục hồi khi khởi động lại; bản ghi đang ghi dở ở cuối file được bỏ qua, còn bản ghi hoàn chỉnh vẫn được giữ lại.
 
 Mỗi bản ghi trong hàng đợi offline chứa thông tin như:
 
-- `eventId`: mã duy nhất của sự kiện chấm công
+- `eventId`: mã duy nhất của sự kiện chấm công, cấp từ bộ đếm bền vững trên thiết bị để không tái sử dụng sau khi khởi động lại
 - `deviceId`: mã thiết bị
 - `employeeId` hoặc thông tin nhân viên được xác định
 - `timestamp`: thời gian quét vân tay
-- `type`: bắt đầu là `SCAN` trong payload firmware, sau đó Cloud Function ghi đè ngay trên cùng document bằng loại đã phân giải như `CHECK_IN` hoặc `CHECK_OUT`
-- `resolutionStatus`: `PENDING` trước khi Cloud Function phân giải, sau đó được cập nhật in place thành trạng thái như `ACCEPTED`, `DUPLICATE`, `UNSCHEDULED` hoặc `OUT_OF_ORDER`
-- `status`: bắt đầu là `PENDING` ở payload firmware và được Cloud Function cập nhật cùng các trường phân giải; không dùng giờ địa phương trên thiết bị để gán `LATE`/`NORMAL`
+- `type`: `SCAN` trong payload firmware; bản Spark không tự chuyển thành `CHECK_IN`/`CHECK_OUT`
+- `resolutionStatus`: `PENDING` trong bản Spark; bản Blaze/backend riêng có thể cập nhật thành `ACCEPTED`, `DUPLICATE`, `UNSCHEDULED` hoặc `OUT_OF_ORDER`
+- `status`: `PENDING` trong raw event; không dùng giờ địa phương trên thiết bị để gán `LATE`/`NORMAL`
 
-Thiết bị và client không được update hoặc delete document `attendance`; Firestore Rules cấm các thao tác đó. Chỉ Cloud Function có quyền đặc quyền mới được cập nhật các trường phân giải trên document hiện có.
+Thiết bị và client không được update hoặc delete document `attendance`; Firestore Rules cấm các thao tác đó. Nếu cần phân giải tự động, phải bật backend có quyền đặc biệt.
 
-Khi mạng trở lại, ESP8266 tự động đọc lại hàng đợi, gửi từng sự kiện theo thứ tự và dùng cùng `eventId` để tránh trùng lặp dữ liệu. Những request gửi thành công với mã HTTP 2xx hoặc 409 sẽ được đánh dấu là đã xử lý; các lỗi mạng hoặc lỗi xác thực tạm thời sẽ được giữ lại để retry ở lần gửi tiếp theo. Cách làm này giúp hệ thống duy trì tính toàn vẹn dữ liệu và giảm nguy cơ mất lượt chấm công trong điều kiện mạng yếu.
+Khi mạng trở lại, ESP8266 tự động đọc lại hàng đợi, gửi từng sự kiện theo thứ tự và dùng cùng `eventId` để tránh trùng lặp dữ liệu. Firestore REST trả mã thành công khi document được ghi; các lỗi mạng hoặc lỗi tạm thời sẽ giữ bản ghi để retry ở lần gửi tiếp theo.
+
+Thiết bị gửi `pendingAttendanceCount` trong heartbeat và hiển thị `CHO SYNC: N` trên LCD. Nếu khởi động lại khi chưa có NTP, thiết bị chờ đồng bộ giờ trước khi ghi raw scan vì Firestore Rules yêu cầu timestamp hợp lệ.
 
 ### 7. Luồng dashboard và giám sát realtime
 
@@ -513,10 +518,10 @@ Phần này mô tả hệ thống theo góc nhìn người sử dụng. Tên nú
    -> mở giao diện Admin hoặc Nhân viên
 
 Thiết bị đọc vân tay
-   -> ghi lượt SCAN/PENDING vào attendance
-   -> Cloud Function đối chiếu lịch và ca gần nhất
-   -> phân giải CHECK_IN/CHECK_OUT hoặc trạng thái bất thường
-   -> Android nhận realtime và cập nhật công, hiện diện, báo cáo
+   -> ghi lượt SCAN/PENDING vào attendance bằng Anonymous Auth
+   -> Android nhận raw event realtime
+   -> phân giải CHECK_IN/CHECK_OUT cần backend riêng/Cloud Functions
+   -> Android cập nhật công khi có dữ liệu đã phân giải
 
 Nhân viên gửi đơn tăng ca
    -> Admin duyệt hoặc từ chối
@@ -716,13 +721,15 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 ### 5. Luồng tính công, tăng ca và tiền thưởng
 
 1. Firmware chỉ gửi raw scan `SCAN/PENDING` kèm thời gian UTC; firmware không quyết định vào hay ra theo mốc 12 giờ.
-2. Cloud Function tra lịch quanh ngày quét và dựng cửa sổ theo giờ bắt đầu/kết thúc; ca được phân phải nằm trọn trong cùng ngày.
+2. Ở bản Blaze/backend riêng, resolver tra lịch quanh ngày quét và dựng cửa sổ theo giờ bắt đầu/kết thúc; bản Spark chỉ lưu raw scan.
 3. Lượt gần đầu ca được chọn làm `CHECK_IN`, lượt gần cuối ca được chọn làm `CHECK_OUT`; lượt kế tiếp khi phiên đang mở sẽ đóng phiên.
 4. Hai lượt trong vòng **3 phút** bị coi là quét trùng; lượt ngoài thứ tự, ngoài lịch hoặc không có cửa sổ hợp lệ được giữ lại với trạng thái bất thường để tra cứu.
 5. Nếu có chấm vào nhưng chưa chấm ra, hệ thống chỉ đánh dấu thiếu chấm ra sau cuối ca cộng grace mặc định 60 phút; không tự tạo giờ ra.
 6. Ca chính được tính theo cặp vào/ra hợp lệ và lịch đã phân. Ca tăng ca chỉ được tính khi đơn đã `APPROVED` và có cặp quét hợp lệ trong 18:00–22:00.
 7. Mỗi ca tăng ca hoàn thành cộng **50.000 đ**; nhân viên thuộc Top 3 số ca tăng ca và không đi muộn nhận thêm **500.000 đ/người**; mỗi lần đi muộn trừ **100.000 đ** khỏi khoản thưởng. Tổng thưởng không thấp hơn 0.
 8. Lương giờ được tính từ đơn giá × tổng giờ (gồm giờ tăng ca), sau đó cộng thưởng tự động và trừ khoản khấu trừ Admin nhập. Phiếu lương được lưu thành snapshot.
+
+Với lịch chuẩn, ca sáng `08:00–12:00` và ca chiều `13:00–17:00` là hai phiên độc lập. Ví dụ chấm `10:00` được gắn vào ca sáng, tính đi trễ **120 phút** và không mở ca mới; nếu chấm ra lúc `12:00` thì ca sáng chỉ ghi nhận **2 giờ**. Lượt `17:30` vẫn thuộc cửa sổ checkout ca chiều và được tính thêm **30 phút tăng ca**; ca tăng ca riêng `18:00–22:00` vẫn cần đơn được duyệt.
 
 ### 6. Ánh xạ thao tác với dữ liệu Firebase
 
@@ -731,7 +738,7 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 | Đăng nhập/quyền | Firebase Auth, `users/{uid}` | Kiểm tra role, active, employeeId. |
 | Hồ sơ nhân viên | `employees/{id}` | Chuyển nghỉ bằng `active = false`, không xóa lịch sử. |
 | Lệnh vân tay | `deviceCommands/{deviceId}` và `devices/{deviceId}` | Thiết bị cập nhật trạng thái lệnh/heartbeat. |
-| Raw/resolved attendance | `attendance/{eventId}` | Cùng một document được Cloud Function cập nhật in-place; client không được sửa/xóa. |
+| Raw/resolved attendance | `attendance/{eventId}` | Spark ghi raw scan trực tiếp; resolver chỉ có khi bật backend riêng; client không được sửa/xóa. |
 | Phiên phân giải | `attendanceSessions/{employeeId}_{scheduleDate}`; ngày nhiều ca có thêm `_shiftId` | Chỉ backend truy cập; mỗi ca có phiên riêng khi đăng ký nhiều ca/ngày. |
 | Ca và lịch | `shifts/{id}`, `workSchedules/{employeeId}_{date}`, `weeklyScheduleRequests/{employeeId}_{weekStart}` | Mỗi ngày có thể có một ca chính hoặc cả ca sáng và chiều; tăng ca được lưu riêng trong đơn. |
 | Đơn thường | `leaveRequests/{id}` | Duyệt/từ chối và lý do được ghi theo luồng review. |
@@ -755,7 +762,7 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 - README này mô tả giao diện và nghiệp vụ theo code hiện tại; các nút `Cài đặt` vẫn là placeholder cho phần cấu hình Firebase Settings cụ thể.
 - Tăng ca không được seed trước vào lịch tuần. Mọi lượt tăng ca hợp lệ phụ thuộc vào đơn của nhân viên và trạng thái duyệt của Admin.
 - `Đã duyệt` là trạng thái nghiệp vụ của đơn, không có nghĩa mọi lượt quét đều tự động thành một ca; hệ thống vẫn yêu cầu cặp vào/ra hợp lệ.
-- Kiểm tra cục bộ hiện có `npm test --prefix firebase/functions` đạt 26/26; Gradle và Firestore Emulator còn phụ thuộc môi trường JDK/wrapper được nêu ở phần kiểm chứng bên dưới.
+- Kiểm tra cục bộ hiện có `npm test --prefix firebase/functions` đạt 29/29; Gradle và Firestore Emulator còn phụ thuộc môi trường JDK/wrapper được nêu ở phần kiểm chứng bên dưới.
 - Các thay đổi trong tài liệu này chỉ được thực hiện local trong worktree; chưa deploy Firebase và chưa `git push`.
 
 ## 7. Chạy Android
@@ -764,14 +771,23 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 2. Tạo Firebase project, thêm Android app package `vn.chamcong.iot`.
 3. Tải `google-services.json` vào `app/`.
 4. Trong Firebase Authentication bật Email/Password và tạo tài khoản quản trị.
-5. Trong Authentication bật cả **Email/Password** và **Anonymous**.
+5. Trong Authentication bật **Email/Password** cho app và bật **Anonymous** cho ESP8266.
 6. Tạo Firestore, deploy rules theo phần dưới, rồi Run app.
 
-Repository hiện có script `gradlew`/`gradlew.bat` nhưng chưa kèm `gradle-wrapper.jar`. Android Studio có thể đồng bộ bằng Gradle đã cấu hình; nếu cần build từ terminal, tạo wrapper bằng `gradle wrapper --gradle-version 8.9`.
+Repository có script `gradlew`/`gradlew.bat` và `gradle/wrapper/gradle-wrapper.jar`. Android Studio có thể đồng bộ bằng Gradle đã cấu hình; nếu chạy terminal trong đường dẫn Unicode này gặp `ClassNotFoundException`, hãy mở project từ một đường dẫn ASCII hoặc chạy bằng Android Studio.
 
 ## 8. Backend Firebase và kiểm chứng cục bộ
 
-`firebase/functions/package.json` khai báo runtime Node.js 22. Luồng chấm công hiện yêu cầu Cloud Functions hoạt động; chỉ cấu hình Auth/Firestore như bản Spark prototype cũ sẽ để lượt mới ở `SCAN/PENDING`. Firmware gửi Firestore REST trực tiếp; các endpoint HTTPS cũ trong `index.js` vẫn khai báo secret `DEVICE_API_KEY`. Khi chuẩn bị triển khai, người vận hành cần kiểm tra cấu hình Functions, secret cho endpoint dùng đến và yêu cầu dịch vụ của project đích.
+Chế độ Spark không cần deploy Functions và không cần Secret Manager. Firmware dùng `FIREBASE_WEB_API_KEY` cùng `FIRESTORE_BASE_URL` trong `firmware/esp8266_fingerprint/secrets.h`, đăng nhập Anonymous rồi ghi Firestore REST trực tiếp. Thư mục `firebase/functions/` vẫn giữ resolver tùy chọn cho project Blaze, nhưng không được gọi trong bản free.
+
+Sau khi deploy bản mới, chạy dry-run rồi migrate dữ liệu tăng ca cũ (cần Application Default Credentials):
+
+```powershell
+node firebase/functions/migrate-overtime-window.js
+node firebase/functions/migrate-overtime-window.js --apply
+```
+
+Script đổi request `17:30–20:30`, ID ca và session cũ sang chuẩn `18:00–22:00`/`SUPPLEMENTARY_1800_2200`; document cũ không bị xóa.
 
 Chạy kiểm chứng trước khi triển khai (PowerShell, từ thư mục dự án):
 
@@ -796,8 +812,9 @@ Mở `firmware/esp8266_fingerprint/esp8266_fingerprint.ino` trong Arduino IDE, c
 - ESP8266 board package
 - Adafruit Fingerprint Sensor Library
 - ArduinoJson
+- Servo library (di kem ESP8266 board package)
 
-Điền Wi-Fi. `FIREBASE_API_KEY` và project ID đã được lấy từ cấu hình Android. Wiring mẫu:
+Điền Wi-Fi, `FIREBASE_WEB_API_KEY` và `FIRESTORE_BASE_URL` trong `secrets.h`. Lấy Web API key từ `google-services.json`; đây không phải mật khẩu Firebase. Wiring mẫu:
 
 | Linh kiện | ESP8266 |
 |---|---|
@@ -805,25 +822,28 @@ Mở `firmware/esp8266_fingerprint/esp8266_fingerprint.ino` trong Arduino IDE, c
 | LED xanh | D1 |
 | LED đỏ | D2 |
 | Buzzer | D7 |
+| Servo SG90: signal | D0 (GPIO16) |
 
 Nguồn cảm biến phải đúng thông số module và chung GND với ESP8266. Không kéo buzzer công suất trực tiếp từ GPIO; dùng transistor và diode bảo vệ.
 
+Servo 9g nen dung nguon 5V rieng du dong (khuyen nghi toi thieu 1A), nhung phai noi chung GND voi ESP8266; chi noi day signal servo vao D0. Khong cap servo tu chan 3V3 cua ESP8266 vi dong khoi dong co the lam reset board. Sau khi van tay hop le va mapping nhan vien con `enabled=true`, cua mo o goc `DOOR_OPEN_ANGLE` trong 5 giay roi tu dong dong ve `DOOR_CLOSED_ANGLE`. Admin co the dung nut **Mo cua** va **Dong cua** trong man hinh Thiet bi de test.
+
 ## 10. Đăng ký vân tay từ app
 
-1. Deploy lại Functions và Firestore Rules sau mỗi lần cập nhật backend.
+1. Bật **Authentication → Sign-in method → Anonymous** và deploy Firestore Rules.
 2. Nạp firmware mới và bảo đảm `DEVICE_ID` trên ESP trùng mã thiết bị trong app (mặc định `GATE-01`).
 3. Trong app mở **Nhân viên → +**, nhập thông tin và nhấn **Lưu & đăng ký vân tay**.
 4. Trong tối đa vài giây ESP phát tiếng bíp. Đặt một ngón tay lên cảm biến, nhấc ra khi có bíp, rồi đặt lại đúng ngón đó lần hai.
 5. LED xanh/bíp ngắn nghĩa là thành công; LED đỏ nghĩa là hết thời gian hoặc hai lần quét không khớp.
 
-App tạo lệnh tại `deviceCommands/{deviceId}`; ESP đọc và cập nhật lệnh trực tiếp bằng Firestore REST. Khi trạng thái thành `COMPLETED`, app tự cập nhật `fingerprintTemplateId` của nhân viên.
+App tạo lệnh tại `deviceCommands/{deviceId}`; ESP đọc và cập nhật trạng thái trực tiếp qua Firestore REST. Khi trạng thái thành `COMPLETED`, app tự cập nhật `fingerprintTemplateId` của nhân viên.
 
-Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi triển khai thật, thay bằng CA certificate pinning, đổi API key định kỳ, giới hạn tốc độ theo `deviceId`, và tốt hơn là ký HMAC từng request kèm timestamp/nonce.
+Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Anonymous Auth/Rules không có ranh giới secret riêng cho từng thiết bị; chỉ nên dùng cho demo hoặc mạng nội bộ. Trước production cần backend có secret riêng, CA pinning, rate limit và HMAC.
 
 ## 11. Cấu trúc Firestore
 
 - `employees/{id}`: mã, họ tên, phòng ban, email, `fingerprintTemplateId`, trạng thái.
-- `attendance/{eventId}`: giữ nguyên định danh sự kiện, thiết bị, thời điểm quét NTP UTC và provenance raw scan; Cloud Function cập nhật in place kết quả phân giải theo ca (`CHECK_IN`/`CHECK_OUT`, `scheduleDate`, `resolutionStatus`) trên cùng document.
+- `attendance/{eventId}`: raw scan do ESP ghi trực tiếp trong chế độ Spark (`type=SCAN`, `resolutionStatus=PENDING`); cần Cloud Functions/backend riêng để phân giải thành `CHECK_IN`/`CHECK_OUT`.
 - `attendanceSessions/{employeeId}_{scheduleDate}`: trạng thái phiên phân giải của backend, cấm client đọc/ghi.
 - `offScheduleReviews/{id}`: quyết định Admin duyệt/từ chối lượt ngoài lịch; client chỉ tạo yêu cầu, Cloud Function cập nhật kết quả, scan tương ứng và audit. Lỗi không thể xử lý được lưu `FAILED` cùng lý do ngắn để Admin xử lý lại.
 - `attendanceAdjustments/{id}`: điều chỉnh append-only theo nhân viên/ngày ca, lý do bắt buộc và audit `ATTENDANCE_ADJUST` cùng ID. Index truy vấn: `employeeId ASC`, `scheduleDate ASC`, `createdAt DESC`.
@@ -831,7 +851,7 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Trước khi
 - `payroll/{id}`: lương cơ bản đã tính theo giờ, đơn giá/giờ, số giờ làm, thưởng, khấu trừ theo kỳ.
 - `performanceReviews/{id}`: kỳ đánh giá, điểm, nhận xét.
 - `notifications/{id}`: thông báo nội bộ.
-- `devices/{id}`: snapshot heartbeat, trạng thái, firmware, số mẫu, capability và sức khỏe thiết bị (`wifiStatus`, `firebaseSyncStatus`, `sensorStatus`, `failedScanCount`, `lastError`) (không lưu plaintext secret).
+- `devices/{id}`: snapshot heartbeat, trạng thái, firmware, số mẫu, capability và sức khỏe thiết bị (`wifiStatus`, `firebaseSyncStatus`, `sensorStatus`, `doorStatus`, `failedScanCount`, `lastError`) (không lưu plaintext secret).
 - `users/{uid}`: email, displayName, role `ADMIN`/`EMPLOYEE`, trạng thái active; tài khoản Nhân viên có thêm `employeeId` để liên kết đúng hồ sơ.
 - `departments/{id}`: phòng ban do admin quản lý.
 - `settings/{id}`: cấu hình dùng chung do admin quản lý.
@@ -849,8 +869,8 @@ Các mục MVP đã duyệt trong đặc tả [`2026-09-21-mvp-gap-closure-desig
 - Dashboard Admin có bảy số liệu trong ngày theo `Asia/Ho_Chi_Minh`: nhân viên đang hoạt động, đã chấm vào, chưa chấm vào, đi trễ, đang có mặt, nghỉ phép được duyệt và thiếu lượt chấm ra. Việc tính vẫn theo lịch/ca, ca qua đêm, đơn nghỉ và điều chỉnh công hiện có.
 - Màn Chấm công có bộ lọc **Hôm nay, Hôm qua, Tuần này, Tháng này, Ngày cụ thể** và **Khoảng tùy chọn**. Ngày đầu/cuối đều được tính; lượt đã có `scheduleDate` dùng ngày ca, lượt chưa phân giải dùng ngày sự kiện theo giờ Việt Nam.
 - Màn Thiết bị hiển thị heartbeat, phiên bản, số mẫu/sức chứa, lượt chấm mới nhất, hàng đợi chưa đồng bộ và sức khỏe Wi-Fi/Firebase/cảm biến. Admin có thể kiểm tra LED xanh, LED đỏ, còi, đồng bộ hàng đợi hoặc khởi động lại; lệnh bị khóa khi thiết bị offline hoặc còn lệnh khác và khởi động lại cần xác nhận.
-- Firmware dùng đúng phần cứng đã lắp: ESP8266, AS608, LCD, LED xanh D1, LED đỏ D2 và còi D7. LCD hiển thị giờ Việt Nam từ NTP khi rảnh; Firebase vẫn lưu thời điểm UTC và thiết bị không giữ được giờ sau khi mất điện rồi khởi động lạnh cho tới khi đồng bộ NTP lại. Không có nút VÀO/RA riêng và firmware không tự đoán chiều chấm công theo giờ.
-- Heartbeat dùng `updateMask` chỉ cho các trường do firmware quản lý, nên không ghi đè tên/vị trí do Admin đặt. Lệnh và trường sức khỏe được giới hạn đồng nhất ở Android, Firestore Rules và firmware.
+- Firmware dùng đúng phần cứng đã lắp: ESP8266, AS608, LCD, LED xanh D1, LED đỏ D2 và còi D7. LCD hiển thị giờ Việt Nam từ NTP khi rảnh; thiết bị không giữ được giờ sau khi mất điện rồi khởi động lạnh cho tới khi đồng bộ NTP lại, nên lượt quét trong khoảng này vẫn được lưu nhưng dùng thời điểm server nhận làm fallback. Không có nút VÀO/RA riêng và firmware không tự đoán chiều chấm công theo giờ.
+- Heartbeat đi qua Firestore REST, chỉ cập nhật các trường do firmware quản lý nên không ghi đè tên/vị trí do Admin đặt. Lệnh và trường sức khỏe được giới hạn đồng nhất ở Android, Rules và firmware.
 
 Lần bàn giao này chỉ rà soát thủ công mã nguồn và giao thức; chưa chạy build/test tự động hoặc nạp firmware. Sau khi cập nhật Rules, firmware và app, cần kiểm tra trực tiếp trên phần cứng đã lắp để xác nhận LCD, LED, còi, AS608 và luồng lệnh Firebase.
 
@@ -896,15 +916,15 @@ Mọi lần thay đổi code phải cập nhật mục này, ghi rõ file đã s
 - Tạo `app/src/test/java/vn/chamcong/iot/model/FingerprintRulesTest.kt`: kiểm thử ưu tiên slot đã lưu và fallback mapping cũ.
 - Sửa `app/src/main/java/vn/chamcong/iot/data/FirebaseRepository.kt`: khi xóa nhân viên, tra cứu và vô hiệu hóa cả mapping vân tay cũ còn sót trên Firebase.
 - Sửa `firmware/esp8266_fingerprint/esp8266_fingerprint.ino`: từ chối chấm công nếu mapping không có `enabled=true`, kể cả khi template vật lý chưa xóa khỏi AS608.
-- Sửa `firebase/firestore.rules`: thiết bị anonymous chỉ được tạo attendance khi mapping đang bật và nhân viên còn `active=true`.
+- Lịch sử (đã thay thế): `firebase/firestore.rules` từng cho thiết bị anonymous tạo attendance khi mapping bật và nhân viên còn `active=true`; hiện thiết bị không ghi Firestore trực tiếp.
 - Sửa `app/src/main/java/vn/chamcong/iot/model/Models.kt`: thêm `hourlyRate` và `hoursWorked` vào phiếu lương; `baseSalary` của phiếu là tiền cơ bản sau khi nhân giờ.
 - Sửa `app/src/main/java/vn/chamcong/iot/model/PersonnelRules.kt`: tính tiền lương theo giờ, ghép cặp vào/ra để tính giờ và lọc nhân viên đã nghỉ đã có phiếu theo tháng.
 - Tạo `app/src/test/java/vn/chamcong/iot/model/PayrollRulesTest.kt`: kiểm thử tiền cơ bản theo giờ, giờ làm theo cặp chấm công và danh sách nhân viên cần lập phiếu.
 - Sửa `app/src/main/java/vn/chamcong/iot/data/FirebaseRepository.kt`: nhận số giờ làm khi lưu phiếu lương.
 - Sửa `app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt`: truyền số giờ làm vào luồng lưu phiếu lương MVVM.
 - Sửa `app/src/main/java/vn/chamcong/iot/ui/PayrollScreen.kt`: nhập đơn giá/giờ, tự tính giờ từ attendance, cho chỉnh số giờ và ẩn nhân viên đã nghỉ sau khi đã lập phiếu tháng.
-- Sửa `firmware/esp8266_fingerprint/esp8266_fingerprint.ino`: gửi snapshot `devices/GATE-01` lúc khởi động và heartbeat mỗi 30 giây; in version `snapshot-2-offline` và lý do bỏ qua nếu chưa đủ Wi-Fi/NTP/Auth/HTTPS.
-- Sửa `firebase/firestore.rules`: cho phép thiết bị anonymous ghi snapshot đúng document của mình với các field giới hạn.
+- Lịch sử Blaze: firmware từng gửi snapshot qua `updateDeviceSnapshot` với `functions-v2-offline`; bản Spark hiện gửi Firestore REST bằng Anonymous Auth.
+- Lịch sử Blaze (đã thay thế): Rules từng chuyển snapshot thiết bị qua Function có `DEVICE_API_KEY`; bản Spark dùng Rules giới hạn field cho Anonymous Auth.
 - Sửa `README.md`: ghi kiến trúc MVVM, đường dẫn spec và quy tắc nhật ký file.
 
 ### Bổ sung nhật ký file: phân giải theo ca và điều chỉnh (17/09/2026)
@@ -1019,9 +1039,9 @@ Chạy kiểm tra rules riêng bằng `node --test firebase/test/shiftRules.test
 - Nhân viên đăng ký lịch tuần sau theo ca sáng/chiều, sao chép lịch tuần này và sửa đơn đang chờ; Admin xem số người theo ca, nhắc người chưa gửi, yêu cầu sửa có lý do, duyệt từng đơn hoặc hàng loạt. Lịch đã duyệt hỗ trợ hai ca chính trong cùng ngày và được tách phiên chấm công theo ca.
 - Admin có thể gửi thông báo toàn công ty hoặc theo phòng ban và xem lịch sử; nhân viên nhận thông báo cá nhân trong Trang chủ.
 - Phân lịch trực tiếp, phân lịch theo phòng ban hoặc sao chép tuần sẽ tạo thông báo riêng cho nhân viên; duyệt lịch tuần vẫn dùng thông báo kết quả duyệt.
-- Luồng đồng bộ IoT giữ sự kiện trên thiết bị ở PENDING_SYNC; Cloud Function chuyển sang SYNCED sau khi nhận xử lý. Snapshot thiết bị báo số lượt còn trong hàng đợi; app phân biệt lượt chờ đồng bộ với lượt đã lên hệ thống.
+- Luồng đồng bộ IoT giữ sự kiện trên thiết bị ở PENDING_SYNC; Firestore REST ghi raw event khi có mạng. Snapshot thiết bị báo số lượt còn trong hàng đợi; app phân biệt lượt chờ đồng bộ với lượt đã lên hệ thống.
 - Firestore Rules yêu cầu hồ sơ users/{uid} đang hoạt động với role=ADMIN trước khi cấp quyền Admin. Tạo hồ sơ Admin đầu tiên bằng Firebase Console hoặc Admin SDK; tài khoản Email/Password chưa có hồ sơ không còn được xem dữ liệu Admin. Tài khoản nhân viên chỉ sửa được điện thoại/địa chỉ của hồ sơ liên kết; đơn phải chờ Admin xử lý.
 - Firestore Rules chặn ca mới dài hơn 4 giờ, lịch Chủ nhật và đơn tăng ca gửi từ 18:00 trở đi; các mục này được kiểm tra cả ở app lẫn Rules.
 - Sao lưu/khôi phục thủ công có trong `firebase/backup-firestore.ps1`. Cần tạo bucket Cloud Storage và cấp quyền `gcloud` trước khi chạy; xuất bằng `./firebase/backup-firestore.ps1 -ProjectId <project> -BucketName <bucket>`, khôi phục bằng cách thêm `-RestoreFrom gs://<bucket>/firestore-backups/<project>/<timestamp>`. Project chưa cấu hình sao lưu tự động.
 - Firmware đọc Wi-Fi từ `firmware/esp8266_fingerprint/secrets.h`; tạo file này bằng cách sao chép `secrets.h.example` rồi điền cấu hình cục bộ. File thật đã được thêm vào `.gitignore`.
-- Giới hạn cần giữ rõ: firmware vẫn dùng Firebase Anonymous Auth chung, Rules chưa gắn danh tính xác thực riêng với từng deviceId, nên anonymous client khác vẫn có thể giả thiết bị và truy cập mapping. Firmware cũng chưa xác thực chứng thư TLS; hàng đợi offline giới hạn 12 KB và chưa nhận lượt mới nếu chưa có thời gian NTP đáng tin cậy. Cần cấp danh tính riêng cho từng thiết bị và xoay thông tin Wi-Fi từng được lưu trong source trước khi dùng production.
+- Giới hạn cần giữ rõ: bản Spark dùng Anonymous Auth và Firestore REST trực tiếp, vẫn dùng `setInsecure()` và chỉ phù hợp demo/nội bộ; trước production cần backend có secret riêng, CA pinning, rate limit/HMAC. Hàng đợi offline giới hạn 12 KB; thiết bị chờ NTP trước khi ghi raw scan.

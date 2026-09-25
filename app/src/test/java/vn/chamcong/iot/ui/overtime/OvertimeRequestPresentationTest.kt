@@ -21,11 +21,10 @@ class OvertimeRequestPresentationTest {
     fun fixedWindowIsShownAndLegacyStoredTimesRemainVisible() {
         assertEquals("18:00–22:00", overtimeWindowLabel(OvertimeRequest()))
 
-        val legacyLabel = overtimeWindowLabel(
+        val invalidLabel = overtimeWindowLabel(
             OvertimeRequest(startTime = "17:30", endTime = "20:30")
         )
-
-        assertEquals("17:30–20:30 • Đơn cũ", legacyLabel)
+        assertEquals("18:00–22:00 • Dữ liệu giờ đã lưu không hợp lệ", invalidLabel)
     }
 
     @Test

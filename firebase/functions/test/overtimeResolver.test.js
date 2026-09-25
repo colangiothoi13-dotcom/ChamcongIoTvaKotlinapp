@@ -15,14 +15,14 @@ const supplementarySchedule = () => buildSupplementarySchedule("2026-09-17", req
 
 test("pending overtime resolves sequential scans as a non-payable check-in and check-out", () => {
   const first = resolveScan({
-    scan: scan(at("2026-09-17T10:30:00Z"), "in"),
+    scan: scan(at("2026-09-17T11:00:00Z"), "in"),
     schedules: [supplementarySchedule()],
     session: null,
     latestAccepted: null,
     requestStatus: "PENDING"
   });
   const second = resolveScan({
-    scan: scan(at("2026-09-17T13:30:00Z"), "out"),
+    scan: scan(at("2026-09-17T15:00:00Z"), "out"),
     schedules: [supplementarySchedule()],
     session: first.nextSession,
     latestAccepted: { timestampMs: first.nextSession.lastAcceptedAt, eventId: "in" },
@@ -44,7 +44,7 @@ test("a supplementary-window scan without a request remains unscheduled", () => 
     missingCheckOutGraceMinutes: 60
   };
   const result = resolveScan({
-    scan: scan(at("2026-09-17T10:30:00Z"), "no-request"),
+    scan: scan(at("2026-09-17T11:00:00Z"), "no-request"),
     schedules: [{ scheduleDate: "2026-09-17", shiftId: afternoonShift.id, shift: afternoonShift }],
     session: null,
     latestAccepted: null,
@@ -195,6 +195,9 @@ function loadFunctions(initialRows, options = {}) {
         const transaction = {
           async get(target) {
             if (target && target.kind === "attendance-query") return attendanceQuerySnapshot(target.value);
+            if (typeof target === "string" && target.startsWith("overtimeRequests/")) {
+              return { exists: true, data: () => ({ ...request }) };
+            }
             if (typeof target === "string" && target.startsWith("attendanceSessions/")) {
               readSessionVersion = sessionVersion;
               return sessionSnapshot(target);
@@ -226,7 +229,8 @@ function loadFunctions(initialRows, options = {}) {
       if (name === "firebase-functions/v2/firestore") {
         return {
           onDocumentCreated: (_, handler) => handler,
-          onDocumentUpdated: (_, handler) => handler
+          onDocumentUpdated: (_, handler) => handler,
+          onDocumentWritten: (_, handler) => handler
         };
       }
       if (name === "firebase-functions/params") return { defineSecret: () => ({ value: () => "local-test-key" }) };
@@ -256,7 +260,7 @@ function pendingRows(timestamp) {
       employeeId: "employee-1",
       employeeName: "An",
       overtimeRequestId: request.id,
-      timestamp: timestamp(at("2026-09-17T13:30:00Z")),
+      timestamp: timestamp(at("2026-09-17T15:00:00Z")),
       type: "CHECK_OUT",
       resolutionStatus: "OVERTIME_PENDING"
     },
@@ -265,7 +269,7 @@ function pendingRows(timestamp) {
       employeeId: "employee-1",
       employeeName: "An",
       overtimeRequestId: request.id,
-      timestamp: timestamp(at("2026-09-17T10:30:00Z")),
+      timestamp: timestamp(at("2026-09-17T11:00:00Z")),
       type: "CHECK_IN",
       resolutionStatus: "OVERTIME_PENDING"
     }
@@ -303,8 +307,8 @@ test("rejecting a request keeps pending events and marks them non-payable", asyn
 
 test("approval replay does not reopen a session advanced by concurrent live resolution", async () => {
   const seed = loadFunctions([]);
-  const sessionId = "employee-1_2026-09-17_SUPPLEMENTARY_1730_2030";
-  const checkInAt = seed.timestamp(at("2026-09-17T10:30:00Z"));
+  const sessionId = "employee-1_2026-09-17_SUPPLEMENTARY_1800_2200";
+  const checkInAt = seed.timestamp(at("2026-09-17T11:00:00Z"));
   const liveCheckOutAt = seed.timestamp(at("2026-09-17T13:00:00Z"));
   const harness = loadFunctions([
     {

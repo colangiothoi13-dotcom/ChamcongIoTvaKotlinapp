@@ -52,7 +52,8 @@ test("schedule writes reject supplementary shifts while legacy schedules remain 
   const prefix = `schedule-${Date.now()}`;
   const mainId = `${prefix}-main`;
   const supplementaryId = `${prefix}-supplementary`;
-  const virtualId = "SUPPLEMENTARY_1730_2030";
+  const virtualId = "SUPPLEMENTARY_1800_2200";
+  const legacyVirtualId = "SUPPLEMENTARY_1730_2030";
   const supplementaryFields = { ...fields, category: { stringValue: "SUPPLEMENTARY" } };
   await expectStatus(await write(`shifts/${mainId}`, fields), 200);
   await expectStatus(await write(`shifts/${supplementaryId}`, supplementaryFields), 200);
@@ -66,7 +67,8 @@ test("schedule writes reject supplementary shifts while legacy schedules remain 
 
   for (const [name, shiftId, expected] of [
     ["main", mainId, 200], ["supplementary", supplementaryId, 403],
-    ["virtual", virtualId, 403], ["missing-shift", `${prefix}-missing`, 403]
+    ["virtual", virtualId, 403], ["legacy-virtual", legacyVirtualId, 403],
+    ["missing-shift", `${prefix}-missing`, 403]
   ]) {
     await t.test(`${name} create and update`, async () => {
       await expectStatus(await write(`workSchedules/${prefix}-${name}`, schedule(shiftId)), expected);

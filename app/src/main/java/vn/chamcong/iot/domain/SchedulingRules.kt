@@ -63,7 +63,9 @@ fun validateAttendanceAdjustment(adjustment: AttendanceAdjustment) {
 
 /** Only main shifts may be assigned; supplementary shifts remain readable for legacy data. */
 fun canAssignScheduleShift(shift: WorkShift): Boolean =
-    shift.id != SUPPLEMENTARY_SHIFT_ID && shift.category != ShiftCategory.SUPPLEMENTARY.name
+    shift.id != SUPPLEMENTARY_SHIFT_ID
+        && shift.id != "SUPPLEMENTARY_1730_2030"
+        && shift.category != ShiftCategory.SUPPLEMENTARY.name
 
 fun validateScheduleShift(shift: WorkShift) {
     require(canAssignScheduleShift(shift)) { "Ca bổ sung 18:00–22:00 phải được nhân viên gửi đơn, không phân trước" }
@@ -131,15 +133,13 @@ fun calculateWorkTime(
     val shiftDate = scheduleDate ?: localIn.toLocalDate()
     val shiftStart = shiftDate.atTime(parseTime(shift.startTime, "Giờ bắt đầu"))
     val shiftEnd = endOnShiftDate(shiftDate, shift)
-    val paidGrace = Duration.ofMinutes(10).plusSeconds(59)
+    // Count the actual interval between the employee's check-in and check-out.
+    // Do not round a scan near the shift boundary to the shift start/end: a
+    // late check-in and an early checkout must reduce the credited work time.
     val boundedIn = maxOf(localIn, shiftStart)
-    val paidIn = if (
-        !localIn.isBefore(shiftStart) && Duration.between(shiftStart, localIn) <= paidGrace
-    ) shiftStart else boundedIn
+    val paidIn = boundedIn
     val boundedOut = minOf(localOut, shiftEnd)
-    val paidOut = if (
-        !localOut.isAfter(shiftEnd) && Duration.between(localOut, shiftEnd) <= paidGrace
-    ) shiftEnd else boundedOut
+    val paidOut = boundedOut
     val paidSeconds = Duration.between(paidIn, paidOut).seconds.coerceAtLeast(0)
     val breakSeconds = breakOverlapSeconds(paidIn, paidOut, shift, shiftDate)
     val workedSeconds = (paidSeconds - breakSeconds).coerceAtLeast(0)
@@ -147,27 +147,22 @@ fun calculateWorkTime(
         .toMinutes().coerceAtLeast(0).toInt()
     val earlyLeaveMinutes = Duration.between(localOut, shiftEnd.minusMinutes(shift.earlyLeaveAllowedMinutes.toLong()))
         .toMinutes().coerceAtLeast(0).toInt()
-    val actualOvertimeSeconds = if (shift.countsOvertime && localOut.isAfter(shiftEnd)) {
+    val isStandardSplitShift = isStandardMorningShift(shift) || isStandardAfternoonShift(shift)
+    val actualOvertimeSeconds = if (localOut.isAfter(shiftEnd)) {
         Duration.between(shiftEnd, localOut).seconds
     } else 0L
     val selectedOvertimeSeconds = overtimeHours * 60L * 60L
     val isOvertimeShift = shift.countsOvertime || shift.category == ShiftCategory.SUPPLEMENTARY.name
-    val countedOvertimeSeconds = if (isOvertimeShift) {
-        workedSeconds
-    } else {
-        minOf(actualOvertimeSeconds, selectedOvertimeSeconds)
+    val countedOvertimeSeconds = when {
+        // The canonical 08:00–12:00 and 13:00–17:00 shifts are independent
+        // windows. A checkout after the shift end is therefore overtime.
+        isStandardSplitShift -> actualOvertimeSeconds
+        isOvertimeShift -> workedSeconds
+        else -> minOf(actualOvertimeSeconds, selectedOvertimeSeconds)
     }
-    val regularWorkedSeconds = if (isOvertimeShift) 0L else workedSeconds
-    val paidCheckInAt = if (localIn.isAfter(shiftStart.plus(paidGrace))) {
-        checkIn
-    } else {
-        paidIn.atZone(zoneId).toInstant()
-    }
-    val paidCheckOutAt = if (localOut.isBefore(shiftEnd.minus(paidGrace))) {
-        checkOut
-    } else {
-        paidOut.atZone(zoneId).toInstant()
-    }
+    val regularWorkedSeconds = if (isOvertimeShift && !isStandardSplitShift) 0L else workedSeconds
+    val paidCheckInAt = paidIn.atZone(zoneId).toInstant()
+    val paidCheckOutAt = paidOut.atZone(zoneId).toInstant()
 
     return WorkTimeSummary(
         rawCheckInAt = checkIn,
@@ -183,6 +178,12 @@ fun calculateWorkTime(
         dayWorked = workedSeconds > 0
     )
 }
+
+private fun isStandardMorningShift(shift: WorkShift): Boolean =
+    shift.category == ShiftCategory.MORNING.name && shift.startTime == "08:00" && shift.endTime == "12:00"
+
+private fun isStandardAfternoonShift(shift: WorkShift): Boolean =
+    shift.category == ShiftCategory.EVENING.name && shift.startTime == "13:00" && shift.endTime == "17:00"
 
 fun copyScheduleToNextWeek(
     source: List<WorkSchedule>,

@@ -98,8 +98,8 @@ class PerformanceRulesTest {
     )
 
     private fun pair(request: OvertimeRequest) = listOf(
-        scan(request.employeeId, request.workDate, "CHECK_IN", "17:30", SUPPLEMENTARY_SHIFT_ID),
-        scan(request.employeeId, request.workDate, "CHECK_OUT", "20:30", SUPPLEMENTARY_SHIFT_ID)
+        scan(request.employeeId, request.workDate, "CHECK_IN", "18:00", SUPPLEMENTARY_SHIFT_ID),
+        scan(request.employeeId, request.workDate, "CHECK_OUT", "22:00", SUPPLEMENTARY_SHIFT_ID)
     )
 
     private fun mainPair(employeeId: String, checkIn: String) = listOf(

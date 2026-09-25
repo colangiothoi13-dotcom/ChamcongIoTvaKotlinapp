@@ -2,11 +2,16 @@ package vn.chamcong.iot.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Shared 4/8 dp spacing rhythm for screen gutters, cards, sections and controls.
@@ -25,29 +30,43 @@ object AppTouchTarget {
     val gap = 8.dp
 }
 
+/** Colors used by the product's employee/admin visual language. */
+object AppColorTokens {
+    val green = Color(0xFF05AA59)
+    val greenDark = Color(0xFF078B4B)
+    val greenSoft = Color(0xFFE1F5E9)
+    val orange = Color(0xFFFF9800)
+    val blue = Color(0xFF168FE0)
+    val pink = Color(0xFFE83E7A)
+    val purple = Color(0xFF8C3FC7)
+    val page = Color(0xFFF7F7F7)
+    val ink = Color(0xFF17191B)
+    val muted = Color(0xFF777A7D)
+}
+
 private val lightColors = lightColorScheme(
-    primary = Color(0xFF0B6652),
+    primary = AppColorTokens.green,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD3F2E8),
-    onPrimaryContainer = Color(0xFF063A2E),
-    secondary = Color(0xFF4B5D56),
+    primaryContainer = AppColorTokens.greenSoft,
+    onPrimaryContainer = Color(0xFF075E34),
+    secondary = Color(0xFF69716D),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFDDE8E2),
-    onSecondaryContainer = Color(0xFF15231D),
-    tertiary = Color(0xFF795500),
+    secondaryContainer = Color(0xFFEDEEEE),
+    onSecondaryContainer = Color(0xFF2B302D),
+    tertiary = AppColorTokens.orange,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFFFE6A7),
-    onTertiaryContainer = Color(0xFF281A00),
-    error = Color(0xFFB3261E),
+    tertiaryContainer = Color(0xFFFFEBCB),
+    onTertiaryContainer = Color(0xFF6B3A00),
+    error = Color(0xFFD92D55),
     onError = Color.White,
-    background = Color(0xFFF5F8F6),
-    onBackground = Color(0xFF17201B),
+    background = AppColorTokens.page,
+    onBackground = AppColorTokens.ink,
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF17201B),
-    surfaceVariant = Color(0xFFE9EFEB),
-    onSurfaceVariant = Color(0xFF3D4A44),
-    outline = Color(0xFF66746C),
-    outlineVariant = Color(0xFF87928B)
+    onSurface = AppColorTokens.ink,
+    surfaceVariant = Color(0xFFF0F1F1),
+    onSurfaceVariant = AppColorTokens.muted,
+    outline = Color(0xFFD6D8D7),
+    outlineVariant = Color(0xFFE5E6E6)
 )
 
 private val darkColors = darkColorScheme(
@@ -75,11 +94,52 @@ private val darkColors = darkColorScheme(
     outlineVariant = Color(0xFF58655E)
 )
 
+private val appTypography = Typography(
+    headlineLarge = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 30.sp,
+        lineHeight = 36.sp
+    ),
+    headlineMedium = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 25.sp,
+        lineHeight = 31.sp
+    ),
+    headlineSmall = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 21.sp,
+        lineHeight = 27.sp
+    ),
+    titleLarge = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 19.sp,
+        lineHeight = 25.sp
+    ),
+    titleMedium = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 16.sp,
+        lineHeight = 22.sp
+    ),
+    bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 23.sp),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+    labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+)
+
+private val appShapes = Shapes(
+    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(34.dp)
+)
+
 @Composable
 fun ChamCongTheme(content: @Composable () -> Unit) {
     val colors = if (isSystemInDarkTheme()) darkColors else lightColors
     MaterialTheme(
         colorScheme = colors,
+        typography = appTypography,
+        shapes = appShapes,
         content = content
     )
 }
