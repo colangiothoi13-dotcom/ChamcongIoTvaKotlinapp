@@ -96,6 +96,12 @@ fun employeeDaySummary(
     val calculated = if (checkIn != null && checkOut != null) {
         calculateWorkTime(checkIn, checkOut, shift, schedule?.overtimeHours ?: 0, zoneId, date)
     } else WorkTimeSummary()
+    // A missing checkout must not hide lateness from KPI/dashboard consumers.
+    // There is no worked interval to calculate yet, but the check-in can still
+    // be compared with the shift start and grace policy.
+    val effectiveLateMinutes = if (checkIn != null && checkOut == null) {
+        attendanceLateMinutes(checkIn, date, shift, zoneId)
+    } else calculated.lateMinutes
     val shiftIsOnLeave = approvedLeave || (shift?.id != null && shift.id in approvedLeaveShiftIds)
     val status = when {
         shiftIsOnLeave -> EmployeeAttendanceStatus.LEAVE
@@ -104,8 +110,8 @@ fun employeeDaySummary(
         checkIn == null -> EmployeeAttendanceStatus.MISSING_CHECK_IN
         isMissingCheckOut(pair.copy(checkIn = checkIn, checkOut = checkOut), date, shift, now, zoneId) -> EmployeeAttendanceStatus.MISSING_CHECK_OUT
         checkOut == null -> EmployeeAttendanceStatus.PRESENT
-        calculated.lateMinutes > 0 && calculated.earlyLeaveMinutes > 0 -> EmployeeAttendanceStatus.ABNORMAL
-        calculated.lateMinutes > 0 -> EmployeeAttendanceStatus.LATE
+        effectiveLateMinutes > 0 && calculated.earlyLeaveMinutes > 0 -> EmployeeAttendanceStatus.ABNORMAL
+        effectiveLateMinutes > 0 -> EmployeeAttendanceStatus.LATE
         calculated.earlyLeaveMinutes > 0 -> EmployeeAttendanceStatus.EARLY_LEAVE
         else -> EmployeeAttendanceStatus.ON_TIME
     }
@@ -137,7 +143,7 @@ fun employeeDaySummary(
             overtimeSeconds = overtimeSeconds,
             workedHours = workedHours,
             overtimeHours = overtimeHours,
-            lateMinutes = if (shiftIsOnLeave) 0 else calculated.lateMinutes,
+            lateMinutes = if (shiftIsOnLeave) 0 else effectiveLateMinutes,
             earlyLeaveMinutes = if (shiftIsOnLeave) 0 else calculated.earlyLeaveMinutes,
             status = status
         )
@@ -153,7 +159,7 @@ fun employeeDaySummary(
         overtimeHours = overtimeHours,
         workedSeconds = workedSeconds,
         overtimeSeconds = overtimeSeconds,
-        lateMinutes = if (shiftIsOnLeave) 0 else calculated.lateMinutes,
+        lateMinutes = if (shiftIsOnLeave) 0 else effectiveLateMinutes,
         earlyLeaveMinutes = if (shiftIsOnLeave) 0 else calculated.earlyLeaveMinutes,
         status = status,
         shiftSummaries = listOfNotNull(shiftSummary)

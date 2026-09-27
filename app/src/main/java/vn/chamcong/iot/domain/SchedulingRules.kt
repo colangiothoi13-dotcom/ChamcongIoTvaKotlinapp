@@ -33,6 +33,12 @@ fun weekDates(weekStart: LocalDate): List<LocalDate> {
     return (0L..5L).map(monday::plusDays)
 }
 
+/** Calendar week used by dashboard charts; work scheduling still uses Mon–Sat. */
+fun calendarWeekDates(weekStart: LocalDate): List<LocalDate> {
+    val monday = mondayOfWeek(weekStart)
+    return (0L..6L).map(monday::plusDays)
+}
+
 fun validateOvertimeHours(hours: Int) {
     require(hours in 0..4) { "Số giờ tăng ca phải từ 0 đến 4" }
 }
@@ -127,40 +133,48 @@ fun calculateWorkTime(
         dayWorked = true
     )
 
-    // Keep persisted overlong shifts readable in reports; the default validation used when
-    // creating or assigning a shift still enforces the four-hour maximum.
-    validateShift(shift, allowLegacyOverFourHours = true)
+    // Read paths must remain compatible with legacy schedules. Creation and assignment
+    // still use validateShift(), but old records may omit effectiveFrom, exceed four
+    // hours, or represent an overnight window.
+    validateReadableShift(shift)
     val shiftDate = scheduleDate ?: localIn.toLocalDate()
     val shiftStart = shiftDate.atTime(parseTime(shift.startTime, "Giờ bắt đầu"))
     val shiftEnd = endOnShiftDate(shiftDate, shift)
-    // Count the actual interval between the employee's check-in and check-out.
-    // Do not round a scan near the shift boundary to the shift start/end: a
-    // late check-in and an early checkout must reduce the credited work time.
-    val boundedIn = maxOf(localIn, shiftStart)
-    val paidIn = boundedIn
+    // Count the actual interval inside the scheduled window. An early arrival is
+    // retained as raw attendance but must not become regular paid time.
+    val paidIn = maxOf(localIn, shiftStart)
     val boundedOut = minOf(localOut, shiftEnd)
     val paidOut = boundedOut
     val paidSeconds = Duration.between(paidIn, paidOut).seconds.coerceAtLeast(0)
     val breakSeconds = breakOverlapSeconds(paidIn, paidOut, shift, shiftDate)
     val workedSeconds = (paidSeconds - breakSeconds).coerceAtLeast(0)
-    val lateMinutes = Duration.between(shiftStart.plusMinutes(shift.lateGraceMinutes.toLong()), localIn)
-        .toMinutes().coerceAtLeast(0).toInt()
-    val earlyLeaveMinutes = Duration.between(localOut, shiftEnd.minusMinutes(shift.earlyLeaveAllowedMinutes.toLong()))
-        .toMinutes().coerceAtLeast(0).toInt()
+    val lateMinutes = attendanceLateMinutes(checkIn, shiftDate, shift, zoneId)
+    val earlyLeaveMinutes = attendanceEarlyLeaveMinutes(checkOut, shiftDate, shift, zoneId)
     val isStandardSplitShift = isStandardMorningShift(shift) || isStandardAfternoonShift(shift)
     val actualOvertimeSeconds = if (localOut.isAfter(shiftEnd)) {
         Duration.between(shiftEnd, localOut).seconds
     } else 0L
     val selectedOvertimeSeconds = overtimeHours * 60L * 60L
-    val isOvertimeShift = shift.countsOvertime || shift.category == ShiftCategory.SUPPLEMENTARY.name
+    // A supplementary shift is entirely overtime. A normal shift that allows
+    // overtime still keeps its scheduled interval as regular work; only the
+    // interval after shiftEnd is overtime.
+    val isSupplementaryShift = shift.category == ShiftCategory.SUPPLEMENTARY.name
     val countedOvertimeSeconds = when {
         // The canonical 08:00–12:00 and 13:00–17:00 shifts are independent
         // windows. A checkout after the shift end is therefore overtime.
         isStandardSplitShift -> actualOvertimeSeconds
-        isOvertimeShift -> workedSeconds
+        isSupplementaryShift -> workedSeconds
+        shift.countsOvertime -> actualOvertimeSeconds
         else -> minOf(actualOvertimeSeconds, selectedOvertimeSeconds)
     }
-    val regularWorkedSeconds = if (isOvertimeShift && !isStandardSplitShift) 0L else workedSeconds
+    val regularWorkedSeconds = when {
+        isSupplementaryShift -> workedSeconds
+        // A custom shift marked countsOvertime is paid as one continuous
+        // interval: keep the overtime interval in workedHours as well as
+        // exposing it separately through overtimeHours.
+        shift.countsOvertime -> workedSeconds + actualOvertimeSeconds
+        else -> workedSeconds
+    }
     val paidCheckInAt = paidIn.atZone(zoneId).toInstant()
     val paidCheckOutAt = paidOut.atZone(zoneId).toInstant()
 
@@ -361,6 +375,21 @@ fun summarizeWeeklyWork(
 private fun parseTime(value: String, label: String): LocalTime = runCatching {
     LocalTime.parse(value, timeFormatter)
 }.getOrElse { throw IllegalArgumentException("$label phải có dạng HH:mm") }
+
+private fun validateReadableShift(shift: WorkShift) {
+    require(shift.category in ShiftCategory.entries.map { it.name }) {
+        "Loại ca không hợp lệ"
+    }
+    parseTime(shift.startTime, "Giờ bắt đầu")
+    parseTime(shift.endTime, "Giờ kết thúc")
+    val hasBreakStart = shift.breakStartTime != null
+    val hasBreakEnd = shift.breakEndTime != null
+    require(hasBreakStart == hasBreakEnd) { "Ca cũ có cấu hình nghỉ không đầy đủ" }
+    if (hasBreakStart) {
+        parseTime(shift.breakStartTime!!, "Giờ bắt đầu nghỉ")
+        parseTime(shift.breakEndTime!!, "Giờ kết thúc nghỉ")
+    }
+}
 
 private fun endOnShiftDate(date: LocalDate, shift: WorkShift): LocalDateTime {
     val start = parseTime(shift.startTime, "Giờ bắt đầu")

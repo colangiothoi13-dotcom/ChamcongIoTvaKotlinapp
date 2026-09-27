@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -90,8 +89,7 @@ val adminTaskGroups = listOf(
         listOf(
             AdminTaskItem(AppDestination.AUDIT, "Lịch sử thay đổi trong hệ thống", Icons.Default.History),
             AdminTaskItem(AppDestination.DEPARTMENTS, "Tạo, chỉnh sửa và bật/tắt phòng ban", Icons.Default.Business),
-            AdminTaskItem(AppDestination.ANNOUNCEMENTS, "Gửi thông báo và xem lịch sử gửi", Icons.Default.Campaign),
-            AdminTaskItem(AppDestination.SETTINGS, "Cấu hình doanh nghiệp và ứng dụng", Icons.Default.Settings)
+            AdminTaskItem(AppDestination.ANNOUNCEMENTS, "Gửi thông báo và xem lịch sử gửi", Icons.Default.Campaign)
         )
     )
 ).also { groups ->

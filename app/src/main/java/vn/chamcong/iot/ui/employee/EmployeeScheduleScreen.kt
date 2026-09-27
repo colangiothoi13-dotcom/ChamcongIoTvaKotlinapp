@@ -52,6 +52,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import vn.chamcong.iot.domain.mondayOfWeek
+import vn.chamcong.iot.domain.isWeeklyScheduleSubmissionOpen
 import vn.chamcong.iot.ui.schedule.ScheduleShiftStatus
 import vn.chamcong.iot.ui.schedule.ScheduleStatusTone
 import vn.chamcong.iot.ui.schedule.scheduleShiftStatus
@@ -194,8 +195,7 @@ private fun EmployeeWeeklyScheduleRegistration(state: MainUiState, vm: MainViewM
     }
     var note by remember(weekStart, request?.reason) { mutableStateOf(request?.reason.orEmpty()) }
     val isApproved = request?.status == WeeklyScheduleRequestStatus.APPROVED
-    val deadline = weekStart.minusDays(2).atTime(12, 0).atZone(employeeScheduleZone).toInstant()
-    val overdue = Instant.now().isAfter(deadline)
+    val overdue = !isWeeklyScheduleSubmissionOpen(weekStart, Instant.now(), employeeScheduleZone)
     val statusLabel = when (request?.status) {
         WeeklyScheduleRequestStatus.PENDING -> "Chờ Admin duyệt"
         WeeklyScheduleRequestStatus.NEEDS_REVISION -> "Cần chỉnh sửa"
@@ -286,7 +286,7 @@ private fun EmployeeWeeklyScheduleRegistration(state: MainUiState, vm: MainViewM
                 )
                 Button(
                     onClick = { vm.submitWeeklySchedule(selections, note) },
-                    enabled = !state.saving && mainShifts.isNotEmpty()
+                    enabled = !state.saving && mainShifts.isNotEmpty() && !overdue
                 ) {
                     Text(if (request == null) "Gửi đăng ký" else "Gửi lại / cập nhật đăng ký")
                 }

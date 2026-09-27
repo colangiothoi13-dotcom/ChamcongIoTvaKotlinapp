@@ -60,7 +60,7 @@ fun filterAttendance(
             val shiftAdjustments = if (shift.id == adjustmentShiftId) listOfNotNull(adjustment) else emptyList()
             val pair = resolveAttendancePair(rows, date, shift, shiftAdjustments, zoneId)
             val late = attendanceLateMinutes(pair.checkIn, date, shift, zoneId) > 0
-            val early = pair.checkOut?.isBefore(shiftWindow(date, shift, zoneId).end.minusSeconds(shift.earlyLeaveAllowedMinutes * 60L)) == true
+            val early = attendanceEarlyLeaveMinutes(pair.checkOut, date, shift, zoneId) > 0
             effectiveStatusByKey[Triple(key.first, key.second, shift.id)] =
                 (if (late) "LATE" else "ON_TIME") to (if (early) "EARLY_LEAVE" else "NORMAL")
         }
@@ -75,7 +75,14 @@ fun filterAttendance(
         if (statuses == null || !isAcceptedAttendance(row)) row
         else row.copy(status = if (row.type == "CHECK_IN") statuses.first else statuses.second)
     }.filter { row ->
-        (normalizedStatus == null || row.status.lowercase(Locale.ROOT) == normalizedStatus) &&
+        (normalizedStatus == null || attendanceStatusMatches(row.status, normalizedStatus)) &&
             (normalizedType == null || row.type.lowercase(Locale.ROOT) == normalizedType)
     }
+}
+
+private fun attendanceStatusMatches(actual: String, selected: String): Boolean = when (selected) {
+    // Legacy rows use NORMAL for an on-time scan, while schedule-resolved
+    // check-ins use ON_TIME. The UI exposes one "Đúng giờ" filter for both.
+    "normal" -> actual.lowercase(Locale.ROOT) in setOf("normal", "on_time")
+    else -> actual.lowercase(Locale.ROOT) == selected
 }

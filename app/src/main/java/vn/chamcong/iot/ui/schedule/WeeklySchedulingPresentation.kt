@@ -91,7 +91,17 @@ fun scheduleShiftStatus(
         return if (now.isAfter(deadline)) {
             ScheduleShiftStatus("Thiếu chấm ra • Chưa tính giờ", ScheduleStatusTone.ERROR)
         } else {
-            ScheduleShiftStatus("Đang làm ca • Chờ chấm ra", ScheduleStatusTone.ACTIVE)
+            val elapsedUntilNow = minOf(now, window.end)
+            val details = buildList {
+                if (summary.lateMinutes > 0) {
+                    add("Đi trễ ${formatShiftDuration(window.start, checkIn)}")
+                }
+                if (elapsedUntilNow.isAfter(checkIn)) {
+                    add("Đã làm ${formatShiftDuration(checkIn, elapsedUntilNow)}")
+                }
+                add("Chờ chấm ra")
+            }
+            ScheduleShiftStatus("Đang làm ca • ${details.joinToString(" • ")}", ScheduleStatusTone.ACTIVE)
         }
     }
     if (now.isBefore(window.start)) return ScheduleShiftStatus("Sắp vào ca", ScheduleStatusTone.NEUTRAL)

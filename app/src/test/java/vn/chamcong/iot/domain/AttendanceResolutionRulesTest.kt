@@ -39,6 +39,22 @@ class AttendanceResolutionRulesTest {
     }
 
     @Test
+    fun standardShiftUsesConfiguredLateAndEarlyLeaveGrace() {
+        val shift = WorkShift(
+            category = "MORNING",
+            startTime = "08:00",
+            endTime = "12:00",
+            lateGraceMinutes = 10,
+            earlyLeaveAllowedMinutes = 15
+        )
+
+        assertEquals(0, attendanceLateMinutes(Instant.parse("2026-09-14T01:10:00Z"), scheduleDate, shift, zone))
+        assertEquals(11, attendanceLateMinutes(Instant.parse("2026-09-14T01:11:00Z"), scheduleDate, shift, zone))
+        assertEquals(0, attendanceEarlyLeaveMinutes(Instant.parse("2026-09-14T04:45:00Z"), scheduleDate, shift, zone))
+        assertEquals(30, attendanceEarlyLeaveMinutes(Instant.parse("2026-09-14T04:30:00Z"), scheduleDate, shift, zone))
+    }
+
+    @Test
     fun sparkRejectedOffScheduleReviewIsShownAsRejectedImmediately() {
         val row = Attendance(
             id = "scan-1",

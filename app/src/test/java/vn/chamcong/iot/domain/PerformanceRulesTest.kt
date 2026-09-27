@@ -36,7 +36,7 @@ class PerformanceRulesTest {
         assertEquals(50_000L, values.getValue("e4").totalBonus)
         val late = values.getValue("e5")
         assertEquals(3, late.overtimeShiftCount)
-        assertEquals(9.0, late.overtimeHours, 0.001)
+        assertEquals(12.0, late.overtimeHours, 0.001)
         assertEquals(1, late.lateCount)
         assertEquals(0L, late.top3Bonus)
         assertEquals(150_000L, late.overtimeBonus)
@@ -45,10 +45,10 @@ class PerformanceRulesTest {
         val payroll = createPayroll(employees.last(), month.toString(), workedHoursForMonth(
             rows, "e5", month, zone, schedules, listOf(shift), emptyList(), requests
         ), late.totalBonus, 20_000)
-        assertEquals(16.5, payroll.hoursWorked, 0.001)
+        assertEquals(19.5, payroll.hoursWorked, 0.001)
         assertEquals(50_000L, payroll.bonus)
         assertEquals(20_000L, payroll.deduction)
-        assertEquals(855_000L, payroll.netSalary)
+        assertEquals(1_005_000L, payroll.netSalary)
     }
 
     @Test

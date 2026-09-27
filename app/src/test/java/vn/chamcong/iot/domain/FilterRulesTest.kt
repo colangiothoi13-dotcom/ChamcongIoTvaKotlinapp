@@ -28,4 +28,18 @@ class FilterRulesTest {
 
         assertEquals(listOf("1"), filterAttendance(rows, status = "LATE", type = "CHECK_IN").map { it.employeeId })
     }
+
+    @Test
+    fun normalStatusIncludesLegacyNormalAndResolvedOnTimeRows() {
+        val rows = listOf(
+            Attendance(employeeId = "in", type = "CHECK_IN", status = "ON_TIME"),
+            Attendance(employeeId = "out", type = "CHECK_OUT", status = "NORMAL"),
+            Attendance(employeeId = "late", type = "CHECK_IN", status = "LATE")
+        )
+
+        assertEquals(
+            listOf("in", "out"),
+            filterAttendance(rows, status = "NORMAL", type = null).map { it.employeeId }
+        )
+    }
 }

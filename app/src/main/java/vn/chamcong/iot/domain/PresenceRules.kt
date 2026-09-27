@@ -25,12 +25,16 @@ fun classifyPresence(
     schedule: WorkSchedule? = null
 ): PresenceRecord {
     val assignedIds = schedule?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty().toSet()
-    val shiftIsOnLeave = shift != null && shift.id in assignedIds && approvedRequests.any { request ->
+    val shiftIsOnLeave = approvedRequests.any { request ->
         request.employeeId == employee.id && request.type == "LEAVE" &&
             request.status == RequestStatus.APPROVED.name &&
             isDateInRange(date, request.startDate, request.endDate) &&
-            (request.leaveShiftsByDate?.get(date.toString())?.contains(shift.id)
-                ?: (request.leaveShiftsByDate == null))
+            when {
+                request.leaveShiftsByDate == null -> true
+                shift == null -> false
+                else -> request.leaveShiftsByDate[date.toString()].orEmpty().contains(shift.id) &&
+                    (assignedIds.isEmpty() || shift.id in assignedIds)
+            }
     }
     if (shiftIsOnLeave) return PresenceRecord(employee, PresenceStatus.ON_LEAVE)
 

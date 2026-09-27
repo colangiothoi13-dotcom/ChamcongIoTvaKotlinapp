@@ -333,6 +333,11 @@ service cloud.firestore {
         && (data.reviewerName == null || nonBlank(data.reviewerName))
         && (data.reviewedAt == null || data.reviewedAt is timestamp);
     }
+    function weeklyScheduleSubmissionIsOpen(weekStart) {
+      // weekStart is Monday; the employee deadline is the previous Saturday
+      // at 12:00 Asia/Ho_Chi_Minh, which is 05:00 UTC.
+      return request.time < isoDateAfter(weekStart, -2) + duration.value(5, 'h');
+    }
     function matchesActiveWeeklyEmployeeSnapshot(data) {
       let employee = employeePath(data.employeeId);
       return exists(employee)
@@ -347,6 +352,7 @@ service cloud.firestore {
         && id == data.employeeId + '_' + data.weekStart
         && data.employeeId == get(userProfilePath()).data.employeeId
         && data.status == 'PENDING'
+        && weeklyScheduleSubmissionIsOpen(data.weekStart)
         && data.createdAt == request.time
         && data.reviewNote == null && data.reviewerId == null
         && data.reviewerName == null && data.reviewedAt == null;
@@ -364,6 +370,7 @@ service cloud.firestore {
         && updated.createdAt == existing.createdAt
         && id == updated.employeeId + '_' + updated.weekStart
         && updated.status == 'PENDING'
+        && weeklyScheduleSubmissionIsOpen(updated.weekStart)
         && updated.reviewNote == null && updated.reviewerId == null
         && updated.reviewerName == null && updated.reviewedAt == null
         && updated.diff(existing).affectedKeys().hasOnly([

@@ -24,7 +24,9 @@ fun summarizeDashboard(
     adjustments: List<AttendanceAdjustment> = emptyList()
 ): DashboardSummary {
     val monday = mondayOfWeek(weekStart)
-    val dates = weekDates(monday)
+    // The dashboard is a calendar view and keeps Sunday visible even though
+    // work schedules themselves are restricted to Monday–Saturday.
+    val dates = calendarWeekDates(monday)
     val activeIds = employees.asSequence()
         .filter(Employee::active)
         .map(Employee::id)

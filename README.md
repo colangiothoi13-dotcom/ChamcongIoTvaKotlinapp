@@ -17,8 +17,10 @@ Hệ thống thay thế việc chấm công thủ công bằng quy trình nhận
 phân ca theo lịch và xử lý dữ liệu tập trung trên Firebase. Thiết bị ESP8266
 nhận dạng vân tay tại nơi làm việc; ứng dụng Android cung cấp giao diện quản trị
 và giao diện nhân viên. Ở chế độ Spark miễn phí, ESP8266 ghi raw scan trực tiếp
-vào Firestore bằng Anonymous Auth và Rules; phân giải lượt quét theo ca cần backend
-Cloud Functions hoặc dịch vụ riêng.
+vào Firestore bằng Anonymous Auth và Rules. Android đọc raw scan cùng lịch/ca đã
+tải rồi dựng bản phân giải hiệu lực trong bộ nhớ cho dashboard, hiện diện, báo cáo
+và lương; document raw trên Firestore không bị sửa. Cloud Functions chỉ là lựa
+chọn khi nâng Blaze nếu cần phân giải tập trung ở backend.
 
 Điểm trọng tâm của phiên bản hiện tại là không quyết định vào/ra theo mốc 12 giờ.
 Hệ thống dùng lịch làm trong ngày từ thứ Hai đến thứ Bảy, cửa sổ ca và lượt chấm
@@ -71,6 +73,27 @@ lượt quét lên Firebase để hệ thống xử lý.
 Hệ thống không lưu ảnh hoặc đặc trưng vân tay trên Firestore. Mẫu vân tay được
 giữ trong bộ nhớ cảm biến; Firebase chỉ lưu mã mẫu và thông tin liên kết cần thiết.
 
+### Luồng Firebase Spark hiện tại
+
+1. Admin và nhân viên đăng nhập bằng Email/Password; ESP8266 dùng Anonymous Auth.
+2. Admin tạo nhân viên, đăng ký vân tay và gửi lệnh qua `deviceCommands/{deviceId}`.
+3. ESP8266 ghi `attendance/{eventId}` dạng raw với `type=SCAN`,
+   `resolutionStatus=PENDING`, `status=PENDING`.
+4. Android kết hợp raw scan với `workSchedules`, `shifts`, múi giờ
+   `Asia/Ho_Chi_Minh` và các quy tắc chống trùng/sai thứ tự để tạo bản sao hiệu lực
+   trong bộ nhớ. Các màn hình nghiệp vụ dùng bản sao này, còn raw event vẫn bất biến.
+5. Điều chỉnh công, nghỉ phép, duyệt ngoài lịch và đơn tăng ca được áp dụng tiếp
+   trên bản dữ liệu hiệu lực trước khi tính hiện diện, báo cáo và lương.
+6. Firestore Rules chặn client và thiết bị sửa/xóa raw attendance, đồng thời giới
+   hạn các trường mà Anonymous Auth được phép ghi.
+7. `firebase/functions/` là resolver tùy chọn cho Blaze; app Spark hiện tại không
+   gọi và không phụ thuộc Cloud Functions.
+
+Giới hạn của Spark: kết quả phân giải tập trung không được ghi ngược lên raw event,
+vì vậy nhiều client/backend ngoài Android không tự thấy cùng một trạng thái đã phân
+giải. Anonymous Auth cũng không tạo được secret riêng cho từng thiết bị; chỉ phù hợp
+demo hoặc mạng nội bộ, chưa phải cấu hình production.
+
 ### Luồng hoạt động tổng quát
 
 ```text
@@ -84,7 +107,7 @@ Nhân viên quét vân tay vào/ra
         ↓
 ESP8266 gửi SCAN/PENDING lên Firestore
         ↓
-Android hiển thị lượt quét raw; phân giải nâng cao cần Cloud Functions hoặc backend riêng
+Android dựng bản phân giải hiệu lực trong bộ nhớ, không sửa raw event
         ↓
 CHECK_IN / CHECK_OUT / quét trùng / ngoài lịch / sai thứ tự
         ↓
@@ -124,8 +147,9 @@ và ô giao giữa nhân viên/ngày trên lịch cũng là vùng có thể bấ
 | `Quên mật khẩu` | Gửi email đặt lại mật khẩu. |
 | `Đổi mật khẩu` → `Lưu` | Đổi mật khẩu hiện tại nếu đủ 6 ký tự và nhập lại trùng nhau. |
 | `Đăng xuất` | Kết thúc phiên và quay về màn hình đăng nhập. |
+| Nút Back vật lý/gesture của Android | Quay về màn hình trước theo lịch sử điều hướng của Admin hoặc Nhân viên; chỉ thoát app khi đã ở màn hình gốc và không còn màn trước. |
 | `Tổng quan` | Xem thống kê tuần, thiết bị, cảnh báo, thông báo và lượt chấm mới. |
-| `Tác vụ` | Mở danh mục nhanh: Có mặt, Phân ca, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Nhật ký, Phòng ban, Thông báo, Cài đặt. |
+| `Tác vụ` | Mở danh mục nhanh: Có mặt, Phân ca, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Nhật ký, Phòng ban và Thông báo. Mục Cài đặt chưa mở trong MVP. |
 | `Đơn từ` | Admin duyệt đơn; Nhân viên tạo và xem đơn của mình. |
 | `Phân ca` | Mở Quản lý ca làm hoặc Lịch phân ca. |
 | `Nhân viên` | Thêm, tìm kiếm, lọc, thiết lập lương và quản lý vân tay. |
@@ -209,7 +233,7 @@ ChamcongIoTvaKotlinapp-main/
 ├─ firebase/
 │  ├─ firestore.rules Quyền đọc/ghi và ràng buộc dữ liệu Firebase.
 │  ├─ firestore.indexes.json
-│  └─ functions/     Cloud Functions phân giải chấm công, tăng ca, thông báo.
+│  └─ functions/     Resolver/thông báo tùy chọn cho project Blaze; không chạy ở Spark.
 ├─ firmware/esp8266_fingerprint/
 │  └─ esp8266_fingerprint.ino  Firmware đọc vân tay, gửi scan và tín hiệu thiết bị.
 ├─ docs/              Spec, kế hoạch và báo cáo kỹ thuật.
@@ -232,7 +256,7 @@ ChamcongIoTvaKotlinapp-main/
 | `app/.../ui/schedule/WeeklyAssignmentDialog.kt` | Giao diện checkbox phân nhiều nhân viên/ngày. |
 | `app/.../ui/attendance/AttendanceAdjustmentDialog.kt` | Form sửa công bắt buộc lý do. |
 | `app/.../ui/overtime/OvertimeRequestScreen.kt` | Form nhân viên gửi và Admin duyệt đơn tăng ca. |
-| `firebase/functions/attendanceResolver.js` | Cloud Function phân giải raw scan trên server. |
+| `firebase/functions/attendanceResolver.js` | Resolver tùy chọn cho Blaze; bản Spark phân giải cục bộ trong Android. |
 | `firebase/firestore.rules` | Bảo vệ quyền và tính bất biến của attendance/audit/payroll. |
 
 ## 4. Kiến trúc và nghiệp vụ kỹ thuật
@@ -254,10 +278,11 @@ Luồng tăng ca dùng collection `overtimeRequests` với document ID xác đ�
 - Khi request `PENDING`, các lượt quét trong khung vẫn được giữ nguyên raw,
   vẫn có thể check-in/check-out, mang `overtimeRequestId` và trạng thái
   `OVERTIME_PENDING`; chúng không được tính là tăng ca trả lương.
-- Khi request `APPROVED`, Cloud Function đọc lại các lượt quét gắn request,
-  sắp theo timestamp và resolve tuần tự vào session tăng ca độc lập
+- Khi request `APPROVED`, Android Spark đọc lại các lượt quét gắn request,
+  sắp theo timestamp và resolve trong session tạm tăng ca độc lập
   `..._SUPPLEMENTARY_1800_2200`; chỉ cặp `CHECK_IN`/`CHECK_OUT` hợp lệ mới
-  được tính là một ca hoàn thành.
+  được tính là một ca hoàn thành. Nếu chạy Blaze, Cloud Function có thể thực hiện
+  cùng việc này ở backend.
 - Khi request `REJECTED`, raw scans vẫn được giữ để audit/tra cứu, được đánh
   dấu `OVERTIME_REJECTED` và không tạo giờ hoặc tiền tăng ca phải trả.
 - Lịch tuần do Admin phân chỉ mô tả ca chính. Tăng ca là request của nhân
@@ -280,14 +305,11 @@ composite index mới; file `firebase/firestore.indexes.json` hiện có index c
 `attendanceAdjustments`, còn các query tăng ca dùng single-field indexes mặc
 định/runtime hiện có.
 
-Kiểm tra tích hợp đã ghi nhận `npm test --prefix firebase/functions` với
-**29/29 pass**. Gradle chưa thể chạy: `gradlew.bat` không nạp được
-`org.gradle.wrapper.GradleWrapperMain` khi chạy trực tiếp từ đường dẫn Unicode hiện tại;
-wrapper JAR vẫn có trong repository. Nếu chạy từ đường dẫn ASCII/Android Studio,
-Gradle còn cần tải distribution 8.9;
-Firestore emulator chưa thể chạy vì môi trường có Java 17 trong khi Firebase
-CLI yêu cầu Java 21. Task này chỉ cập nhật tài liệu và bàn giao local: không
-deploy Firebase, không seed production và không `git push`.
+Kiểm tra tích hợp hiện đạt `npm test --prefix firebase/functions` **32/32 pass**.
+Gradle cũng đã chạy được trong worktree này: toàn bộ **191 unit test Android pass**
+và `:app:assembleDebug` tạo APK debug thành công. Firestore Emulator chưa được
+chạy trong lần này vì môi trường Java hiện tại là 17 trong khi Firebase CLI yêu
+cầu Java 21. Không deploy Firebase, không seed production và không `git push`.
 
 ### Weekly scheduling: reviewer fix round 1
 
@@ -385,7 +407,7 @@ Hệ thống hoạt động theo chu trình sau:
 - Sensor đọc mẫu vân tay và đối chiếu với template đã lưu trên AS608.
 - Nếu khớp:
   - Thiết bị kiểm tra mapping trên Firestore xem nhân viên có đang active và có quyền chấm công hay không.
-  - Nếu hợp lệ, thiết bị ghi lượt thô `SCAN/PENDING` với thời gian NTP UTC; bản Spark giữ raw event để app hiển thị.
+  - Nếu hợp lệ, thiết bị ghi lượt thô `SCAN/PENDING` với thời gian NTP UTC; app Spark đọc raw event rồi tự dựng bản phân giải hiệu lực trong bộ nhớ.
   - App Android theo dõi realtime collection `attendance` để cập nhật trạng thái chấm công ngay trên dashboard và màn hình chấm công.
 - Nếu không khớp hoặc mapping đã bị vô hiệu hóa:
   - Hệ thống từ chối xác thực.
@@ -393,11 +415,16 @@ Hệ thống hoạt động theo chu trình sau:
 
 #### Phân giải theo lịch ca và điều chỉnh chấm công
 
-Ở chế độ Blaze, `resolveAttendance` có thể chạy khi tạo `attendance/{eventId}` để phân giải raw scan trong transaction. Chế độ Spark không có trigger này: document giữ `SCAN/PENDING`, còn Rules vẫn cấm client update/delete attendance.
+Ở chế độ Spark, `resolveSparkPendingAttendance` trong Android phân giải raw scan
+theo cùng hợp đồng nghiệp vụ và chỉ trả về bản sao hiệu lực trong bộ nhớ. Document
+Firestore vẫn giữ `SCAN/PENDING`, còn Rules cấm client update/delete attendance.
+Ở chế độ Blaze, `resolveAttendance` trong `firebase/functions/` có thể được bật để
+phân giải tập trung khi tạo document; đây là luồng tùy chọn, không phải dependency
+của bản Spark.
 
 - `scheduleDate` là ngày làm việc được phân (`yyyy-MM-dd`). Ca phải bắt đầu và kết thúc trong cùng ngày; giờ kết thúc phải sau giờ bắt đầu. Chấm ra trễ thực tế vẫn giữ timestamp của lượt chấm, nhưng không làm thay đổi giờ kết thúc đã phân.
 - Cửa sổ nhận lượt chạy từ đầu ca trừ `allowEarlyMinutes` đến cuối ca cộng `missingCheckOutGraceMinutes`, gồm cả hai mốc. Khi nhiều cửa sổ khớp, server chọn ca có mốc đầu/cuối gần lượt quét nhất, rồi ưu tiên ca bắt đầu sớm hơn nếu bằng nhau.
-- Chưa có phiên mở: lượt gần đầu ca hơn (hoặc cách đều) là `CHECK_IN`; gần cuối ca hơn là `CHECK_OUT` để bộc lộ trường hợp thiếu chấm vào. Có check-in đang mở thì lượt hợp lệ tiếp theo đóng phiên bằng `CHECK_OUT`. Ca đơn giữ ID phiên cũ `attendanceSessions/{employeeId}_{scheduleDate}`; ngày có nhiều ca dùng một phiên riêng cho mỗi ca. Các phiên chỉ do backend truy cập; transaction đọc lại trạng thái để tránh phân giải lại một event.
+- Chưa có phiên mở: lượt gần đầu ca hơn (hoặc cách đều) là `CHECK_IN`; gần cuối ca hơn là `CHECK_OUT` để bộc lộ trường hợp thiếu chấm vào. Có check-in đang mở thì lượt hợp lệ tiếp theo đóng phiên bằng `CHECK_OUT`. Android tạo session tạm trong bộ nhớ; collection `attendanceSessions/{employeeId}_{scheduleDate}` chỉ dành cho resolver backend tùy chọn và không được app Spark ghi.
 - Trong ca đã chọn, lượt cách lượt được chấp nhận gần nhất không quá **3 phút (180.000 ms, kể cả đúng 3 phút)** là `DUPLICATE`. Lượt cũ hơn nằm ngoài cửa sổ trùng là `OUT_OF_ORDER`; không có ca khớp hoặc phiên đã đóng là `UNSCHEDULED`. Lượt bị từ chối không thay đổi phiên được chấp nhận và có `status=ABNORMAL`. Không có quy tắc trước/sau 12 giờ để quyết định vào/ra.
 - Lượt hợp lệ có `resolutionStatus=ACCEPTED`; server hiện đặt `status=NORMAL`, còn Android tính đi trễ/về sớm theo ca và cặp hiệu lực. Trigger FCM xét update có trạng thái trước khác `ACCEPTED` và trạng thái sau là `ACCEPTED` (luồng resolver bình thường là `PENDING` → `ACCEPTED`); helper hiện kiểm tra cấu trúc/trường trạng thái, không tự xác minh lại loại lượt. Lịch sử vẫn hiển thị riêng pending, trùng, ngoài lịch và sai thứ tự; chúng không đóng góp giờ làm.
 - Với lượt `UNSCHEDULED`, Admin mở dòng chấm công, chọn ca sáng/chiều thực tế, ghi lý do rồi duyệt hoặc từ chối. Duyệt tạo/cập nhật lịch ca và phân giải lại các lượt phù hợp trong transaction; timestamp, thiết bị, template và ID quét gốc được giữ nguyên. Từ chối giữ lượt ở trạng thái bất thường. Cả hai kết quả có audit; lỗi dữ liệu được hiển thị trong khối xử lý ngoài lịch để Admin có thể gửi lại sau khi sửa nguyên nhân.
@@ -420,7 +447,7 @@ Lượt server `DUPLICATE` không ghi đè trạng thái của cặp hợp lệ;
 - Thiết bị gửi `heartbeat` định kỳ cho Firestore, cho biết trạng thái online/offline, firmware đang chạy, số lượng mẫu vân tay và capability của thiết bị.
 - Nếu có lệnh từ hệ thống, ví dụ: đăng ký vân tay, xóa vân tay, cập nhật cấu hình, thiết bị thực hiện theo hàng đợi.
 - Nếu mất mạng, thiết bị vẫn nhận diện vân tay, lưu outbox trên LittleFS và tự retry theo thứ tự khi có kết nối trở lại.
-- Mỗi lần quét hợp lệ được gửi lên Firestore dưới dạng raw event `attendance/{eventId}`, với `type=SCAN`, `resolutionStatus=PENDING`, `status=PENDING`. Rules kiểm tra mapping vân tay đang bật và nhân viên còn active. Trong chế độ Spark không có Cloud Function để cập nhật `CHECK_IN`/`CHECK_OUT`; vì vậy bản này phù hợp demo/raw feed, chưa thay thế backend phân giải ca production.
+- Mỗi lần quét hợp lệ được gửi lên Firestore dưới dạng raw event `attendance/{eventId}`, với `type=SCAN`, `resolutionStatus=PENDING`, `status=PENDING`. Rules kiểm tra mapping vân tay đang bật và nhân viên còn active. Android Spark tự dựng `CHECK_IN`/`CHECK_OUT` và các trạng thái bất thường trong bộ nhớ; không ghi đè raw event. Nếu cần kết quả tập trung cho nhiều client, có thể bật resolver khi nâng Blaze.
 - Dashboard và màn hình Thiết bị trên Android nhận snapshot heartbeat để hiển thị trạng thái đầu vào, thời gian online, firmware version và tình trạng hoạt động.
 
 #### Chế độ offline của thiết bị
@@ -435,7 +462,7 @@ Mỗi bản ghi trong hàng đợi offline chứa thông tin như:
 - `timestamp`: thời gian quét vân tay
 - `type`: `SCAN` trong payload firmware; bản Spark không tự chuyển thành `CHECK_IN`/`CHECK_OUT`
 - `resolutionStatus`: `PENDING` trong bản Spark; bản Blaze/backend riêng có thể cập nhật thành `ACCEPTED`, `DUPLICATE`, `UNSCHEDULED` hoặc `OUT_OF_ORDER`
-- `status`: `PENDING` trong raw event; không dùng giờ địa phương trên thiết bị để gán `LATE`/`NORMAL`
+- `status`: `PENDING` trong raw event; Android mới dùng lịch/ca để suy ra `LATE`/`NORMAL` trên bản sao hiệu lực
 
 Thiết bị và client không được update hoặc delete document `attendance`; Firestore Rules cấm các thao tác đó. Nếu cần phân giải tự động, phải bật backend có quyền đặc biệt.
 
@@ -520,8 +547,8 @@ Phần này mô tả hệ thống theo góc nhìn người sử dụng. Tên nú
 Thiết bị đọc vân tay
    -> ghi lượt SCAN/PENDING vào attendance bằng Anonymous Auth
    -> Android nhận raw event realtime
-   -> phân giải CHECK_IN/CHECK_OUT cần backend riêng/Cloud Functions
-   -> Android cập nhật công khi có dữ liệu đã phân giải
+   -> Android phân giải CHECK_IN/CHECK_OUT trong bộ nhớ theo lịch/ca
+   -> Android cập nhật hiện diện, công, báo cáo và lương từ bản hiệu lực
 
 Nhân viên gửi đơn tăng ca
    -> Admin duyệt hoặc từ chối
@@ -573,7 +600,6 @@ Các dòng trong `Tác vụ` và các card trong `Phân ca` đều có thể b�
 | `Hiệu suất` | Xem số ca tăng ca, giờ tăng ca, số lần đi muộn, hạng Top 3 và tiền thưởng tự động. |
 | `Báo cáo` | Lọc dữ liệu và xuất CSV để chia sẻ. |
 | `Nhật ký` | Xem audit log ở chế độ chỉ đọc. |
-| `Cài đặt` | Hiện khu vực dành cho cấu hình doanh nghiệp; phần kết nối Firebase Settings cụ thể chưa được nối vào một nghiệp vụ riêng. |
 
 #### 3.3. Nhân viên
 
@@ -679,7 +705,7 @@ Quy trình lịch tuần hiện tại dùng hạn **12:00 thứ Bảy** cho nhâ
 | `Điều chỉnh chấm công` | `Giờ vào`, `Giờ ra`, `Giờ công`, `Lý do điều chỉnh` | Sửa công cho đúng nhân viên/ngày ca. Ít nhất một giá trị công phải thay đổi và lý do không được để trống. |
 | `Điều chỉnh chấm công` | `Lưu điều chỉnh` | Ghi một bản điều chỉnh mới và audit; không ghi đè hoặc xóa lịch sử điều chỉnh cũ. |
 | `Thêm ca`/`Chỉnh sửa ca` | Chip `Ca sáng`, `Ca chiều`, `Ca bổ sung` | Chọn loại ca. Khi đổi loại, tên ca được gợi ý lại nhưng Admin vẫn có thể sửa tên. |
-| `Thêm ca`/`Chỉnh sửa ca` | Các ô giờ và thời gian cho phép | Nhập giờ `HH:mm`, phút chấm sớm/đi trễ/về sớm, thời gian nghỉ và khoảng ngày áp dụng. |
+| `Thêm ca`/`Chỉnh sửa ca` | Các ô giờ và thời gian cho phép | Nhập giờ `HH:mm`, phút chấm sớm/đi trễ/về sớm, thời gian nghỉ và khoảng ngày áp dụng; Android và resolver dùng đúng các giá trị grace đã lưu. Mẫu chuẩn mặc định cho phép đi trễ 10 phút và về sớm 0 phút. |
 | `Thêm ca`/`Chỉnh sửa ca` | `Ca này được tính tăng ca` | Đánh dấu thuộc tính tăng ca của mẫu ca; không thay thế đơn tăng ca cố định 18:00–22:00. |
 | `Thêm ca`/`Chỉnh sửa ca` | `Lưu ca` / `Hủy` | Kiểm tra và lưu mẫu ca hoặc đóng hộp thoại không lưu. Ca snapshot từ lịch tuần dùng `Tạo bản tùy chỉnh` để không sửa lịch sử. |
 | `Phân ca cho nhân viên` | Chip phòng ban, nhân viên, ngày trong tuần | Lọc và tích chọn nhanh nhiều nhân viên × nhiều ngày. Có thể bỏ các nhân viên không còn hợp lệ khỏi danh sách chọn. |
@@ -704,6 +730,10 @@ Quy trình lịch tuần hiện tại dùng hạn **12:00 thứ Bảy** cho nhâ
 | Vị trí/nút | Chức năng |
 | --- | --- |
 | `Trang chủ` | Xem ca hôm nay, giờ vào/ra, trạng thái, tổng giờ tháng, số ngày đi làm và số lần đi trễ. |
+| Biểu tượng `Thông báo` | Mở danh sách thông báo nhân viên và đánh dấu các thông báo chưa đọc đã xem. |
+| `Xem thêm`, `Xem tất cả`, dòng `Ca làm việc` hoặc `Trạng thái chấm công` | Mở nhanh lịch làm việc hoặc lịch sử chấm công tương ứng. |
+| Tiện ích `Đơn báo`, `Thông tin`, `Thâm niên`, `Hỗ trợ` | Mở đơn từ hoặc hồ sơ cá nhân tương ứng. |
+| Tiện ích `Lịch họp`, `Tin tức`, `Khen thưởng`, `Tài liệu` | Hiện rõ trạng thái đang phát triển; chưa giả lập dữ liệu khi backend chưa có nghiệp vụ. |
 | `Chấm công của tôi` | Xem lịch sử theo tháng, giờ làm, đi trễ/về sớm và trạng thái từng ngày. |
 | Mũi tên trái/phải ở lịch sử | Chuyển tháng trước hoặc tháng sau. |
 | `Gửi yêu cầu điều chỉnh` | Điều hướng sang khu `Đơn từ` để gửi đơn sửa công. |
@@ -721,7 +751,7 @@ Nhân viên không có nút tự sửa lịch, tự sửa lương, tự duyệt 
 ### 5. Luồng tính công, tăng ca và tiền thưởng
 
 1. Firmware chỉ gửi raw scan `SCAN/PENDING` kèm thời gian UTC; firmware không quyết định vào hay ra theo mốc 12 giờ.
-2. Ở bản Blaze/backend riêng, resolver tra lịch quanh ngày quét và dựng cửa sổ theo giờ bắt đầu/kết thúc; bản Spark chỉ lưu raw scan.
+2. Bản Spark dùng resolver cục bộ trong Android để tra lịch quanh ngày quét và dựng cửa sổ theo giờ bắt đầu/kết thúc. Bản Blaze/backend riêng có thể materialize cùng kết quả ở server.
 3. Lượt gần đầu ca được chọn làm `CHECK_IN`, lượt gần cuối ca được chọn làm `CHECK_OUT`; lượt kế tiếp khi phiên đang mở sẽ đóng phiên.
 4. Hai lượt trong vòng **3 phút** bị coi là quét trùng; lượt ngoài thứ tự, ngoài lịch hoặc không có cửa sổ hợp lệ được giữ lại với trạng thái bất thường để tra cứu.
 5. Nếu có chấm vào nhưng chưa chấm ra, hệ thống chỉ đánh dấu thiếu chấm ra sau cuối ca cộng grace mặc định 60 phút; không tự tạo giờ ra.
@@ -738,8 +768,8 @@ Với lịch chuẩn, ca sáng `08:00–12:00` và ca chiều `13:00–17:00` l�
 | Đăng nhập/quyền | Firebase Auth, `users/{uid}` | Kiểm tra role, active, employeeId. |
 | Hồ sơ nhân viên | `employees/{id}` | Chuyển nghỉ bằng `active = false`, không xóa lịch sử. |
 | Lệnh vân tay | `deviceCommands/{deviceId}` và `devices/{deviceId}` | Thiết bị cập nhật trạng thái lệnh/heartbeat. |
-| Raw/resolved attendance | `attendance/{eventId}` | Spark ghi raw scan trực tiếp; resolver chỉ có khi bật backend riêng; client không được sửa/xóa. |
-| Phiên phân giải | `attendanceSessions/{employeeId}_{scheduleDate}`; ngày nhiều ca có thêm `_shiftId` | Chỉ backend truy cập; mỗi ca có phiên riêng khi đăng ký nhiều ca/ngày. |
+| Raw/resolved attendance | `attendance/{eventId}` | ESP ghi raw scan trực tiếp; Android dựng bản hiệu lực trong bộ nhớ; raw không bị client sửa/xóa. Resolver backend chỉ là tùy chọn Blaze. |
+| Phiên phân giải | `attendanceSessions/{employeeId}_{scheduleDate}`; ngày nhiều ca có thêm `_shiftId` | Bản Spark dùng session tạm trong bộ nhớ; collection này dành cho backend Blaze tùy chọn. |
 | Ca và lịch | `shifts/{id}`, `workSchedules/{employeeId}_{date}`, `weeklyScheduleRequests/{employeeId}_{weekStart}` | Mỗi ngày có thể có một ca chính hoặc cả ca sáng và chiều; tăng ca được lưu riêng trong đơn. |
 | Đơn thường | `leaveRequests/{id}` | Duyệt/từ chối và lý do được ghi theo luồng review. |
 | Đơn tăng ca | `overtimeRequests/{employeeId}_{workDate}` | Một đơn/ngày; review đồng thời ghi audit. |
@@ -759,10 +789,10 @@ Với lịch chuẩn, ca sáng `08:00–12:00` và ca chiều `13:00–17:00` l�
 
 ### 8. Phạm vi hiện tại và lưu ý vận hành
 
-- README này mô tả giao diện và nghiệp vụ theo code hiện tại; các nút `Cài đặt` vẫn là placeholder cho phần cấu hình Firebase Settings cụ thể.
+- README này mô tả giao diện và nghiệp vụ theo code hiện tại; mục `Cài đặt` được ẩn khỏi menu Admin cho tới khi có nghiệp vụ cấu hình cụ thể.
 - Tăng ca không được seed trước vào lịch tuần. Mọi lượt tăng ca hợp lệ phụ thuộc vào đơn của nhân viên và trạng thái duyệt của Admin.
 - `Đã duyệt` là trạng thái nghiệp vụ của đơn, không có nghĩa mọi lượt quét đều tự động thành một ca; hệ thống vẫn yêu cầu cặp vào/ra hợp lệ.
-- Kiểm tra cục bộ hiện có `npm test --prefix firebase/functions` đạt 29/29; Gradle và Firestore Emulator còn phụ thuộc môi trường JDK/wrapper được nêu ở phần kiểm chứng bên dưới.
+- Kiểm tra cục bộ hiện có Functions **32/32 pass**, Android **191/191 unit test pass** và APK debug build thành công; Firestore Emulator chưa chạy do yêu cầu Java 21 của Firebase CLI.
 - Các thay đổi trong tài liệu này chỉ được thực hiện local trong worktree; chưa deploy Firebase và chưa `git push`.
 
 ## 7. Chạy Android
@@ -780,7 +810,7 @@ Repository có script `gradlew`/`gradlew.bat` và `gradle/wrapper/gradle-wrapper
 
 Chế độ Spark không cần deploy Functions và không cần Secret Manager. Firmware dùng `FIREBASE_WEB_API_KEY` cùng `FIRESTORE_BASE_URL` trong `firmware/esp8266_fingerprint/secrets.h`, đăng nhập Anonymous rồi ghi Firestore REST trực tiếp. Thư mục `firebase/functions/` vẫn giữ resolver tùy chọn cho project Blaze, nhưng không được gọi trong bản free.
 
-Sau khi deploy bản mới, chạy dry-run rồi migrate dữ liệu tăng ca cũ (cần Application Default Credentials):
+Chỉ khi project đã nâng Blaze và bật backend, có thể chạy dry-run rồi migrate dữ liệu tăng ca cũ (cần Application Default Credentials). Luồng Spark không chạy các script Functions/migration này:
 
 ```powershell
 node firebase/functions/migrate-overtime-window.js
@@ -803,7 +833,7 @@ git diff --check
 
 APK debug: `app/build/outputs/apk/debug/app-debug.apk`. `npm test` kiểm thử logic resolver/notification, không thay thế kiểm thử Firestore Rules trên emulator hoặc thiết bị thật. Cần xem từng kết quả `rg`: `< 128` và `<< 12` trong bộ chuyển UTF-8 của firmware không phải quyết định chấm công.
 
-Task 8 chỉ cập nhật tài liệu và kiểm chứng cục bộ; không deploy, flash thiết bị hoặc thay đổi dữ liệu production. Việc triển khai Functions, Rules/indexes trong `firebase/`, cấu hình project và nạp firmware được để lại cho người vận hành sau khi kiểm chứng môi trường phù hợp. Bằng chứng và giới hạn của lần chạy này được ghi tại `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-8-report.md`.
+Task 8 chỉ cập nhật tài liệu và kiểm chứng cục bộ; không deploy, flash thiết bị hoặc thay đổi dữ liệu production. Với Spark, chỉ cần cấu hình Auth, Firestore Rules/indexes và firmware; không chạy `firebase deploy --only functions`. Việc triển khai Functions là lựa chọn riêng khi nâng Blaze. Bằng chứng và giới hạn của lần chạy này được ghi tại `.superpowers/sdd/2026-09-17-attendance-resolution-adjustment/task-8-report.md`.
 
 ## 9. Nạp firmware
 
@@ -844,9 +874,9 @@ Firmware đang dùng `setInsecure()` để bản mẫu dễ chạy. Anonymous Au
 ## 11. Cấu trúc Firestore
 
 - `employees/{id}`: mã, họ tên, phòng ban, email, `fingerprintTemplateId`, trạng thái.
-- `attendance/{eventId}`: raw scan do ESP ghi trực tiếp trong chế độ Spark (`type=SCAN`, `resolutionStatus=PENDING`); cần Cloud Functions/backend riêng để phân giải thành `CHECK_IN`/`CHECK_OUT`.
-- `attendanceSessions/{employeeId}_{scheduleDate}`: trạng thái phiên phân giải của backend, cấm client đọc/ghi.
-- `offScheduleReviews/{id}`: quyết định Admin duyệt/từ chối lượt ngoài lịch; client chỉ tạo yêu cầu, Cloud Function cập nhật kết quả, scan tương ứng và audit. Lỗi không thể xử lý được lưu `FAILED` cùng lý do ngắn để Admin xử lý lại.
+- `attendance/{eventId}`: raw scan do ESP ghi trực tiếp trong chế độ Spark (`type=SCAN`, `resolutionStatus=PENDING`); Android phân giải bản hiệu lực trong bộ nhớ, còn backend Blaze có thể phân giải tập trung.
+- `attendanceSessions/{employeeId}_{scheduleDate}`: trạng thái phiên phân giải backend tùy chọn; bản Spark không ghi collection này.
+- `offScheduleReviews/{id}`: quyết định Admin duyệt/từ chối lượt ngoài lịch; Android áp dụng quyết định lên bản hiệu lực tại chỗ. Backend Blaze có thể cập nhật tập trung scan/audit; lỗi không thể xử lý được lưu `FAILED` cùng lý do ngắn để Admin xử lý lại.
 - `attendanceAdjustments/{id}`: điều chỉnh append-only theo nhân viên/ngày ca, lý do bắt buộc và audit `ATTENDANCE_ADJUST` cùng ID. Index truy vấn: `employeeId ASC`, `scheduleDate ASC`, `createdAt DESC`.
 - `overtimeRequests/{employeeId}_{workDate}`: đơn tăng ca một đơn/ngày, khung cố định 18:00–22:00, trạng thái `PENDING`/`APPROVED`/`REJECTED`, người duyệt và lý do từ chối.
 - `payroll/{id}`: lương cơ bản đã tính theo giờ, đơn giá/giờ, số giờ làm, thưởng, khấu trừ theo kỳ.
@@ -866,7 +896,7 @@ MVP đã có đăng nhập, dashboard, danh sách/thêm nhân viên, feed chấm
 
 Các mục MVP đã duyệt trong đặc tả [`2026-09-21-mvp-gap-closure-design.md`](docs/superpowers/specs/2026-09-21-mvp-gap-closure-design.md) và kế hoạch [`2026-09-21-mvp-gap-closure.md`](docs/superpowers/plans/2026-09-21-mvp-gap-closure.md) đã được nối vào ứng dụng:
 
-- Admin có thanh chính **Tổng quan → Chấm công → Nhân viên → Đơn từ → Thiết bị**. Các mục ca, lịch, lương, báo cáo, hiệu suất, nhật ký và cài đặt vẫn mở được từ **Tác vụ**. Nhân viên giữ **Trang chủ → Chấm công của tôi → Đơn từ → Cá nhân**, còn lịch làm và bảng lương nằm trong menu cá nhân.
+- Admin có thanh chính **Tổng quan → Tác vụ → Đơn từ → Phân ca → Nhân viên**. Các mục Có mặt, Thiết bị, Chấm công, ca, lịch, lương, báo cáo, hiệu suất, nhật ký và thông báo được mở từ các thẻ dashboard hoặc **Tác vụ**; Cài đặt chưa mở trong MVP. Nhân viên có thanh chính **Trang chủ → Lịch làm việc → Chấm công của tôi → Đơn từ → Cá nhân**; **Bảng lương** mở từ luồng Chấm công của tôi.
 - Dashboard Admin có bảy số liệu trong ngày theo `Asia/Ho_Chi_Minh`: nhân viên đang hoạt động, đã chấm vào, chưa chấm vào, đi trễ, đang có mặt, nghỉ phép được duyệt và thiếu lượt chấm ra. Việc tính vẫn theo lịch/ca, ca qua đêm, đơn nghỉ và điều chỉnh công hiện có.
 - Màn Chấm công có bộ lọc **Hôm nay, Hôm qua, Tuần này, Tháng này, Ngày cụ thể** và **Khoảng tùy chọn**. Ngày đầu/cuối đều được tính; lượt đã có `scheduleDate` dùng ngày ca, lượt chưa phân giải dùng ngày sự kiện theo giờ Việt Nam.
 - Màn Thiết bị hiển thị heartbeat, phiên bản, số mẫu/sức chứa, lượt chấm mới nhất, hàng đợi chưa đồng bộ và sức khỏe Wi-Fi/Firebase/cảm biến. Admin có thể kiểm tra LED xanh, LED đỏ, còi, đồng bộ hàng đợi hoặc khởi động lại; lệnh bị khóa khi thiết bị offline hoặc còn lệnh khác và khởi động lại cần xác nhận.
@@ -1019,15 +1049,15 @@ Chạy kiểm tra rules riêng bằng `node --test firebase/test/shiftRules.test
 ## Phụ lục C. Nhật ký triển khai tạo tài khoản nhân viên (14/09/2026)
 
 - Form **Thêm nhân viên** đã có tùy chọn **Tạo tài khoản đăng nhập cho nhân viên**. Admin nhập email, mật khẩu và xác nhận mật khẩu ngay khi lưu hồ sơ.
-- Khi bật tùy chọn này, app lưu hồ sơ nhân viên trước, tạo tài khoản Email/Password trong Firebase Auth bằng Firebase App phụ để không đăng xuất phiên Admin, sau đó tạo `users/{uid}` với `role=EMPLOYEE`, `active=true` và `employeeId` trỏ đúng ID document trong `employees`.
+- Khi bật tùy chọn này, app lưu hồ sơ nhân viên trước, tạo tài khoản Email/Password trong Firebase Auth bằng Firebase App phụ để không đăng xuất phiên Admin, sau đó tạo `users/{uid}` với `role=EMPLOYEE`, `active=true` và `employeeId` trỏ đúng ID document trong `employees`. Nếu tạo tài khoản thất bại ở nhân viên mới, app rollback hồ sơ và lệnh vân tay đang chờ để tránh dữ liệu mồ côi.
 - Mật khẩu chỉ gửi trực tiếp cho Firebase Auth, không lưu vào Firestore và không xuất hiện trong log. Nếu tạo profile thất bại sau khi Auth đã tạo, app cố gắng xóa tài khoản Auth vừa tạo để tránh tài khoản mồ côi.
-- Tài khoản nhân viên đăng nhập tại màn hình đăng nhập chung bằng email/mật khẩu. Sau khi kiểm tra profile, app mở shell Nhân viên gồm Trang chủ, Chấm công của tôi, Đơn từ và Cá nhân.
+- Tài khoản nhân viên đăng nhập tại màn hình đăng nhập chung bằng email/mật khẩu. Sau khi kiểm tra profile, app mở shell Nhân viên gồm Trang chủ, Lịch làm việc, Chấm công của tôi, Đơn từ và Cá nhân.
 - Khi Admin chuyển nhân viên sang **Đã nghỉ**, các profile tài khoản liên kết được chuyển `active=false`; nhân viên không thể tiếp tục truy cập dữ liệu nghiệp vụ.
 - Firestore Rules chỉ cho Admin tạo/cập nhật profile có `role=EMPLOYEE`, không cho client tạo hoặc nâng tài khoản lên Admin.
 - File tạo mới: `app/src/main/java/vn/chamcong/iot/model/EmployeeAccountModels.kt`, `app/src/main/java/vn/chamcong/iot/domain/EmployeeAccountRules.kt`, `app/src/test/java/vn/chamcong/iot/domain/EmployeeAccountRulesTest.kt`.
 - File đã sửa: `app/src/main/java/vn/chamcong/iot/data/FirebaseRepository.kt`, `app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt`, `app/src/main/java/vn/chamcong/iot/ui/ChamCongApp.kt`, `app/src/main/java/vn/chamcong/iot/model/AuditModels.kt`, `firebase/firestore.rules` và README này.
 - Cách sử dụng: Admin vào **Nhân viên → +**, nhập họ tên/email/phòng ban, tích **Tạo tài khoản đăng nhập**, nhập mật khẩu ít nhất 6 ký tự, rồi chọn **Chỉ lưu nhân viên** hoặc **Lưu & đăng ký vân tay**. Gửi email và mật khẩu cho nhân viên đăng nhập lần đầu; nhân viên có thể đổi mật khẩu sau khi đăng nhập.
-- Kiểm chứng sau cập nhật: 58 unit test, 0 failure, 0 error, 0 skipped; `:app:testDebugUnitTest` và `:app:assembleDebug` đều thành công.
+- Kiểm chứng hiện tại: 191 unit test Android, 0 failure, 0 error, 0 skipped; `:app:testDebugUnitTest` và `:app:assembleDebug` đều thành công.
 
 
 ## Bổ sung theo yêu cầu trong noidung.txt (20/09/2026)

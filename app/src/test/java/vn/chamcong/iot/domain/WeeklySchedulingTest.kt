@@ -12,18 +12,18 @@ class WeeklySchedulingTest {
     private val monday = LocalDate.parse("2026-09-21")
     private val employees = listOf(Employee(id = "e1", fullName = "An", department = "IT"), Employee(id = "e2", fullName = "Binh"))
 
-    @Test fun weekSpansYearAndSundayBelongsToPreviousMonday() {
+    @Test fun weekSpansYearAndSaturdayBelongsToPreviousMonday() {
         val dates = weekDates(LocalDate.parse("2027-01-03"))
         assertEquals("2026-12-28", dates.first().toString())
-        assertEquals("2027-01-03", dates.last().toString())
-        assertEquals(7, dates.distinct().size)
+        assertEquals("2027-01-02", dates.last().toString())
+        assertEquals(6, dates.distinct().size)
         assertEquals(LocalDate.parse("2027-01-04"), weekDates(LocalDate.parse("2027-01-04")).first())
     }
 
-    @Test fun incompleteWeekBecomesOverdueExactlyAtSunday17VietnamTime() {
-        assertFalse(weeklyScheduleStatus(monday, employees, emptyList(), Instant.parse("2026-09-20T09:59:59Z")).overdue)
-        assertTrue(weeklyScheduleStatus(monday, employees, emptyList(), Instant.parse("2026-09-20T10:00:00Z")).overdue)
-        assertTrue(weeklyScheduleStatus(monday, employees, emptyList(), Instant.parse("2026-09-20T10:00:01Z")).overdue)
+    @Test fun incompleteWeekBecomesOverdueExactlyAtSaturday17VietnamTime() {
+        assertFalse(weeklyScheduleStatus(monday, employees, emptyList(), Instant.parse("2026-09-19T09:59:59Z")).overdue)
+        assertTrue(weeklyScheduleStatus(monday, employees, emptyList(), Instant.parse("2026-09-19T10:00:00Z")).overdue)
+        assertTrue(weeklyScheduleStatus(monday, employees, emptyList(), Instant.parse("2026-09-19T10:00:01Z")).overdue)
     }
 
     @Test fun coverageCountsOnlyActiveEmployeesWithAssignmentsInsideWeek() {
@@ -32,7 +32,7 @@ class WeeklySchedulingTest {
             WorkSchedule(employeeId = "e2", date = "2026-09-20", shiftId = "s")
         ), Instant.parse("2026-09-20T10:00:00Z"))
         assertEquals(listOf("e2"), status.missingEmployeeIds)
-        val complete = weeklyScheduleStatus(monday, employees.take(1), listOf(WorkSchedule(employeeId = "e1", date = "2026-09-27", shiftId = "s")), Instant.parse("2026-09-28T00:00:00Z"))
+        val complete = weeklyScheduleStatus(monday, employees.take(1), listOf(WorkSchedule(employeeId = "e1", date = "2026-09-26", shiftId = "s")), Instant.parse("2026-09-28T00:00:00Z"))
         assertFalse(complete.overdue)
     }
 
@@ -72,8 +72,8 @@ class WeeklySchedulingTest {
     }
 
     @Test fun bulkPayloadIsSelectedEmployeeDateProductWithCanonicalIds() {
-        val payload = weeklyAssignmentPayload(employees, setOf("e2", "e1"), monday, setOf(monday, monday.plusDays(6)), defaultShiftTemplates()[0].resolve(), "admin")
-        assertEquals(setOf("e1_2026-09-21", "e1_2026-09-27", "e2_2026-09-21", "e2_2026-09-27"), payload.map { it.id }.toSet())
+        val payload = weeklyAssignmentPayload(employees, setOf("e2", "e1"), monday, setOf(monday, monday.plusDays(5)), defaultShiftTemplates()[0].resolve(), "admin")
+        assertEquals(setOf("e1_2026-09-21", "e1_2026-09-26", "e2_2026-09-21", "e2_2026-09-26"), payload.map { it.id }.toSet())
         assertEquals(4, payload.size)
         assertTrue(payload.all { it.assignedBy == "admin" && it.shiftName == "Ca sáng" })
         assertEquals("IT", payload.first { it.employeeId == "e1" }.department)

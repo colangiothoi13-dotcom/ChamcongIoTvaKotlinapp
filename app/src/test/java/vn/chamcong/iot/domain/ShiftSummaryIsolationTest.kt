@@ -117,7 +117,7 @@ class ShiftSummaryIsolationTest {
         )
 
         assertEquals(6.0, day.workedHours, 0.001)
-        assertEquals(0, day.lateMinutes)
+        assertEquals(120, day.lateMinutes)
         assertEquals(0, day.earlyLeaveMinutes)
         assertEquals(2, day.shiftSummaries.size)
         assertEquals(2.0, day.shiftSummaries.first { it.shiftId == morning.id }.workedHours, 0.001)

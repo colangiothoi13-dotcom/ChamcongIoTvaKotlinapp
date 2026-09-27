@@ -28,17 +28,17 @@ class SchedulingRulesTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun rejectsOvertimeOutsideZeroToThreeHours() {
-        validateOvertimeHours(4)
+    fun rejectsOvertimeOutsideZeroToFourHours() {
+        validateOvertimeHours(5)
     }
 
     @Test
-    fun weekDatesAlwaysReturnsMondayThroughSunday() {
+    fun weekDatesAlwaysReturnsMondayThroughSaturday() {
         val result = weekDates(mondayOfWeek(LocalDate.of(2026, 9, 16)))
 
         assertEquals(LocalDate.of(2026, 9, 14), result.first())
-        assertEquals(LocalDate.of(2026, 9, 20), result.last())
-        assertEquals(7, result.size)
+        assertEquals(LocalDate.of(2026, 9, 19), result.last())
+        assertEquals(6, result.size)
     }
 
     @Test
@@ -147,7 +147,7 @@ class SchedulingRulesTest {
         )
 
         assertEquals(1.5, result.workedHours, 0.01)
-        assertEquals(0, result.lateMinutes)
+        assertEquals(120, result.lateMinutes)
         assertEquals(30, result.earlyLeaveMinutes)
     }
 

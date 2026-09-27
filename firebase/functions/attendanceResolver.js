@@ -103,10 +103,10 @@ function unchanged(type, resolutionStatus, schedule, session) {
 }
 
 function attendanceStatus(scanMs, schedule, type) {
-  if (type === "CHECK_IN" && scanMs > schedule.startMs +
-      Number(schedule.shift.lateGraceMinutes || 0) * 60000) return "LATE";
-  if (type === "CHECK_OUT" && scanMs < schedule.endMs -
-      Number(schedule.shift.earlyLeaveAllowedMinutes || 0) * 60000) return "EARLY_LEAVE";
+  const shift = schedule.shift;
+  const lateAtMs = schedule.startMs + Number(shift.lateGraceMinutes || 0) * 60000;
+  if (type === "CHECK_IN" && scanMs > lateAtMs) return "LATE";
+  if (type === "CHECK_OUT" && scanMs < schedule.endMs - Number(shift.earlyLeaveAllowedMinutes || 0) * 60000) return "EARLY_LEAVE";
   return "NORMAL";
 }
 

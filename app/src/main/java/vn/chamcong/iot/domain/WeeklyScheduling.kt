@@ -19,6 +19,10 @@ data class ShiftTemplate(val key: String, val name: String, val category: String
         return WorkShift(id = "weekly_v1_${key}_${from.replace(":", "")}_${to.replace(":", "")}",
             name = name, category = category, startTime = from, endTime = to,
             allowEarlyMinutes = if (category == "MORNING" && from == "08:00" && to == "12:00") 120 else 0,
+            lateGraceMinutes = if (
+                (category == "MORNING" && from == "08:00" && to == "12:00") ||
+                (category == "EVENING" && from == "13:00" && to == "17:00")
+            ) 10 else 0,
             missingCheckOutGraceMinutes = if (
                 (category == "MORNING" && from == "08:00" && to == "12:00") ||
                 (category == "EVENING" && from == "13:00" && to == "17:00")
@@ -31,6 +35,23 @@ fun defaultShiftTemplates(): List<ShiftTemplate> = listOf(
     ShiftTemplate("morning", "Ca sáng", "MORNING", "08:00", "12:00"),
     ShiftTemplate("afternoon", "Ca chiều", "EVENING", "13:00", "17:00")
 )
+
+private val weeklyScheduleZone = ZoneId.of("Asia/Ho_Chi_Minh")
+
+fun weeklyScheduleSubmissionDeadline(
+    weekStart: LocalDate,
+    zoneId: ZoneId = weeklyScheduleZone
+): Instant = mondayOfWeek(weekStart)
+    .minusDays(2)
+    .atTime(12, 0)
+    .atZone(zoneId)
+    .toInstant()
+
+fun isWeeklyScheduleSubmissionOpen(
+    weekStart: LocalDate,
+    now: Instant = Instant.now(),
+    zoneId: ZoneId = weeklyScheduleZone
+): Boolean = now.isBefore(weeklyScheduleSubmissionDeadline(weekStart, zoneId))
 
 data class WeeklyScheduleStatus(val missingEmployeeIds: List<String>, val overdue: Boolean)
 

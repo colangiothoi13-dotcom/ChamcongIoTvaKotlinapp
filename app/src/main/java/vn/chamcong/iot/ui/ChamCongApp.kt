@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -97,8 +98,7 @@ val adminTaskDestinations = listOf(
     AppDestination.MONTHLY_TIMESHEET,
     AppDestination.AUDIT,
     AppDestination.DEPARTMENTS,
-    AppDestination.ANNOUNCEMENTS,
-    AppDestination.SETTINGS
+    AppDestination.ANNOUNCEMENTS
 )
 
 val employeePrimaryDestinations = listOf(
@@ -172,6 +172,7 @@ private fun AccessBlocked(onSignOut: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(AppDestination.DASHBOARD) }
+    val backStack = remember { mutableStateListOf<AppDestination>() }
     var showAdd by remember { mutableStateOf(false) }
     var employeeToEdit by remember { mutableStateOf<Employee?>(null) }
     var employeeToEnroll by remember { mutableStateOf<Employee?>(null) }
@@ -180,6 +181,23 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var salaryEmployee by remember { mutableStateOf<Employee?>(null) }
     var showChangePassword by remember { mutableStateOf(false) }
     var showAccountMenu by remember { mutableStateOf(false) }
+    fun navigate(destination: AppDestination) {
+        if (destination != selected) {
+            backStack.add(selected)
+            selected = destination
+        }
+    }
+    BackHandler(
+        enabled = showAccountMenu ||
+            (!showAdd && employeeToEdit == null && employeeToEnroll == null && employeeToRemove == null &&
+                !showChangePassword && backStack.isNotEmpty())
+    ) {
+        if (showAccountMenu) {
+            showAccountMenu = false
+        } else if (backStack.isNotEmpty()) {
+            selected = backStack.removeAt(backStack.lastIndex)
+        }
+    }
     val icons = listOf(Icons.Default.Dashboard, Icons.Default.Assignment, Icons.Default.Description, Icons.Default.CalendarMonth, Icons.Default.Groups)
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -207,7 +225,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
             adminPrimaryDestinations.forEachIndexed { index, destination ->
                 NavigationBarItem(
                     selected == destination,
-                    { selected = destination },
+                    { navigate(destination) },
                     { Icon(icons[index], destination.title) },
                     label = { Text(destination.title, maxLines = 1) },
                     colors = NavigationBarItemDefaults.colors(
@@ -227,9 +245,9 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
             state.message?.let { Text(it, color=MaterialTheme.colorScheme.primary, modifier=Modifier.padding(bottom=AppSpacing.small)) }
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (selected) {
-                AppDestination.DASHBOARD -> DashboardScreen(state, vm) { selected = AppDestination.ATTENDANCE }
-                AppDestination.TASKS -> AdminTasksScreen { destination -> selected = destination }
-                AppDestination.SHIFT_MANAGEMENT -> ShiftManagementScreen { destination -> selected = destination }
+                AppDestination.DASHBOARD -> DashboardScreen(state, vm) { navigate(AppDestination.ATTENDANCE) }
+                AppDestination.TASKS -> AdminTasksScreen { destination -> navigate(destination) }
+                AppDestination.SHIFT_MANAGEMENT -> ShiftManagementScreen { destination -> navigate(destination) }
                 AppDestination.EMPLOYEES -> EmployeesScreen(
                     state = state,
                     vm = vm,
@@ -281,7 +299,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                     modifier = Modifier.fillMaxSize()
                 )
                 AppDestination.AUDIT -> AuditScreen(state)
-                AppDestination.SETTINGS -> Placeholder("Cài đặt", "Cấu hình doanh nghiệp và thiết bị sẽ được nối vào Firebase Settings khi có yêu cầu nghiệp vụ cụ thể. Các chức năng đổi mật khẩu và xem nhật ký đã có trong menu cá nhân.", Icons.Default.Settings)
+                AppDestination.SETTINGS -> Placeholder("Cài đặt đang phát triển", "Mục này chưa được mở trong menu Admin để tránh tạo kỳ vọng về các cấu hình chưa có chức năng.", Icons.Default.Settings)
             }
         }
     }
@@ -318,8 +336,24 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(EmployeeDestination.HOME) }
+    val backStack = remember { mutableStateListOf<EmployeeDestination>() }
     var showAccountMenu by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
+    fun navigate(destination: EmployeeDestination) {
+        if (destination != selected) {
+            backStack.add(selected)
+            selected = destination
+        }
+    }
+    BackHandler(
+        enabled = showAccountMenu || (!showChangePassword && backStack.isNotEmpty())
+    ) {
+        if (showAccountMenu) {
+            showAccountMenu = false
+        } else if (backStack.isNotEmpty()) {
+            selected = backStack.removeAt(backStack.lastIndex)
+        }
+    }
     val icons = listOf(Icons.Default.Home, Icons.Default.CalendarMonth, Icons.Default.LocationOn, Icons.Default.Description, Icons.Default.Person)
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -335,11 +369,11 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                         DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
                             DropdownMenuItem(
                                 text = { Text("Lịch làm việc") },
-                                onClick = { selected = EmployeeDestination.SCHEDULE; showAccountMenu = false }
+                                onClick = { navigate(EmployeeDestination.SCHEDULE); showAccountMenu = false }
                             )
                             DropdownMenuItem(
                                 text = { Text("Bảng lương") },
-                                onClick = { selected = EmployeeDestination.PAYROLL; showAccountMenu = false }
+                                onClick = { navigate(EmployeeDestination.PAYROLL); showAccountMenu = false }
                             )
                             DropdownMenuItem(
                                 text = { Text("Đổi mật khẩu") },
@@ -359,7 +393,7 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                 employeePrimaryDestinations.forEachIndexed { index, destination ->
                     NavigationBarItem(
                         selected = selected == destination,
-                        onClick = { selected = destination },
+                        onClick = { navigate(destination) },
                         icon = { Icon(icons[index], destination.title) },
                         label = { Text(destination.title, maxLines = 1) },
                         colors = NavigationBarItemDefaults.colors(
@@ -384,12 +418,19 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                     .padding(horizontal = if (selected == EmployeeDestination.HOME) 0.dp else AppSpacing.large, vertical = AppSpacing.medium)
             ) {
                 when (selected) {
-                    EmployeeDestination.HOME -> EmployeeHomeScreen(state, vm)
+                    EmployeeDestination.HOME -> EmployeeHomeScreen(
+                        state = state,
+                        vm = vm,
+                        onOpenSchedule = { navigate(EmployeeDestination.SCHEDULE) },
+                        onOpenAttendance = { navigate(EmployeeDestination.ATTENDANCE) },
+                        onOpenRequests = { navigate(EmployeeDestination.REQUESTS) },
+                        onOpenProfile = { navigate(EmployeeDestination.PROFILE) }
+                    )
                     EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(
                         state = state,
                         vm = vm,
-                        onOpenRequests = { selected = EmployeeDestination.REQUESTS },
-                        onOpenPayroll = { selected = EmployeeDestination.PAYROLL }
+                        onOpenRequests = { navigate(EmployeeDestination.REQUESTS) },
+                        onOpenPayroll = { navigate(EmployeeDestination.PAYROLL) }
                     )
                     EmployeeDestination.SCHEDULE -> EmployeeScheduleScreen(state, vm)
                     EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)

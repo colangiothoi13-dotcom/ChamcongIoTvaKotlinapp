@@ -82,8 +82,8 @@ class PayrollRulesTest {
         assertEquals(50_000L, breakdown.overtimeBonus)
         assertEquals(0L, payroll.bonus)
         assertEquals(25_000L, payroll.deduction)
-        assertEquals(10.5, payroll.hoursWorked, 0.001)
-        assertEquals(500_000L, payroll.netSalary)
+        assertEquals(11.5, payroll.hoursWorked, 0.001)
+        assertEquals(550_000L, payroll.netSalary)
     }
 
     @Test
@@ -92,7 +92,7 @@ class PayrollRulesTest {
         assertEquals(8.0, workedHoursForMonth(rows, "e1", kpiMonth, kpiZone), 0.001)
         assertEquals(8.0, payrollHours(rows, emptyList()), 0.001)
         val adjustment = AttendanceAdjustment(
-            employeeId = "e1", scheduleDate = "2026-09-10", workedHoursOverride = 6.5,
+            employeeId = "e1", employeeName = "Employee 1", scheduleDate = "2026-09-10", workedHoursOverride = 6.5,
             reason = "Correct regular hours", actorId = "admin", actorName = "Admin"
         )
         assertEquals(6.5, workedHoursForMonth(rows, "e1", kpiMonth, kpiZone,

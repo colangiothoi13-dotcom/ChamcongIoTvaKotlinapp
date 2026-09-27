@@ -71,7 +71,7 @@ fun attendanceReportRows(
                     leaveRequestsForDay.flatMap { it.leaveShiftsByDate?.get(date.toString()).orEmpty() }
                         .filter { shiftId -> selectedShifts.any { it.id == shiftId } }.toSet()
                 }
-                val hasApprovedLeave = selectedShifts.isNotEmpty() && (legacyLeave || leaveShiftIds.isNotEmpty())
+                val hasApprovedLeave = legacyLeave || leaveShiftIds.isNotEmpty()
                 val rows = attendanceByKey[key].orEmpty()
                     .filter { row ->
                         if (selectedShifts.isEmpty()) belongsToScheduleDate(row, date, null, zoneId)
@@ -85,7 +85,7 @@ fun attendanceReportRows(
                     attendance = rows,
                     schedule = schedule,
                     shifts = shifts,
-                    approvedLeave = legacyLeave && selectedShifts.isNotEmpty(),
+                    approvedLeave = legacyLeave,
                     zoneId = zoneId,
                     adjustments = adjustments,
                     now = now,

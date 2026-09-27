@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Work
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
@@ -36,7 +37,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -62,11 +70,21 @@ private data class HomeUtility(
     val icon: ImageVector,
     val tint: Color,
     val background: Color,
-    val badge: String? = null
+    val badge: String? = null,
+    val onClick: (() -> Unit)? = null
 )
 
 @Composable
-fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
+fun EmployeeHomeScreen(
+    state: MainUiState,
+    vm: MainViewModel,
+    onOpenSchedule: () -> Unit = {},
+    onOpenAttendance: () -> Unit = {},
+    onOpenRequests: () -> Unit = {},
+    onOpenProfile: () -> Unit = {}
+) {
+    var notificationDialog by remember { mutableStateOf(false) }
+    var unavailableUtility by remember { mutableStateOf<String?>(null) }
     val employee = state.currentEmployee
     if (employee == null) {
         EmptyEmployeeLinkState()
@@ -127,7 +145,7 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
                             if (pendingRequests > 0) Badge { Text(pendingRequests.toString()) }
                         }
                     ) {
-                        IconButton(onClick = {}) {
+                        IconButton(onClick = { notificationDialog = true }) {
                             Icon(Icons.Default.Notifications, contentDescription = "Thông báo", tint = Color.White)
                         }
                     }
@@ -135,7 +153,9 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Công việc hôm nay", color = Color.White, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    Text("Xem thêm", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyLarge)
+                    TextButton(onClick = onOpenAttendance) {
+                        Text("Xem thêm", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
 
                 HomeJobRow(
@@ -145,12 +165,14 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
                     } else {
                         "Chưa được phân ca"
                     },
-                    icon = Icons.Default.CalendarMonth
+                    icon = Icons.Default.CalendarMonth,
+                    onClick = onOpenSchedule
                 )
                 HomeJobRow(
                     title = "Trạng thái chấm công",
                     time = "${todaySummary?.checkIn?.let(::formatTime) ?: "Chưa chấm vào"}  ·  ${todaySummary?.checkOut?.let(::formatTime) ?: "Chưa chấm ra"}",
-                    icon = Icons.Default.Fingerprint
+                    icon = Icons.Default.Fingerprint,
+                    onClick = onOpenAttendance
                 )
             }
         }
@@ -162,22 +184,28 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Tiện ích", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    Text("Xem tất cả", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyLarge)
+                    TextButton(onClick = onOpenAttendance) {
+                        Text("Xem tất cả", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
                 val utilities = listOf(
-                    HomeUtility("Đơn báo", Icons.Default.Description, AppColorTokens.orange, Color(0xFFFFEAC7), pendingRequests.takeIf { it > 0 }?.toString()),
+                    HomeUtility("Đơn báo", Icons.Default.Description, AppColorTokens.orange, Color(0xFFFFEAC7), pendingRequests.takeIf { it > 0 }?.toString(), onOpenRequests),
                     HomeUtility("Lịch họp", Icons.Default.Groups, AppColorTokens.blue, Color(0xFFD9EEFF)),
-                    HomeUtility("Thông tin", Icons.Default.Person, AppColorTokens.green, Color(0xFFDFF3E5)),
-                    HomeUtility("Thâm niên", Icons.Default.Work, AppColorTokens.purple, Color(0xFFF0DFF8)),
+                    HomeUtility("Thông tin", Icons.Default.Person, AppColorTokens.green, Color(0xFFDFF3E5), onClick = onOpenProfile),
+                    HomeUtility("Thâm niên", Icons.Default.Work, AppColorTokens.purple, Color(0xFFF0DFF8), onClick = onOpenProfile),
                     HomeUtility("Tin tức", Icons.Default.Event, AppColorTokens.pink, Color(0xFFF8DDE8)),
                     HomeUtility("Khen thưởng", Icons.Default.Star, AppColorTokens.orange, Color(0xFFFFF0C8)),
                     HomeUtility("Tài liệu", Icons.Default.Folder, Color(0xFF557785), Color(0xFFE0EAED)),
-                    HomeUtility("Hỗ trợ", Icons.Default.HeadsetMic, Color(0xFF12AFC1), Color(0xFFD9F3F6))
+                    HomeUtility("Hỗ trợ", Icons.Default.HeadsetMic, Color(0xFF12AFC1), Color(0xFFD9F3F6), onClick = onOpenRequests)
                 )
                 utilities.chunked(4).forEach { rowItems ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                         rowItems.forEach { utility ->
-                            HomeUtilityItem(utility, Modifier.weight(1f))
+                            HomeUtilityItem(
+                                utility,
+                                Modifier.weight(1f),
+                                onClick = { utility.onClick?.invoke() ?: run { unavailableUtility = utility.label } }
+                            )
                         }
                         repeat(4 - rowItems.size) { Spacer(Modifier.weight(1f)) }
                     }
@@ -234,17 +262,55 @@ fun EmployeeHomeScreen(state: MainUiState, vm: MainViewModel) {
 
         item { Spacer(Modifier.height(AppSpacing.small)) }
     }
+
+    if (notificationDialog) {
+        AlertDialog(
+            onDismissRequest = { notificationDialog = false },
+            title = { Text("Thông báo") },
+            text = {
+                if (state.employeeNotifications.isEmpty()) {
+                    Text("Chưa có thông báo mới")
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                        state.employeeNotifications.take(8).forEach { notification ->
+                            Text(notification.title, fontWeight = if (notification.read) FontWeight.Normal else FontWeight.Bold)
+                            Text(notification.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { notificationDialog = false }) { Text("Đóng") } }
+        )
+        LaunchedEffect(notificationDialog, state.employeeNotifications) {
+            if (notificationDialog) {
+                state.employeeNotifications.filterNot { it.read }.forEach { notification ->
+                    vm.markEmployeeNotificationRead(notification.id)
+                }
+            }
+        }
+    }
+
+    unavailableUtility?.let { label ->
+        AlertDialog(
+            onDismissRequest = { unavailableUtility = null },
+            title = { Text(label) },
+            text = { Text("Tính năng này đang được phát triển và chưa có dữ liệu trong hệ thống.") },
+            confirmButton = { TextButton(onClick = { unavailableUtility = null }) { Text("Đã hiểu") } }
+        )
+    }
 }
 
 @Composable
-private fun HomeJobRow(title: String, time: String, icon: ImageVector) {
+private fun HomeJobRow(title: String, time: String, icon: ImageVector, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface
     ) {
         Row(
-            Modifier.padding(AppSpacing.large),
+            Modifier
+                .clickable(onClick = onClick)
+                .padding(AppSpacing.large),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
@@ -267,8 +333,8 @@ private fun HomeJobRow(title: String, time: String, icon: ImageVector) {
 }
 
 @Composable
-private fun HomeUtilityItem(utility: HomeUtility, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+private fun HomeUtilityItem(utility: HomeUtility, modifier: Modifier, onClick: () -> Unit) {
+    Column(modifier.clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
         Box {
             Surface(modifier = Modifier.size(68.dp), shape = MaterialTheme.shapes.large, color = utility.background) {
                 Box(contentAlignment = Alignment.Center) {

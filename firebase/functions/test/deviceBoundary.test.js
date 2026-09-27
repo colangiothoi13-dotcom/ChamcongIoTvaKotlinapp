@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const path = require("node:path");
 const vm = require("node:vm");
 
 function loadFunctions(writes) {
@@ -98,7 +99,12 @@ test("device snapshot goes through the keyed Function boundary", async () => {
 });
 
 test("Spark firmware uses Anonymous Auth and Rules-bound Firestore REST", () => {
-  const firmware = fs.readFileSync(require.resolve("../../../firmware/esp8266_fingerprint/esp8266_fingerprint.ino"), "utf8");
+  const firmwareRoot = path.dirname(require.resolve("../../../firmware/esp8266_fingerprint/esp8266_fingerprint.ino"));
+  const firmware = fs.readdirSync(firmwareRoot)
+    .filter((name) => name.endsWith(".ino"))
+    .sort()
+    .map((name) => fs.readFileSync(path.join(firmwareRoot, name), "utf8"))
+    .join("\n");
   const rules = fs.readFileSync(require.resolve("../../firestore.rules"), "utf8");
   assert.match(firmware, /identitytoolkit\.googleapis\.com\/v1\/accounts:signUp\?key=/);
   assert.match(firmware, /FIRESTORE_BASE_URL/);

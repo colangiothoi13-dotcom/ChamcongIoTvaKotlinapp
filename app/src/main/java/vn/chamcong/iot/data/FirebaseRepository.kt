@@ -26,6 +26,7 @@ import vn.chamcong.iot.domain.validateWorkedHoursOverride
 import vn.chamcong.iot.domain.validateAuditLog
 import vn.chamcong.iot.domain.validateAttendanceClassificationOverride
 import vn.chamcong.iot.domain.validateEmployeeAccountInput
+import vn.chamcong.iot.domain.isWeeklyScheduleSubmissionOpen
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
 import java.time.Instant
@@ -761,6 +762,9 @@ class FirebaseRepository(
         val employeeId = request.employeeId.trim()
         require(employeeId.isNotBlank()) { "Chưa chọn nhân viên" }
         val weekStart = validatedMonday(request.weekStart)
+        require(isWeeklyScheduleSubmissionOpen(LocalDate.parse(weekStart))) {
+            "Đã quá hạn gửi đăng ký lịch tuần (12:00 thứ Bảy)"
+        }
         val shiftsByDate = validatedWeeklyShiftMap(weekStart, request.shiftsByDate)
         val reason = request.reason.trim()
         require(reason.length <= 500) { "Ghi chú không được vượt quá 500 ký tự" }
@@ -953,30 +957,34 @@ class FirebaseRepository(
             .get(Source.SERVER)
             .await()
             .documents
-        val batch = db.batch()
-        dates.forEach { rawDate ->
+        val writes = dates.flatMap { rawDate ->
             val date = LocalDate.parse(rawDate).toString()
             require(LocalDate.parse(date).dayOfWeek.value in 1..6) { "Không thể phân ca vào Chủ nhật" }
-            employees.forEach { document ->
-                val employee = document.toObject(Employee::class.java) ?: return@forEach
-                val id = scheduleDocumentId(document.id, date)
-                val schedule = WorkSchedule(
-                    id = id,
-                    employeeId = document.id,
-                    employeeName = employee.fullName,
-                    department = employee.department,
-                    shiftId = shift.id,
-                    shiftIds = listOf(shift.id),
-                    shiftName = shift.name,
-                    date = date,
-                    overtimeHours = overtimeHours,
-                    assignedBy = assignedBy,
-                    source = "DEPARTMENT"
-                )
-                batch.set(db.collection("workSchedules").document(id), schedule.copy(id = ""))
+            employees.mapNotNull { document ->
+                document.toObject(Employee::class.java)?.let { employee ->
+                    val id = scheduleDocumentId(document.id, date)
+                    val schedule = WorkSchedule(
+                        id = id,
+                        employeeId = document.id,
+                        employeeName = employee.fullName,
+                        department = employee.department,
+                        shiftId = shift.id,
+                        shiftIds = listOf(shift.id),
+                        shiftName = shift.name,
+                        date = date,
+                        overtimeHours = overtimeHours,
+                        assignedBy = assignedBy,
+                        source = "DEPARTMENT"
+                    )
+                    db.collection("workSchedules").document(id) to schedule.copy(id = "")
+                }
             }
         }
-        batch.commit().await()
+        writes.chunked(400).forEach { chunk ->
+            db.runBatch { batch ->
+                chunk.forEach { (reference, schedule) -> batch.set(reference, schedule) }
+            }.await()
+        }
         writeAuditLog(AuditLog(
             actorId = currentUserId,
             actorName = currentUserName,
@@ -1010,13 +1018,15 @@ class FirebaseRepository(
         // Validate all candidates before writing any copied schedule, including legacy custom IDs.
         newSchedules.flatMap { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.distinct()
             .forEach { requireActiveAssignableShift(it) }
-        val batch = db.batch()
-        newSchedules.forEach { schedule ->
-            batch.set(db.collection("workSchedules").document(schedule.id), schedule.copy(
-                id = "", shiftIds = schedule.shiftIds.ifEmpty { listOf(schedule.shiftId) }
-            ))
+        newSchedules.chunked(400).forEach { chunk ->
+            db.runBatch { batch ->
+                chunk.forEach { schedule ->
+                    batch.set(db.collection("workSchedules").document(schedule.id), schedule.copy(
+                        id = "", shiftIds = schedule.shiftIds.ifEmpty { listOf(schedule.shiftId) }
+                    ))
+                }
+            }.await()
         }
-        if (newSchedules.isNotEmpty()) batch.commit().await()
         writeAuditLog(AuditLog(
             actorId = currentUserId,
             actorName = currentUserName,
@@ -1584,7 +1594,14 @@ class FirebaseRepository(
     suspend fun saveEmployee(employee: Employee, account: EmployeeAccountInput? = null): String {
         account?.let(::validateEmployeeAccountInput)
         val result = saveEmployeeInternal(employee, null)
-        account?.let { createEmployeeAccount(result.id, it) }
+        if (account != null) {
+            try {
+                createEmployeeAccount(result.id, account)
+            } catch (error: Exception) {
+                if (employee.id.isBlank()) runCatching { rollbackNewEmployeeProvisioning(result.id) }
+                throw error
+            }
+        }
         return result.code
     }
 
@@ -1595,7 +1612,14 @@ class FirebaseRepository(
     ): String {
         account?.let(::validateEmployeeAccountInput)
         val result = saveEmployeeInternal(employee, deviceId.trim())
-        account?.let { createEmployeeAccount(result.id, it) }
+        if (account != null) {
+            try {
+                createEmployeeAccount(result.id, account)
+            } catch (error: Exception) {
+                if (employee.id.isBlank()) runCatching { rollbackNewEmployeeProvisioning(result.id) }
+                throw error
+            }
+        }
         return result.code
     }
 
@@ -1630,6 +1654,27 @@ class FirebaseRepository(
         } finally {
             accountAuth.signOut()
         }
+    }
+
+    /** Compensates the employee/device writes when account provisioning fails. */
+    private suspend fun rollbackNewEmployeeProvisioning(employeeId: String) {
+        val employeeRef = db.collection("employees").document(employeeId)
+        db.runTransaction { tx ->
+            val employee = tx.get(employeeRef)
+            if (!employee.exists()) return@runTransaction
+            val pendingTemplateId = employee.getLong("pendingTemplateId")?.toInt()
+            val deviceId = employee.getString("fingerprintDeviceId").orEmpty().ifBlank { "GATE-01" }
+            val commandRef = db.collection("deviceCommands").document(deviceId)
+            val command = tx.get(commandRef)
+            val commandBelongsToEmployee = command.getString("employeeId") == employeeId
+            if (commandBelongsToEmployee && command.getString("status") == "REQUESTED") {
+                tx.delete(commandRef)
+            }
+            pendingTemplateId?.let { templateId ->
+                tx.delete(db.collection("fingerprintMappings").document(templateId.toString()))
+            }
+            tx.delete(employeeRef)
+        }.await()
     }
 
     private fun requireFreeCommand(command: DocumentSnapshot) {
@@ -1720,6 +1765,11 @@ class FirebaseRepository(
             .mapNotNull { document ->
                 document.getLong("templateId")?.toInt() ?: document.id.toIntOrNull()
             }
+        val accountProfiles = if (retire) db.collection("users")
+            .whereEqualTo("employeeId", employeeId)
+            .get(Source.SERVER)
+            .await()
+            .documents else emptyList()
         db.runTransaction { tx ->
             val e = tx.get(employeeRef).toObject(Employee::class.java) ?: error("Không tìm thấy nhân viên")
             val slot = resolveFingerprintTemplateId(e, legacyMappingTemplateIds)
@@ -1729,7 +1779,10 @@ class FirebaseRepository(
             val legacySlot = if (command.getString("employeeId") == employeeId && command.getString("type") == "ENROLL_FINGERPRINT" && command.getString("status") != "COMPLETED") command.getLong("templateId")?.toInt() else null
             val template = slot ?: legacySlot
             if (template != null || command.getString("employeeId") == employeeId) requireFreeCommand(command)
-            if (retire) tx.update(employeeRef, "active", false)
+            if (retire) {
+                accountProfiles.forEach { profile -> tx.get(profile.reference) }
+                tx.update(employeeRef, "active", false)
+            }
             if (template != null) {
                 val mappingRef = db.collection("fingerprintMappings").document(template.toString())
                 tx.set(mappingRef, mapOf("enabled" to false), SetOptions.merge())
@@ -1739,8 +1792,15 @@ class FirebaseRepository(
                     "templateId" to template, "status" to "REQUESTED", "applied" to false,
                     "createdAt" to FieldValue.serverTimestamp()))
             }
+            if (retire) {
+                accountProfiles.forEach { profile ->
+                    tx.update(profile.reference, mapOf(
+                        "active" to false,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    ))
+                }
+            }
         }.await()
-        if (retire) deactivateEmployeeAccounts(employeeId)
         writeAuditLog(AuditLog(
             actorId = currentUserId,
             actorName = currentUserName,
@@ -1752,22 +1812,6 @@ class FirebaseRepository(
         ))
     }
 
-    private suspend fun deactivateEmployeeAccounts(employeeId: String) {
-        val profiles = db.collection("users")
-            .whereEqualTo("employeeId", employeeId)
-            .get(Source.SERVER)
-            .await()
-            .documents
-        if (profiles.isEmpty()) return
-        db.runBatch { batch ->
-            profiles.forEach { profile ->
-                batch.update(profile.reference, mapOf(
-                    "active" to false,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ))
-            }
-        }.await()
-    }
     fun observeEnrollmentCommands(): Flow<List<Map<String, Any>>> = callbackFlow {
         val listener = db.collection("deviceCommands").addSnapshotListener { value, error ->
             if (error != null) close(error)

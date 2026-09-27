@@ -126,8 +126,18 @@ fun applyOffScheduleReviewDecisions(
 
 fun attendanceLateMinutes(checkIn: Instant?, date: LocalDate, shift: WorkShift?, zoneId: ZoneId): Int {
     if (checkIn == null || shift == null) return 0
-    val deadline = shiftWindow(date, shift, zoneId).start.plusSeconds(shift.lateGraceMinutes * 60L)
-    return Duration.between(deadline, checkIn).toMinutes().coerceAtLeast(0).toInt()
+    val window = shiftWindow(date, shift, zoneId)
+    val deadline = window.start.plusSeconds(shift.lateGraceMinutes * 60L)
+    if (!checkIn.isAfter(deadline)) return 0
+    return Duration.between(window.start, checkIn).toMinutes().coerceAtLeast(1).toInt()
+}
+
+fun attendanceEarlyLeaveMinutes(checkOut: Instant?, date: LocalDate, shift: WorkShift?, zoneId: ZoneId): Int {
+    if (checkOut == null || shift == null) return 0
+    val window = shiftWindow(date, shift, zoneId)
+    val deadline = window.end.minusSeconds(shift.earlyLeaveAllowedMinutes * 60L)
+    if (!checkOut.isBefore(deadline)) return 0
+    return Duration.between(checkOut, window.end).toMinutes().coerceAtLeast(1).toInt()
 }
 
 fun shiftWindow(scheduleDate: LocalDate, shift: WorkShift, zoneId: ZoneId): ShiftWindow {
@@ -470,12 +480,12 @@ fun resolveSparkPendingAttendance(
                 )
                 else -> {
                     val status = when {
-                        type == AttendanceType.CHECK_IN.name && eventAt.isAfter(
-                            selected.window.start.plusSeconds(selected.shift.lateGraceMinutes * 60L)
-                        ) -> "LATE"
-                        type == AttendanceType.CHECK_OUT.name && eventAt.isBefore(
-                            selected.window.end.minusSeconds(selected.shift.earlyLeaveAllowedMinutes * 60L)
-                        ) -> "EARLY_LEAVE"
+                        type == AttendanceType.CHECK_IN.name && attendanceLateMinutes(
+                            eventAt, selected.window.scheduleDate, selected.shift, zoneId
+                        ) > 0 -> "LATE"
+                        type == AttendanceType.CHECK_OUT.name && attendanceEarlyLeaveMinutes(
+                            eventAt, selected.window.scheduleDate, selected.shift, zoneId
+                        ) > 0 -> "EARLY_LEAVE"
                         else -> "NORMAL"
                     }
                     if (type == AttendanceType.CHECK_IN.name) {

@@ -81,7 +81,7 @@ class AttendanceRowPresentationTest {
             val presentation = attendanceResolutionPresentation(row.copy(type = status, resolutionStatus = status, status = "ABNORMAL"))
             val expected = mapOf(
                 "DUPLICATE" to "Quét trùng",
-                "UNSCHEDULED" to "Chưa có ca",
+                "UNSCHEDULED" to "Ngoài lịch • Chờ Admin duyệt",
                 "OUT_OF_ORDER" to "Sai thứ tự"
             ).getValue(status)
             assertTrue("Expected $expected label, got ${presentation.label}", presentation.label.startsWith(expected))

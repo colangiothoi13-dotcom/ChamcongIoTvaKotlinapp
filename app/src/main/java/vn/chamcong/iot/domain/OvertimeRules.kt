@@ -80,6 +80,11 @@ fun approvedOvertimeSummary(
     val pair = resolveAttendancePair(rows, workDate, shift, zoneId = zoneId)
     val checkIn = pair.checkIn ?: return null
     val checkOut = pair.checkOut ?: return null
+    val window = shiftWindow(workDate, shift, zoneId)
+    // The fixed supplementary request is payable only for punches inside the
+    // exact 18:00–22:00 window; the regular missing-checkout grace must not
+    // turn a 22:01 punch into payable overtime.
+    if (checkIn.isBefore(window.start) || checkOut.isAfter(window.end)) return null
     return calculateWorkTime(checkIn, checkOut, shift, 4, zoneId, workDate)
 }
 

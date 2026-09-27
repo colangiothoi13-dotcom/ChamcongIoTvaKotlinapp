@@ -377,7 +377,7 @@ class KpiBonusRulesTest {
         val approved = request(employee, date, OvertimeRequestStatus.APPROVED)
 
         assertEquals(
-            11.0,
+            12.0,
             payrollHoursForMonth(
                 employee.id,
                 month,
