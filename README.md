@@ -822,11 +822,12 @@ Mở `firmware/esp8266_fingerprint/esp8266_fingerprint.ino` trong Arduino IDE, c
 | LED xanh | D1 |
 | LED đỏ | D2 |
 | Buzzer | D7 |
-| Servo SG90: signal | D0 (GPIO16) |
+| Nut nhan | D0 (GPIO16) |
+| Servo SG90: signal | D8 (GPIO15) |
 
 Nguồn cảm biến phải đúng thông số module và chung GND với ESP8266. Không kéo buzzer công suất trực tiếp từ GPIO; dùng transistor và diode bảo vệ.
 
-Servo 9g nen dung nguon 5V rieng du dong (khuyen nghi toi thieu 1A), nhung phai noi chung GND voi ESP8266; chi noi day signal servo vao D0. Khong cap servo tu chan 3V3 cua ESP8266 vi dong khoi dong co the lam reset board. Sau khi van tay hop le va mapping nhan vien con `enabled=true`, cua mo o goc `DOOR_OPEN_ANGLE` trong 5 giay roi tu dong dong ve `DOOR_CLOSED_ANGLE`. Admin co the dung nut **Mo cua** va **Dong cua** trong man hinh Thiet bi de test.
+Nut nhan noi D0 (GPIO16) voi 3V3; chan D0 dung dien tro keo xuong noi bo (`INPUT_PULLDOWN_16`) nen khi nhan se doc HIGH. Servo 9g noi day signal vao D8 (GPIO15), dung nguon 5V rieng du dong (khuyen nghi toi thieu 1A) va noi chung GND voi ESP8266. Khong cap servo tu chan 3V3 cua ESP8266 vi dong khoi dong co the lam reset board. Sau khi nhan nut, van tay hop le hoac nhan lenh tu app, cua mo o goc `DOOR_OPEN_ANGLE` (0 do) trong 5 giay roi tu dong dong ve `DOOR_CLOSED_ANGLE` (180 do). Admin co the dung nut **Mo cua** va **Dong cua** trong man hinh Thiet bi de test.
 
 ## 10. Đăng ký vân tay từ app
 

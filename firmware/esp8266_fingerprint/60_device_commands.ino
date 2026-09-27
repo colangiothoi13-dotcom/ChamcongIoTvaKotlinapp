@@ -270,20 +270,15 @@ bool checkDeviceCommand() {
     }
   } else if (type == "TEST_LED_GREEN") {
     showLcd("TEST LED XANH", "DANG THUC HIEN");
-    digitalWrite(LED_GREEN_PIN, HIGH);
-    delay(600);
-    digitalWrite(LED_GREEN_PIN, LOW);
+    testGreenLed();
     success = true;
   } else if (type == "TEST_LED_RED") {
     showLcd("TEST LED DO", "DANG THUC HIEN");
-    digitalWrite(LED_RED_PIN, HIGH);
-    delay(600);
-    digitalWrite(LED_RED_PIN, LOW);
+    testRedLed();
     success = true;
   } else if (type == "TEST_BUZZER") {
     showLcd("TEST COI", "DANG THUC HIEN");
-    tone(BUZZER_PIN, 1500, 600);
-    delay(650);
+    testBuzzer();
     success = true;
   } else if (type == "SYNC_ATTENDANCE") {
     showLcd("DANG DONG BO", "CHAM CONG...");

@@ -12,36 +12,22 @@
 
 #include "secrets.h"
 
-// ==================== KHAI BAO CHAN CAM ====================
-// NodeMCU D5 (GPIO14) <- TX cua cam bien van tay AS608/R307
-// NodeMCU D6 (GPIO12) -> RX cua cam bien van tay AS608/R307
-const uint8_t LED_GREEN_PIN = D1;  // LED xanh: cham cong thanh cong
-const uint8_t LED_RED_PIN   = D2;  // LED do: that bai
-const uint8_t BUZZER_PIN    = D7;  // Coi bao; tranh D3/GPIO0 vi la chan boot
-const uint8_t DOOR_SERVO_PIN = D0;   // Signal servo 9g (GPIO16)
-const uint8_t DOOR_SWITCH_PIN = D8;  // Nut nhan: noi ve 3V3 khi nhan
-const uint8_t DOOR_CLOSED_ANGLE = 0;
-const uint8_t DOOR_OPEN_ANGLE = 90;
-const unsigned long DOOR_AUTO_CLOSE_DELAY_MS = 5000;
-const unsigned long DOOR_SWITCH_DEBOUNCE_MS = 50;
+// ==================== KHAI BAO CHAN PHAN CUNG ====================
+// AS608/R307: D5 (GPIO14) <- TX cam bien, D6 (GPIO12) -> RX cam bien
+const uint8_t FINGERPRINT_RX_PIN = D5;
+const uint8_t FINGERPRINT_TX_PIN = D6;
 
-// D1/D2 dang duoc dung cho LED, nen LCD I2C dung D3/D4.
-// D3/GPIO0 va D4/GPIO2 can duoc giu HIGH khi ESP8266 khoi dong.
-// Neu cap backpack LCD bang 5V, phai dung level shifter I2C 3.3V cho SDA/SCL.
+// LED, coi, cong tac, va servo cua
+const uint8_t LED_GREEN_PIN = D1;      // LED xanh
+const uint8_t LED_RED_PIN = D2;        // LED do
+const uint8_t BUZZER_PIN = D7;         // Coi bao
+const uint8_t DOOR_SWITCH_PIN = D0;    // Nut nhan
+const uint8_t DOOR_SERVO_PIN = D8;     // Signal servo
+
+// LCD I2C: D3 (GPIO0) = SDA, D4 (GPIO2) = SCL
 const uint8_t LCD_SDA_PIN = D3;
 const uint8_t LCD_SCL_PIN = D4;
-const uint8_t LCD_ADDRESS = 0x27;  // Doi thanh 0x3F neu module dung dia chi nay
-// ==========================================================
-
-// SoftwareSerial(rx, tx); UART0 van duoc giu lai cho Serial Monitor.
-#if (defined(__AVR__) || defined(ESP8266)) && !defined(__AVR_ATmega2560__)
-SoftwareSerial mySerial(D5, D6);
-#else
-#define mySerial Serial1
-#endif
-Adafruit_Fingerprint finger(&mySerial);
-LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
-Servo doorServo;
+// ================================================================
 
 const char* WIFI_SSID = DEVICE_WIFI_SSID;
 const char* WIFI_PASSWORD = DEVICE_WIFI_PASSWORD;
