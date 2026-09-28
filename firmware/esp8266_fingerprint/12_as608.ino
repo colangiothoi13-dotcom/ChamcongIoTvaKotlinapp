@@ -189,7 +189,11 @@ void handleFingerprintScan() {
         : String("DA NHAN");
     showLcd(employeeName, scanStatus);
   } else {
-    showLcd("CHAM CONG LOI", "XIN THU LAI");
+    if (attendanceOutboxIsFull()) {
+      showLcd("HANG DOI DAY", "KHONG LUU DUOC");
+    } else {
+      showLcd("CHAM CONG LOI", "XIN THU LAI");
+    }
   }
   signalResult(success);
   delay(success ? 1800 : 500);

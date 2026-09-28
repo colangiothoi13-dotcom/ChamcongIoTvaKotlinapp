@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,9 +60,17 @@ import vn.chamcong.iot.ui.deviceStatusLabel
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun DevicesScreen(state: MainUiState, vm: MainViewModel) {
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000)
+            now = Instant.now()
+        }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
@@ -82,7 +91,7 @@ fun DevicesScreen(state: MainUiState, vm: MainViewModel) {
                 }
             }
         } else {
-            items(state.devices, key = { it.id }) { device -> DeviceCard(device, state, vm) }
+            items(state.devices, key = { "device:${it.id}" }) { device -> DeviceCard(device, state, vm, now) }
         }
         item {
             Text("Lệnh gần đây", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -90,16 +99,16 @@ fun DevicesScreen(state: MainUiState, vm: MainViewModel) {
         if (state.commands.isEmpty()) {
             item { Text("Chưa có lệnh thiết bị", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
-            items(state.commands, key = { it["commandId"]?.toString().orEmpty() }) { command -> CommandCard(command) }
+            items(state.commands, key = { "command:${it["commandId"]?.toString().orEmpty()}" }) { command -> CommandCard(command) }
         }
     }
 }
 
 @Composable
-private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewModel) {
+private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewModel, now: Instant) {
     var editing by remember(device.id) { mutableStateOf(false) }
     var restartConfirm by remember(device.id) { mutableStateOf(false) }
-    val online = device.isOnline(Instant.now())
+    val online = device.isOnline(now)
     val deviceCommands = state.commands.filter { it["deviceId"]?.toString() == device.id }
     val pending = deviceCommands.any {
         it["status"] in listOf("REQUESTED", "PROCESSING") ||
@@ -107,7 +116,7 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
     }
     val canAct = online && !pending && !state.saving
     val canControlDoor = canAct && device.capabilities.contains("door")
-    val latestAttendance = state.attendanceForSummaries
+    val latestAttendance = state.attendance
         .filter { it.deviceId == device.id }
         .maxByOrNull { it.timestamp.toDate().time }
     val statusColor = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -120,20 +129,34 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
                     Text(device.name.ifBlank { device.id }, fontWeight = FontWeight.Bold)
                     Text(device.location.ifBlank { "Chưa cập nhật vị trí" }, style = MaterialTheme.typography.bodySmall)
                 }
-                Text(deviceStatusLabel(if (online) "ONLINE" else device.status), color = statusColor)
+                Text(deviceStatusLabel(if (online) "ONLINE" else "OFFLINE"), color = statusColor)
                 IconButton({ editing = true }, enabled = !state.saving) { Icon(Icons.Default.Edit, "Sửa cấu hình") }
             }
             Text("Mã: ${device.id}")
             Text("Phiên bản: ${device.firmwareVersion.ifBlank { "Chưa có dữ liệu" }}")
             Text("Vân tay: ${device.fingerprintCount?.toString() ?: "?"}/${device.capacity?.toString() ?: "?"}")
-            Text("Wi-Fi: ${device.wifiStatus} · Firebase: ${device.firebaseSyncStatus} · Cảm biến: ${device.sensorStatus}")
-            Text("Cửa: ${device.doorStatus}")
+            Text(
+                "Wi-Fi: ${reportedStatus(online, device.wifiStatus)} · " +
+                    "Firebase: ${reportedStatus(online, device.firebaseSyncStatus)} · " +
+                    "Cảm biến: ${reportedStatus(online, device.sensorStatus)}"
+            )
+            Text("Cửa: ${reportedStatus(online, device.doorStatus)}")
             Text("Quét lỗi trong 5 phút: ${device.failedScanCount}")
             if (device.lastError.isNotBlank()) Text("Lỗi gần nhất: ${device.lastError}", color = MaterialTheme.colorScheme.error)
             if (device.pendingAttendanceCount > 0) {
                 Text("Lượt chấm chờ đồng bộ: ${device.pendingAttendanceCount}", color = MaterialTheme.colorScheme.error)
             } else {
                 Text("Không có lượt chấm chờ đồng bộ", style = MaterialTheme.typography.bodySmall)
+            }
+            if (device.pendingAttendanceCapacity > 0) {
+                val queueColor = if (device.attendanceOutboxStatus in setOf("WARNING", "FULL")) {
+                    MaterialTheme.colorScheme.error
+                } else MaterialTheme.colorScheme.onSurfaceVariant
+                Text(
+                    "Bộ nhớ hàng đợi: ${device.pendingAttendanceBytes}/${device.pendingAttendanceCapacity} byte · ${device.attendanceOutboxStatus}",
+                    color = queueColor,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             device.lastHeartbeat?.let {
                 Text("Tín hiệu cuối: ${SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).format(it.toDate())}", style = MaterialTheme.typography.bodySmall)
@@ -180,6 +203,9 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
         )
     }
 }
+
+private fun reportedStatus(online: Boolean, status: String): String =
+    if (online) status else "Không cập nhật (lần cuối: $status)"
 
 @Composable
 private fun DeviceActionButton(type: DeviceCommandType, enabled: Boolean, vm: MainViewModel, deviceId: String) {

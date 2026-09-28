@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.EmployeeAttendanceStatus
 import vn.chamcong.iot.model.EmployeeDaySummary
+import vn.chamcong.iot.model.terminationLocalDate
 import vn.chamcong.iot.ui.AppSpacing
 import java.time.YearMonth
 import java.time.Instant
@@ -53,14 +54,20 @@ fun MonthlyTimesheetScreen(
     onNextMonth: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val monthlyRows = employees.map { employee ->
-        employee to summariesForEmployee(employee.id).filter { YearMonth.from(it.date) == month }
-    }.filter { (employee, summaries) ->
-        employee.active || summaries.any { summary ->
+    val monthlyRows = employees.mapNotNull { employee ->
+        val retirementDate = employee.terminationLocalDate()
+        val lastEmploymentMonth = retirementDate?.let { YearMonth.from(it) }
+            ?: if (!employee.active) YearMonth.now(timesheetZone) else null
+        if (lastEmploymentMonth != null && lastEmploymentMonth.isBefore(month)) return@mapNotNull null
+        val summaries = summariesForEmployee(employee.id).filter { summary ->
+            YearMonth.from(summary.date) == month && (retirementDate == null || !summary.date.isAfter(retirementDate))
+        }
+        val hasAttendanceOrSchedule = summaries.any { summary ->
             summary.shiftSummaries.isNotEmpty() || summary.checkIn != null || summary.checkOut != null ||
                 summary.workedSeconds > 0L || summary.overtimeSeconds > 0L ||
                 summary.workedHours > 0.0 || summary.overtimeHours > 0.0
         }
+        if (employee.active || retirementDate != null || hasAttendanceOrSchedule) employee to summaries else null
     }
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
@@ -157,6 +164,15 @@ private fun EmployeeMonthlyTimesheetCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
+            if (!employee.active) {
+                val retirementDate = employee.terminationLocalDate()
+                Text(
+                    retirementDate?.let { "Ngày nghỉ việc: ${it.format(timesheetDateFormatter)}" }
+                        ?: "Đã nghỉ · chưa ghi nhận ngày nghỉ việc",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             val employeeDetail = listOf(employee.code, employee.department)
                 .filter(String::isNotBlank)
                 .joinToString(" · ")

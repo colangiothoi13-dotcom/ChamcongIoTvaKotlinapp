@@ -24,6 +24,9 @@ data class DeviceSnapshot(
     val fingerprintCount: Int? = null,
     val capacity: Int? = null,
     val pendingAttendanceCount: Int = 0,
+    val pendingAttendanceBytes: Int = 0,
+    val pendingAttendanceCapacity: Int = 0,
+    val attendanceOutboxStatus: String = "UNKNOWN",
     val capabilities: Set<String> = emptySet(),
     val wifiStatus: String = "UNKNOWN",
     val firebaseSyncStatus: String = "UNKNOWN",
@@ -47,6 +50,9 @@ fun deviceSnapshotFromFields(id: String, fields: Map<String, Any?>): DeviceSnaps
     fingerprintCount = (fields["fingerprintCount"] as? Number)?.toInt(),
     capacity = (fields["capacity"] as? Number)?.toInt(),
     pendingAttendanceCount = ((fields["pendingAttendanceCount"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
+    pendingAttendanceBytes = ((fields["pendingAttendanceBytes"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
+    pendingAttendanceCapacity = ((fields["pendingAttendanceCapacity"] as? Number)?.toInt() ?: 0).coerceAtLeast(0),
+    attendanceOutboxStatus = (fields["attendanceOutboxStatus"] as? String)?.uppercase() ?: "UNKNOWN",
     capabilities = (fields["capabilities"] as? List<*>)
         .orEmpty()
         .filterIsInstance<String>()

@@ -16,12 +16,15 @@ import vn.chamcong.iot.domain.payrollHoursForMonth
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.calculateBasePay
 import vn.chamcong.iot.model.payrollCandidates
+import vn.chamcong.iot.model.terminationLocalDate
 import java.text.NumberFormat
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val PayrollZone = ZoneId.of("Asia/Ho_Chi_Minh")
+private val payrollDateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale("vi", "VN"))
 
 internal fun money(value: Long): String = NumberFormat.getNumberInstance(Locale("vi", "VN")).format(value) + " đ"
 
@@ -84,7 +87,10 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
                 val e = state.employees.firstOrNull { it.id == p.employeeId }
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                        Text("${p.employeeCode.ifBlank { e?.code.orEmpty() }} • ${p.employeeName.ifBlank { e?.fullName ?: p.employeeId }}${if (e?.active == false) " • Đã nghỉ" else ""}")
+                        val retirementLabel = if (e != null && !e.active) {
+                            e.terminationLocalDate()?.format(payrollDateFormatter)?.let { " • Đã nghỉ $it" } ?: " • Đã nghỉ"
+                        } else ""
+                        Text("${p.employeeCode.ifBlank { e?.code.orEmpty() }} • ${p.employeeName.ifBlank { e?.fullName ?: p.employeeId }}$retirementLabel")
                         Text("Lương cơ bản: ${money(p.baseSalary)}")
                         if (p.hourlyRate > 0 || p.hoursWorked > 0) {
                             Text("Đơn giá: ${money(p.hourlyRate)}/giờ • Số giờ: ${hoursText(p.hoursWorked)} giờ")
@@ -105,7 +111,10 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
                 if (candidates.isEmpty()) item { Text("Không còn nhân viên cần lập phiếu trong tháng này") }
                 items(candidates, key = { it.id }) { e ->
                     Column {
-                        Text("${e.code} • ${e.fullName}${if (!e.active) " • Đã nghỉ" else ""}")
+                        val retirementLabel = if (!e.active) {
+                            e.terminationLocalDate()?.format(payrollDateFormatter)?.let { " • Đã nghỉ $it" } ?: " • Đã nghỉ"
+                        } else ""
+                        Text("${e.code} • ${e.fullName}$retirementLabel")
                         Text("Đơn giá cơ bản: ${money(e.baseSalary)}/giờ")
                         Row {
                             if (e.active) TextButton({ picker = false; settings = e }) { Text("Đặt lương") }
@@ -158,7 +167,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
                     Text("Thưởng tự động: ${money(breakdown.totalBonus)}", style = MaterialTheme.typography.titleMedium)
                     MoneyField("Khấu trừ (đ)", deduction) { deduction = it }
                     if (basePay != null && d != null) Text("Lương cơ bản: ${money(basePay)} • Thực lĩnh: ${money(basePay + b - d)}")
-                    Text("Phiếu được lưu cố định để giữ lịch sử. Nhân viên đã nghỉ sẽ biến mất khỏi danh sách sau khi tháng này được lập phiếu.")
+                    Text("Phiếu lương đã lưu được giữ làm lịch sử. Nhân viên nghỉ việc chỉ có thể lập lương đến tháng nghỉ; từ tháng tiếp theo sẽ ẩn khỏi danh sách.")
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },

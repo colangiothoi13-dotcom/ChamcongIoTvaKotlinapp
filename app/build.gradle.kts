@@ -4,6 +4,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 2
+val appVersionName = providers.gradleProperty("appVersionName").orNull ?: "1.1.0"
+val releaseStoreFile = providers.environmentVariable("CHAMCONG_RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.environmentVariable("CHAMCONG_RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("CHAMCONG_RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("CHAMCONG_RELEASE_KEY_PASSWORD").orNull
+val hasReleaseSigning = listOf(
+    releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
@@ -21,8 +31,31 @@ android {
         applicationId = "vn.chamcong.iot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     buildFeatures { compose = true }

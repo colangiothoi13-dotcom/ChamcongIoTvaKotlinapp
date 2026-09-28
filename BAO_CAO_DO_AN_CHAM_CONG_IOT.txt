@@ -1083,14 +1083,28 @@ Mỗi video ghi thêm ngày quay, phiên bản firmware, phiên bản APK, thi�
 
 3.7. Kết quả kiểm thử hiện tại
 
-Theo trạng thái mã nguồn đã kiểm tra:
+Kết quả lần chạy kiểm thử gần nhất:
 
-- Unit test Android: 191/191 test pass.
-- Test Firebase Functions: 32/32 test pass.
-- Build debug APK: thành công; file đầu ra nằm tại app/build/outputs/apk/debug/app-debug.apk.
-- Firestore Emulator Rules: chưa chạy được trong môi trường kiểm tra hiện tại vì Firebase CLI yêu cầu Java 21 còn môi trường đang dùng Java 17. Đây là hạn chế của môi trường kiểm thử, không nên ghi thành “Rules đã kiểm thử đầy đủ trên Emulator”.
+- Android: 191/191 unit test đạt với `:app:testDebugUnitTest`, Gradle 8.9 và JDK 17 (2026-09-28).
+- Firebase Functions: 32/32 test đạt với `npm test --prefix firebase/functions`. Functions hiện không thuộc luồng xử lý của dự án trên Firebase Spark.
+- Bản debug APK build thành công tại `app/build/outputs/apk/debug/app-debug.apk`.
+- Bản release có R8, minify và shrink build thành công khi loại trừ các task `lintVital`; môi trường offline chưa có `com.android.tools.lint:lint-gradle:31.7.3`. APK được tạo là `app-release-unsigned.apk` vì chưa cấu hình keystore ký phát hành.
 
-Các kết quả trên chứng minh phần logic/unit test và build hiện tại đang chạy được, nhưng chưa thay thế cho video phần cứng hoặc kiểm thử trên thiết bị Android thật. Nhóm cần bổ sung ảnh và video ở mục 3.6 để chứng minh toàn bộ hệ thống end-to-end.
+Lưu ý: Các con số test và kết quả build ở trên là từ lần chạy trước khi bổ sung xử lý biên 5.000 bản ghi. Bản sửa biên mới nhất chưa được chạy lại test/build trong lần cập nhật báo cáo này.
+
+Trong cấu hình Firebase Spark, Firestore giữ sự kiện attendance gốc; Android diễn giải sự kiện theo lịch và quy tắc nghiệp vụ. Không xem kết quả trên từng Android client là nguồn sự thật tập trung. Việc resolve bằng transaction ở backend chỉ được tính đến khi dự án chuyển sang hạ tầng phù hợp, có thể phát sinh chi phí Blaze.
+
+Attendance realtime của Admin được giới hạn ở một cửa sổ gần nhất. Hồ sơ nhân viên lấy các lượt mới nhất theo `timestamp` ngay trong truy vấn Firestore và hỗ trợ tải tiếp bằng cursor. Lịch sử báo cáo truy vấn theo khoảng ngày, chia trang và có giới hạn 5.000 bản ghi để kiểm soát RAM. Khi đạt đúng 5.000, ứng dụng truy vấn kiểm tra thêm một bản ghi sau cursor cuối: nếu không còn dữ liệu, báo cáo vẫn được xem là đầy đủ và cho phép xuất CSV; nếu còn dữ liệu, ứng dụng báo cần thu hẹp khoảng ngày và khóa xuất CSV để không tạo file thiếu dữ liệu.
+
+Luồng báo cáo xóa dữ liệu của bộ lọc cũ khi bắt đầu truy vấn mới. Khi tải lỗi, trạng thái yêu cầu được mở lại, lỗi được hiển thị và người dùng có thể thử lại. Nút xuất CSV chỉ hoạt động khi kết quả tương ứng với bộ lọc hiện tại đã tải hoàn tất.
+
+Firmware công khai trạng thái hàng đợi LittleFS (`OK/WARNING/FULL/ERROR`) và dung lượng đã dùng. Khi hàng đợi đầy, thiết bị hiển thị lỗi và từ chối nhận lượt mới; heartbeat báo `firebaseSyncStatus = ERROR` nếu LittleFS lỗi hoặc hàng đợi đầy.
+
+Android dùng mặc định `versionCode = 2`, `versionName = "1.1.0"`, bật minify/shrink cho release và nhận thông tin ký qua biến môi trường. Chỉ có thể phát hành APK đã ký sau khi cấu hình keystore thật.
+
+Firestore Rules Emulator chưa được chạy trong môi trường kiểm tra đã ghi nhận do Firebase CLI yêu cầu Java 21 trong khi môi trường khi đó sử dụng Java 17. Vì vậy, không kết luận Rules đã được kiểm thử đầy đủ trên Emulator.
+
+Các kết quả tự động không thay thế cho kiểm thử trên điện thoại thật, thử nghiệm mất điện khi LittleFS đang ghi, hay video chứng minh hoạt động end-to-end. Nhóm cần bổ sung minh chứng tại mục 3.6.
 
 3.8. Đánh giá mức độ hoàn thành
 

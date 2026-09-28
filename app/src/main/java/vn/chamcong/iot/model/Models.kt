@@ -1,6 +1,7 @@
 package vn.chamcong.iot.model
 
 import com.google.firebase.Timestamp
+import java.time.LocalDate
 
 data class Employee(
     val id: String = "",
@@ -13,12 +14,17 @@ data class Employee(
     val department: String = "",
     val position: String = "",
     val hireDate: String = "",
+    val terminationDate: String = "",
     val fingerprintTemplateId: Int? = null,
     val baseSalary: Long = 0,
     val fingerprintDeviceId: String = "GATE-01",
     val pendingTemplateId: Int? = null,
     val active: Boolean = true
 )
+
+fun Employee.terminationLocalDate(): LocalDate? = terminationDate
+    .takeIf(String::isNotBlank)
+    ?.let { value -> runCatching { LocalDate.parse(value) }.getOrNull() }
 
 enum class AttendanceType { CHECK_IN, CHECK_OUT }
 enum class AttendanceStatus { ON_TIME, LATE, EARLY_LEAVE, NORMAL }

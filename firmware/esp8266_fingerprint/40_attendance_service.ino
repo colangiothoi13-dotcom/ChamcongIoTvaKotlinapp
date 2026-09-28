@@ -30,6 +30,8 @@ bool publishDeviceSnapshot() {
   client.setInsecure();
   HTTPClient https;
   int pendingCount = attendancePendingCount();
+  size_t pendingBytes = attendanceOutboxBytes();
+  const char* outboxStatus = attendanceOutboxStatus();
   String url = String(FIRESTORE_URL) + "/devices/" + DEVICE_ID +
                "?updateMask.fieldPaths=deviceId"
                "&updateMask.fieldPaths=status"
@@ -37,6 +39,9 @@ bool publishDeviceSnapshot() {
                "&updateMask.fieldPaths=firmwareVersion"
                "&updateMask.fieldPaths=capacity"
                "&updateMask.fieldPaths=pendingAttendanceCount"
+               "&updateMask.fieldPaths=pendingAttendanceBytes"
+               "&updateMask.fieldPaths=pendingAttendanceCapacity"
+               "&updateMask.fieldPaths=attendanceOutboxStatus"
                "&updateMask.fieldPaths=capabilities"
                "&updateMask.fieldPaths=wifiStatus"
                "&updateMask.fieldPaths=firebaseSyncStatus"
@@ -64,7 +69,13 @@ bool publishDeviceSnapshot() {
   fields["capacity"]["integerValue"] = 127;
   fields["pendingAttendanceCount"]["integerValue"] = pendingCount;
   fields["wifiStatus"]["stringValue"] = WiFi.status() == WL_CONNECTED ? "ONLINE" : "OFFLINE";
-  fields["firebaseSyncStatus"]["stringValue"] = pendingCount == 0 ? "ONLINE" : "PENDING";
+  bool outboxError = String(outboxStatus) == "FULL" || String(outboxStatus) == "ERROR";
+  fields["firebaseSyncStatus"]["stringValue"] = outboxError
+      ? "ERROR"
+      : (pendingCount == 0 ? "ONLINE" : "PENDING");
+  fields["pendingAttendanceBytes"]["integerValue"] = pendingBytes;
+  fields["pendingAttendanceCapacity"]["integerValue"] = ATTENDANCE_OUTBOX_MAX_BYTES;
+  fields["attendanceOutboxStatus"]["stringValue"] = outboxStatus;
   fields["sensorStatus"]["stringValue"] = sensorStatus;
   fields["doorStatus"]["stringValue"] = doorStatus;
   fields["failedScanCount"]["integerValue"] = recentFailedScanCount();
@@ -86,7 +97,7 @@ bool publishDeviceSnapshot() {
   Serial.printf("HEARTBEAT HTTP %d: %s\n", code, response.c_str());
   bool synced = code >= 200 && code < 300;
   if (synced) {
-    firebaseSyncStatus = pendingCount == 0 ? "ONLINE" : "PENDING";
+    firebaseSyncStatus = outboxError ? "ERROR" : (pendingCount == 0 ? "ONLINE" : "PENDING");
   } else {
     firebaseSyncStatus = "ERROR";
     setLatestError(String("Heartbeat HTTP ") + code);
@@ -196,4 +207,3 @@ bool uploadAttendance(uint16_t templateId, uint16_t confidence,
   }
   return true;
 }
-

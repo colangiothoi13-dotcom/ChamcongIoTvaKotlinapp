@@ -39,7 +39,9 @@ service cloud.firestore {
         && (!('doorStatus' in data) || data.doorStatus in ['OPEN', 'CLOSED', 'UNKNOWN'])
         && (!('failedScanCount' in data)
           || (data.failedScanCount is int && data.failedScanCount >= 0 && data.failedScanCount <= 100000))
-        && (!('lastError' in data) || (data.lastError is string && data.lastError.size() <= 240));
+        && (!('lastError' in data) || (data.lastError is string && data.lastError.size() <= 240))
+        && (!('attendanceOutboxStatus' in data)
+          || data.attendanceOutboxStatus in ['OK', 'WARNING', 'FULL', 'ERROR', 'UNKNOWN']);
     }
     function validDeviceCommand(data, id) {
       return data.deviceId == id
@@ -585,12 +587,21 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'deviceId', 'name', 'location', 'status', 'lastHeartbeat',
           'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities',
+          'pendingAttendanceBytes', 'pendingAttendanceCapacity', 'attendanceOutboxStatus',
           'wifiStatus', 'firebaseSyncStatus', 'sensorStatus', 'doorStatus', 'failedScanCount', 'lastError'
         ])
         && (!('pendingAttendanceCount' in request.resource.data)
           || (request.resource.data.pendingAttendanceCount is int
             && request.resource.data.pendingAttendanceCount >= 0
             && request.resource.data.pendingAttendanceCount <= 500))
+        && (!('pendingAttendanceBytes' in request.resource.data)
+          || (request.resource.data.pendingAttendanceBytes is int
+            && request.resource.data.pendingAttendanceBytes >= 0
+            && request.resource.data.pendingAttendanceBytes <= 1048576))
+        && (!('pendingAttendanceCapacity' in request.resource.data)
+          || (request.resource.data.pendingAttendanceCapacity is int
+            && request.resource.data.pendingAttendanceCapacity >= 0
+            && request.resource.data.pendingAttendanceCapacity <= 1048576))
         && validDeviceTelemetry(request.resource.data));
       allow update: if isAdmin() || (isDevice()
         && resource.data.deviceId == id
@@ -598,12 +609,21 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'deviceId', 'name', 'location', 'status', 'lastHeartbeat',
           'firmwareVersion', 'fingerprintCount', 'capacity', 'pendingAttendanceCount', 'capabilities',
+          'pendingAttendanceBytes', 'pendingAttendanceCapacity', 'attendanceOutboxStatus',
           'wifiStatus', 'firebaseSyncStatus', 'sensorStatus', 'doorStatus', 'failedScanCount', 'lastError'
         ])
         && (!('pendingAttendanceCount' in request.resource.data)
           || (request.resource.data.pendingAttendanceCount is int
             && request.resource.data.pendingAttendanceCount >= 0
             && request.resource.data.pendingAttendanceCount <= 500))
+        && (!('pendingAttendanceBytes' in request.resource.data)
+          || (request.resource.data.pendingAttendanceBytes is int
+            && request.resource.data.pendingAttendanceBytes >= 0
+            && request.resource.data.pendingAttendanceBytes <= 1048576))
+        && (!('pendingAttendanceCapacity' in request.resource.data)
+          || (request.resource.data.pendingAttendanceCapacity is int
+            && request.resource.data.pendingAttendanceCapacity >= 0
+            && request.resource.data.pendingAttendanceCapacity <= 1048576))
         && validDeviceTelemetry(request.resource.data));
       allow delete: if isAdmin();
     }

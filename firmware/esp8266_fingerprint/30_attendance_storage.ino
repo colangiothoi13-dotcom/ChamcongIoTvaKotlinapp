@@ -291,8 +291,10 @@ bool enqueueAttendanceEvent(const String& eventId, const String& payload) {
   serializeJson(record, line);
   line += '\n';
   if (existing.length() + line.length() > ATTENDANCE_OUTBOX_MAX_BYTES) {
-    Serial.printf("OUTBOX day: bo qua event %s, queue da day\n", eventId.c_str());
-    setLatestError("Hang doi cham cong da day");
+    Serial.printf("OUTBOX DAY: tu choi event %s, queue da day (%u/%u bytes)\n",
+                  eventId.c_str(), static_cast<unsigned>(existing.length()),
+                  static_cast<unsigned>(ATTENDANCE_OUTBOX_MAX_BYTES));
+    setLatestError("HANG DOI DAY - KHONG LUU DUOC SU KIEN");
     return false;
   }
   File output = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "a");
@@ -438,6 +440,18 @@ size_t attendanceOutboxBytes() {
   return bytes;
 }
 
+bool attendanceOutboxIsFull() {
+  return attendanceOutboxBytes() >= ATTENDANCE_OUTBOX_MAX_BYTES;
+}
+
+const char* attendanceOutboxStatus() {
+  if (!littleFsReady) return "ERROR";
+  const size_t bytes = attendanceOutboxBytes();
+  if (bytes >= ATTENDANCE_OUTBOX_MAX_BYTES) return "FULL";
+  if (bytes >= ATTENDANCE_OUTBOX_WARN_BYTES) return "WARNING";
+  return "OK";
+}
+
 int attendancePendingCount() {
   if (!littleFsReady) return 0;
   File input = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "r");
@@ -453,4 +467,3 @@ int attendancePendingCount() {
   input.close();
   return count;
 }
-

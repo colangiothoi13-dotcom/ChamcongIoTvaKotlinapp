@@ -19,10 +19,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.text.SimpleDateFormat
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.EmployeeAccountInput
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.terminationLocalDate
 import vn.chamcong.iot.ui.attendance.AttendanceScreen
 import vn.chamcong.iot.ui.attendance.attendanceAdjustmentDate
 import vn.chamcong.iot.ui.attendance.attendanceResolutionPresentation
@@ -77,6 +79,8 @@ enum class EmployeeDestination(val title: String) {
     PROFILE("Cá nhân"),
     SCHEDULE("Lịch làm việc"),
 }
+
+private val employeeTerminationDateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale("vi", "VN"))
 
 val adminPrimaryDestinations = listOf(
     AppDestination.DASHBOARD,
@@ -502,6 +506,13 @@ private fun Dashboard(state: MainUiState) {
                 TextButton({ onEdit(e) }, enabled = e.active) { Text("S\u1eeda h\u1ed3 s\u01a1") }
                 Text(e.fullName,fontWeight=FontWeight.Bold)
                 Text("${e.code} • ${e.department}${if(!e.active) " • Đã nghỉ" else ""}")
+                if (!e.active) {
+                    Text(
+                        e.terminationLocalDate()?.let { "Ngày nghỉ việc: ${it.format(employeeTerminationDateFormatter)}" }
+                            ?: "Chưa ghi nhận ngày nghỉ việc",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
                 Text("Lương cơ bản: ${money(e.baseSalary)}")
                 e.fingerprintTemplateId?.let { Text("Mẫu vân tay #$it",color=MaterialTheme.colorScheme.primary) }
                 command?.let { c ->

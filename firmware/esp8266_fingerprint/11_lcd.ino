@@ -116,10 +116,15 @@ String vietnamTimeText() {
 
 void showIdleScreen() {
   lcdIdleMode = true;
+  if (!littleFsReady) {
+    renderLcd("LOI LITTLEFS", "KHONG LUU QUEUE");
+    lastLcdClock = millis();
+    return;
+  }
   int pendingCount = attendancePendingCount();
-  String secondLine = pendingCount > 0
-      ? String("CHO SYNC: ") + pendingCount
-      : "DAT NGON TAY...";
+  String secondLine = attendanceOutboxIsFull()
+      ? "HANG DOI DAY"
+      : (pendingCount > 0 ? String("CHO SYNC: ") + pendingCount : "DAT NGON TAY...");
   if (hasValidClock()) {
     renderLcd(vietnamTimeText(), secondLine);
   } else {
@@ -135,10 +140,14 @@ void showReadyScreen() {
 void maybeUpdateIdleClock() {
   if (!lcdIdleMode || millis() - lastLcdClock < LCD_CLOCK_INTERVAL_MS) return;
   lastLcdClock = millis();
+  if (!littleFsReady) {
+    renderLcd("LOI LITTLEFS", "KHONG LUU QUEUE");
+    return;
+  }
   int pendingCount = attendancePendingCount();
-  String secondLine = pendingCount > 0
-      ? String("CHO SYNC: ") + pendingCount
-      : "DAT NGON TAY...";
+  String secondLine = attendanceOutboxIsFull()
+      ? "HANG DOI DAY"
+      : (pendingCount > 0 ? String("CHO SYNC: ") + pendingCount : "DAT NGON TAY...");
   if (hasValidClock()) {
     renderLcd(vietnamTimeText(), secondLine);
   } else {

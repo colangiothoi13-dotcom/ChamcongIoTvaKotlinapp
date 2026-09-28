@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,7 +56,23 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
             )
         }.getOrNull()
     }
-    val attendanceRows = filter?.let(vm::reportAttendanceRows).orEmpty().filter { row ->
+    val attendanceHistoryKey = filter?.let {
+        "${it.startDate}|${it.endDate}|${it.employeeId.orEmpty()}"
+    }
+    val attendanceHistoryReady = type == ReportType.DEVICE_ACTIVITY || (
+        filter != null &&
+            !state.attendanceHistoryLoading &&
+            state.attendanceHistoryQueryKey == attendanceHistoryKey &&
+            state.attendanceHistoryError == null &&
+            !state.attendanceHistoryTruncated
+        )
+    LaunchedEffect(filter?.startDate, filter?.endDate, filter?.employeeId, type) {
+        if (type != ReportType.DEVICE_ACTIVITY) {
+            filter?.let { vm.loadAttendanceRange(it.startDate, it.endDate, it.employeeId) }
+        }
+    }
+    val attendanceRows = if (attendanceHistoryReady) filter?.let(vm::reportAttendanceRows).orEmpty() else emptyList()
+    val filteredAttendanceRows = attendanceRows.filter { row ->
         when (type) {
             ReportType.LATE_EARLY -> row.status == "LATE" || row.status == "EARLY_LEAVE"
             ReportType.LEAVE -> row.status == "LEAVE"
@@ -120,13 +137,26 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
                     val csv = filter?.let { vm.reportCsv(type, it) } ?: return@Button
                     shareCsv(context, csv, type.name.lowercase())
                 },
-                enabled = filter != null,
+                enabled = filter != null && attendanceHistoryReady,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Xuất CSV và chia sẻ") }
+            if (state.attendanceHistoryLoading && filter != null && type != ReportType.DEVICE_ACTIVITY) {
+                Text("Đang tải dữ liệu chấm công theo khoảng ngày...", style = MaterialTheme.typography.bodySmall)
+            }
+            if (state.attendanceHistoryError != null && filter != null && type != ReportType.DEVICE_ACTIVITY) {
+                Text(state.attendanceHistoryError, color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = vm::retryAttendanceRange) { Text("Thử lại") }
+            }
+            if (state.attendanceHistoryTruncated && filter != null && type != ReportType.DEVICE_ACTIVITY) {
+                Text(
+                    "Khoảng chọn có quá nhiều bản ghi (tối đa ${state.attendanceHistoryLoadedCount}). Hãy thu hẹp khoảng ngày để xuất đầy đủ.",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
         }
         item {
             Text(
-                if (type == ReportType.DEVICE_ACTIVITY) "${deviceRows.size} thiết bị" else "${attendanceRows.size} dòng báo cáo",
+                if (type == ReportType.DEVICE_ACTIVITY) "${deviceRows.size} thiết bị" else "${filteredAttendanceRows.size} dòng báo cáo",
                 style = MaterialTheme.typography.titleMedium
             )
         }
@@ -142,7 +172,7 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
                 }
             }
         } else {
-            items(attendanceRows.take(200), key = { "${it.date}_${it.employeeId}" }) { row ->
+            items(filteredAttendanceRows.take(200), key = { "${it.date}_${it.employeeId}" }) { row ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(AppSpacing.medium)) {
                         Text("${row.date} • ${row.employeeName}", style = MaterialTheme.typography.titleMedium)

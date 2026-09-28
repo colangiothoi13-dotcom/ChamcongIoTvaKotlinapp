@@ -42,6 +42,7 @@ const unsigned long SENSOR_RETRY_INTERVAL_MS = 15000;
 const unsigned long LCD_CLOCK_INTERVAL_MS = 1000;
 const unsigned long FAILED_SCAN_WINDOW_MS = 300000;
 const size_t ATTENDANCE_OUTBOX_MAX_BYTES = 12288;
+const size_t ATTENDANCE_OUTBOX_WARN_BYTES = 10240;
 const char* ATTENDANCE_OUTBOX_PATH = "/attendance.outbox";
 const char* ATTENDANCE_OUTBOX_TMP_PATH = "/attendance.outbox.tmp";
 const char* ATTENDANCE_OUTBOX_BACKUP_PATH = "/attendance.outbox.bak";
@@ -91,5 +92,8 @@ uint32_t failedScanTimes[32] = {};
 uint8_t failedScanSampleCount = 0;
 
 int attendancePendingCount();
+size_t attendanceOutboxBytes();
+bool attendanceOutboxIsFull();
+const char* attendanceOutboxStatus();
 
 // Implementation is split into the .ino tabs in this folder.

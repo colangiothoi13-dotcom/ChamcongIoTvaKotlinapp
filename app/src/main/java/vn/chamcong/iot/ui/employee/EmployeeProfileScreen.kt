@@ -93,6 +93,32 @@ fun EmployeeProfileScreen(
                 key = { attendance -> attendance.id.ifBlank { "${attendance.timestamp.seconds}-${attendance.type}" } }
             ) { attendance -> AttendanceActivityCard(attendance) }
         }
+        if (state.employeeAttendanceHistoryHasMore || state.employeeAttendanceHistoryLoading) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    Button(
+                        onClick = vm::loadMoreEmployeeAttendance,
+                        enabled = !state.employeeAttendanceHistoryLoading,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (state.employeeAttendanceHistoryLoading) "Đang tải lịch sử..." else "Tải thêm lịch sử")
+                    }
+                    Text(
+                        "Lịch sử mới nhất được theo dõi realtime; nút này tải thêm các lượt cũ hơn.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else if (state.employeeAttendanceHistory.isNotEmpty()) {
+            item {
+                Text(
+                    "Đã tải hết lịch sử chấm công.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         item {
             Button(onClick = onChangePassword, modifier = Modifier.fillMaxWidth()) {
                 Text("Đổi mật khẩu")

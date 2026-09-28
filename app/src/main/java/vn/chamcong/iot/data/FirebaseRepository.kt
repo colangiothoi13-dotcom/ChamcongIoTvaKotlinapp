@@ -29,9 +29,16 @@ import vn.chamcong.iot.domain.validateEmployeeAccountInput
 import vn.chamcong.iot.domain.isWeeklyScheduleSubmissionOpen
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.Instant
+import java.util.Date
 import vn.chamcong.iot.domain.validateAttendanceAdjustment
 import java.util.UUID
+
+data class AttendancePage(
+    val rows: List<Attendance>,
+    val nextCursor: DocumentSnapshot? = null
+)
 
 class FirebaseRepository(
     private val appContext: Context,
@@ -40,6 +47,9 @@ class FirebaseRepository(
 ) {
     private companion object {
         const val EMPLOYEE_ACCOUNT_APP_NAME = "employee-account-creator"
+        const val DEFAULT_ATTENDANCE_REALTIME_LIMIT = 500L
+        const val DEFAULT_ATTENDANCE_PAGE_SIZE = 200L
+        const val MAX_ATTENDANCE_PAGE_SIZE = 500L
     }
     val isSignedIn: Boolean get() = auth.currentUser != null
     val currentUserId: String get() = auth.currentUser?.uid.orEmpty()
@@ -96,6 +106,8 @@ class FirebaseRepository(
         require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
         val listener = db.collection("attendance")
             .whereEqualTo("employeeId", employeeId)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .limit(DEFAULT_ATTENDANCE_REALTIME_LIMIT)
             .addSnapshotListener { value, error ->
                 if (error != null) close(error)
                 else trySend(value?.documents.orEmpty()
@@ -150,7 +162,13 @@ class FirebaseRepository(
         awaitClose { listener.remove() }
     }
     fun observeAllAttendance(): Flow<List<Attendance>> = callbackFlow {
-        val listener = db.collection("attendance").addSnapshotListener { value, error ->
+        // Keep the realtime shell bounded on Spark. Historical reports should
+        // use fetchAttendancePage() with an explicit date range instead of
+        // opening a listener over the whole collection.
+        val listener = db.collection("attendance")
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .limit(DEFAULT_ATTENDANCE_REALTIME_LIMIT)
+            .addSnapshotListener { value, error ->
             if (error != null) close(error)
             else trySend(value?.documents.orEmpty()
                 .mapNotNull { it.toObject(Attendance::class.java)?.copy(id = it.id) }
@@ -164,6 +182,67 @@ class FirebaseRepository(
             else trySend(value?.documents.orEmpty().mapNotNull { it.toObject(Payroll::class.java) })
         }
         awaitClose { listener.remove() }
+    }
+
+    /**
+     * Loads a bounded attendance page for reports/export. The cursor is the
+     * last document returned by the previous call, so old data is fetched on
+     * demand rather than kept in a realtime listener or in the ViewModel.
+     */
+    suspend fun fetchAttendancePage(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        employeeId: String? = null,
+        pageSize: Long = DEFAULT_ATTENDANCE_PAGE_SIZE,
+        after: DocumentSnapshot? = null
+    ): AttendancePage {
+        require(!endDate.isBefore(startDate)) { "Khoảng ngày chấm công không hợp lệ" }
+        val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+        val start = Timestamp(Date.from(startDate.atStartOfDay(zone).toInstant()))
+        val endExclusive = Timestamp(Date.from(endDate.plusDays(1).atStartOfDay(zone).toInstant()))
+        val safePageSize = pageSize.coerceIn(1L, MAX_ATTENDANCE_PAGE_SIZE)
+        var query: Query = db.collection("attendance")
+            .whereGreaterThanOrEqualTo("timestamp", start)
+            .whereLessThan("timestamp", endExclusive)
+        employeeId?.trim()?.takeIf(String::isNotBlank)?.let {
+            query = query.whereEqualTo("employeeId", it)
+        }
+        query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(safePageSize)
+        if (after != null) query = query.startAfter(after)
+        val snapshot = query.get(Source.SERVER).await()
+        return AttendancePage(
+            rows = snapshot.documents.mapNotNull { document ->
+                document.toObject(Attendance::class.java)?.copy(id = document.id)
+            },
+            nextCursor = snapshot.documents.lastOrNull()
+        )
+    }
+
+    /**
+     * Loads one ordered page for an employee profile. The first page contains
+     * the newest rows; subsequent calls use the last document as a cursor so
+     * the profile can progressively reveal attendance older than the realtime
+     * 500-row shell.
+     */
+    suspend fun fetchEmployeeAttendancePage(
+        employeeId: String,
+        pageSize: Long = MAX_ATTENDANCE_PAGE_SIZE,
+        after: DocumentSnapshot? = null
+    ): AttendancePage {
+        require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+        val safePageSize = pageSize.coerceIn(1L, MAX_ATTENDANCE_PAGE_SIZE)
+        var query: Query = db.collection("attendance")
+            .whereEqualTo("employeeId", employeeId.trim())
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .limit(safePageSize)
+        if (after != null) query = query.startAfter(after)
+        val snapshot = query.get(Source.SERVER).await()
+        return AttendancePage(
+            rows = snapshot.documents.mapNotNull { document ->
+                document.toObject(Attendance::class.java)?.copy(id = document.id)
+            },
+            nextCursor = snapshot.documents.lastOrNull()
+        )
     }
     fun observeDepartments(): Flow<List<Department>> = callbackFlow {
         val listener = db.collection("departments").orderBy("name").addSnapshotListener { value, error ->
@@ -1754,6 +1833,7 @@ class FirebaseRepository(
     suspend fun removeEmployeeOrFingerprint(employeeId: String, retire: Boolean) {
         val employeeRef = db.collection("employees").document(employeeId)
         val requestId = UUID.randomUUID().toString()
+        val retirementDateToday = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).toString()
         // Older app versions did not always copy the slot back to employees.
         // Look up the mapping as a fallback so retiring that employee also
         // disables the still-enrolled sensor slot.
@@ -1781,7 +1861,10 @@ class FirebaseRepository(
             if (template != null || command.getString("employeeId") == employeeId) requireFreeCommand(command)
             if (retire) {
                 accountProfiles.forEach { profile -> tx.get(profile.reference) }
-                tx.update(employeeRef, "active", false)
+                val retirementDate = e.terminationDate
+                    .takeIf { value -> runCatching { LocalDate.parse(value) }.isSuccess }
+                    ?: retirementDateToday
+                tx.update(employeeRef, mapOf("active" to false, "terminationDate" to retirementDate))
             }
             if (template != null) {
                 val mappingRef = db.collection("fingerprintMappings").document(template.toString())

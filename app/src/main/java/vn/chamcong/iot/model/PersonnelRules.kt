@@ -79,5 +79,11 @@ fun payrollCandidates(
     payroll: List<Payroll>,
     month: String
 ): List<Employee> = employees.filter { employee ->
-    employee.active || payroll.none { it.employeeId == employee.id && it.month == month }
+    val retirementMonth = employee.terminationLocalDate()?.let { YearMonth.from(it) }
+        ?: if (!employee.active) YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")) else null
+    val selectedMonth = runCatching { YearMonth.parse(month) }.getOrNull()
+    val stillInEmploymentMonth = retirementMonth == null || selectedMonth == null || !selectedMonth.isAfter(retirementMonth)
+    employee.active || (
+        stillInEmploymentMonth && payroll.none { it.employeeId == employee.id && it.month == month }
+    )
 }
