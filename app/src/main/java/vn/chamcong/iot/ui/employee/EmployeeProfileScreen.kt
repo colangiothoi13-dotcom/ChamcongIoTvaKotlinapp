@@ -1,0 +1,339 @@
+package vn.chamcong.iot.ui.employee
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import vn.chamcong.iot.model.Attendance
+import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.MainUiState
+import vn.chamcong.iot.ui.MainViewModel
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+fun EmployeeProfileScreen(
+    state: MainUiState,
+    vm: MainViewModel,
+    onChangePassword: () -> Unit,
+    onSaveContact: (phone: String, address: String) -> Unit,
+    onRequestFingerprintSupport: (reason: String, onSubmitted: () -> Unit) -> Unit
+) {
+    val employee = state.currentEmployee
+    if (employee == null) {
+        Text("Chưa tải được hồ sơ cá nhân")
+        return
+    }
+    val activity = remember(state.employeeAttendanceForSummaries) {
+        state.employeeAttendanceForSummaries.sortedByDescending { it.timestamp.seconds }
+    }
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
+        item { ProfileHeader(employee) }
+        item {
+            Text("Liên hệ & địa chỉ", style = MaterialTheme.typography.headlineSmall)
+            PersonalInformationCard(employee, state.userProfile?.email.orEmpty(), onSaveContact)
+        }
+        item {
+            Text("Công việc", style = MaterialTheme.typography.headlineSmall)
+            WorkInformationCard(employee)
+        }
+        item {
+            Text("Vân tay chấm công", style = MaterialTheme.typography.headlineSmall)
+            FingerprintCard(
+                employee,
+                state.devices.firstOrNull { it.id == employee.fingerprintDeviceId }?.name.orEmpty(),
+                onRequestFingerprintSupport
+            )
+        }
+        item {
+            Text("Hoạt động gần đây", style = MaterialTheme.typography.headlineSmall)
+        }
+        if (activity.isEmpty()) {
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Text(
+                        "Chưa có hoạt động chấm công",
+                        modifier = Modifier.padding(AppSpacing.large)
+                    )
+                }
+            }
+        } else {
+            items(
+                items = activity,
+                key = { attendance -> attendance.id.ifBlank { "${attendance.timestamp.seconds}-${attendance.type}" } }
+            ) { attendance -> AttendanceActivityCard(attendance) }
+        }
+        if (state.employeeAttendanceHistoryHasMore || state.employeeAttendanceHistoryLoading) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    Button(
+                        onClick = vm::loadMoreEmployeeAttendance,
+                        enabled = !state.employeeAttendanceHistoryLoading,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (state.employeeAttendanceHistoryLoading) "Đang tải lịch sử..." else "Tải thêm lịch sử")
+                    }
+                    Text(
+                        "Lịch sử mới nhất được theo dõi realtime; nút này tải thêm các lượt cũ hơn.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else if (state.employeeAttendanceHistory.isNotEmpty()) {
+            item {
+                Text(
+                    "Đã tải hết lịch sử chấm công.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        item {
+            Button(onClick = onChangePassword, modifier = Modifier.fillMaxWidth()) {
+                Text("Đổi mật khẩu")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileHeader(employee: Employee) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = AppSpacing.xLarge),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
+        ) {
+        Surface(
+            modifier = Modifier.size(88.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Default.Person,
+                    contentDescription = "Ảnh đại diện mặc định",
+                    modifier = Modifier.size(44.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+        Text(employee.fullName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(
+            employee.position.ifBlank { "Nhân viên" },
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = MaterialTheme.shapes.small
+        ) {
+            Text(
+                "Mã: ${employee.code}",
+                modifier = Modifier.padding(horizontal = AppSpacing.large, vertical = AppSpacing.small),
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+    }
+}
+
+@Composable
+private fun PersonalInformationCard(
+    employee: Employee,
+    fallbackEmail: String,
+    onSaveContact: (phone: String, address: String) -> Unit
+) {
+    var phone by remember(employee.id, employee.phone) { mutableStateOf(employee.phone) }
+    var address by remember(employee.id, employee.address) { mutableStateOf(employee.address) }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(AppSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
+        ) {
+            Text("Thông tin cá nhân", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            ProfileInformationRow("Mã nhân viên", employee.code.ifBlank { "—" })
+            ProfileInformationRow("Email", employee.email.ifBlank { fallbackEmail.ifBlank { "Chưa cập nhật" } })
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Số điện thoại") },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = address,
+                onValueChange = { address = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Địa chỉ") },
+                minLines = 2,
+                maxLines = 3
+            )
+            Button(
+                onClick = { onSaveContact(phone.trim(), address.trim()) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Lưu thông tin liên hệ")
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkInformationCard(employee: Employee) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(AppSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
+        ) {
+            Text("Thông tin công việc", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            ProfileInformationRow("Chức vụ", employee.position.ifBlank { "Chưa cập nhật" })
+            ProfileInformationRow("Bộ phận", employee.department.ifBlank { "Chưa cập nhật" })
+            ProfileInformationRow("Lương cơ bản / giờ", "${profileMoney(employee.baseSalary)} / giờ")
+            ProfileInformationRow("Trạng thái", if (employee.active) "Đang làm việc" else "Đã nghỉ")
+        }
+    }
+}
+
+@Composable
+private fun FingerprintCard(
+    employee: Employee,
+    deviceName: String,
+    onRequestFingerprintSupport: (reason: String, onSubmitted: () -> Unit) -> Unit
+) {
+    var supportReason by remember(employee.id) { mutableStateOf("") }
+    val isRegistered = employee.fingerprintTemplateId != null
+    val isPending = !isRegistered && employee.pendingTemplateId != null
+    val status = when {
+        isRegistered -> "Đã đăng ký"
+        isPending -> "Đang chờ đăng ký"
+        else -> "Chưa đăng ký"
+    }
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(AppSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
+        ) {
+            Text("Vân tay chấm công", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                status,
+                color = when {
+                    isRegistered -> MaterialTheme.colorScheme.primary
+                    isPending -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontWeight = FontWeight.SemiBold
+            )
+            employee.fingerprintTemplateId?.let {
+                ProfileInformationRow("Mã mẫu vân tay", "#$it")
+            }
+            if (isPending) {
+                ProfileInformationRow("Mã mẫu đang chờ", "#${employee.pendingTemplateId}")
+            }
+            if (employee.fingerprintDeviceId.isNotBlank()) {
+                ProfileInformationRow("Mã thiết bị", employee.fingerprintDeviceId)
+            }
+            if (deviceName.isNotBlank()) {
+                ProfileInformationRow("Tên thiết bị", deviceName)
+            }
+            Text(
+                "Cần hỗ trợ với việc đăng ký vân tay? Hãy mô tả vấn đề bên dưới.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            OutlinedTextField(
+                value = supportReason,
+                onValueChange = { supportReason = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Nội dung cần hỗ trợ") },
+                minLines = 2,
+                maxLines = 4
+            )
+            Button(
+                onClick = {
+                    onRequestFingerprintSupport(supportReason.trim()) { supportReason = "" }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = supportReason.isNotBlank()
+            ) {
+                Text("Gửi yêu cầu hỗ trợ")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileInformationRow(label: String, value: String) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.large),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(label, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, modifier = Modifier.weight(1.25f), fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun AttendanceActivityCard(attendance: Attendance) {
+    val occurredAt = remember(attendance.timestamp) {
+        SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("vi", "VN")).format(attendance.timestamp.toDate())
+    }
+    val activityLabel = when (attendance.type) {
+        "CHECK_IN" -> "Chấm công vào"
+        "CHECK_OUT" -> "Chấm công ra"
+        else -> attendance.type.ifBlank { "Hoạt động chấm công" }
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(AppSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)
+        ) {
+            Text(activityLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(occurredAt, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                if (attendance.syncStatus == "PENDING_SYNC") "\u0110ang ch\u1edd đồng bộ từ thiết bị" else "\u0110ã đồng bộ lên hệ thống",
+                color = if (attendance.syncStatus == "PENDING_SYNC") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text("Thiết bị: ${attendance.deviceId.ifBlank { "—" }}")
+        }
+    }
+}
+
+private fun profileMoney(amount: Long): String = java.text.NumberFormat
+    .getNumberInstance(Locale("vi", "VN"))
+    .format(amount) + " đ"

@@ -1,0 +1,1309 @@
+﻿BÁO CÁO ĐỒ ÁN
+HỆ THỐNG CHẤM CÔNG IoT BẰNG VÂN TAY
+
+Phiên bản tài liệu: 1.0
+Ngày biên soạn: 27/09/2026
+Ghi chú: Nội dung được viết theo trạng thái mã nguồn và firmware hiện tại của dự án. Các vị trí có ký hiệu [CẦN BỔ SUNG] là phần nhóm tự điền thêm sau khi đo đạc, chụp ảnh hoặc hoàn thiện sơ đồ.
+
+
+MỤC LỤC
+
+LỜI MỞ ĐẦU
+DANH MỤC TỪ VIẾT TẮT
+CHƯƠNG 1. CƠ SỞ LÝ THUYẾT VÀ KHẢO SÁT
+  1.1. Tổng quan về hệ thống nhúng
+  1.2. Tổng quan về Internet of Things
+  1.3. Mối liên hệ giữa hệ thống nhúng và IoT trong đề tài
+  1.4. Nghiên cứu các công trình và hướng tiếp cận liên quan
+  1.5. Khảo sát sản phẩm trên thị trường Việt Nam và thế giới
+  1.6. Phân tích và định hướng cho sản phẩm của nhóm
+  1.7. Mục tiêu, yêu cầu và phạm vi đề tài
+CHƯƠNG 2. PHÂN TÍCH VÀ THIẾT KẾ HỆ THỐNG
+  2.1. Yêu cầu chức năng và phi chức năng
+  2.2. Thiết kế tổng thể hệ thống
+  2.3. Thiết kế phần cứng
+  2.4. Thiết kế phần mềm
+  2.5. Thiết kế cơ sở dữ liệu Firestore
+  2.6. Mô hình tác nhân và các sơ đồ Use Case
+  2.7. Sơ đồ lớp và nguyên tắc tổ chức mã nguồn
+  2.8. Thiết kế bảo mật và phân quyền
+CHƯƠNG 3. TRIỂN KHAI VÀ ĐÁNH GIÁ SẢN PHẨM
+  3.1. Môi trường triển khai
+  3.2. Triển khai firmware trên ESP8266
+  3.3. Triển khai ứng dụng Android
+  3.4. Triển khai Firebase theo gói Spark
+  3.5. Mô tả chi tiết các Use Case
+  3.6. Kịch bản kiểm thử và minh chứng hoạt động
+  3.7. Kết quả kiểm thử hiện tại
+  3.8. Đánh giá mức độ hoàn thành
+  3.9. Hạn chế và hướng phát triển
+KẾT LUẬN
+TÀI LIỆU THAM KHẢO
+PHỤ LỤC A. DANH SÁCH LINH KIỆN VÀ THÔNG SỐ CẦN BỔ SUNG
+PHỤ LỤC B. DANH SÁCH HÌNH ẢNH VÀ VIDEO CẦN CHUẨN BỊ
+PHỤ LỤC C. DANH SÁCH SƠ ĐỒ CẦN VẼ LẠI
+
+
+LỜI MỞ ĐẦU
+
+Trong doanh nghiệp, việc ghi nhận thời gian làm việc là cơ sở để quản lý nhân sự, tính lương, theo dõi tình trạng đi trễ về sớm và đánh giá mức độ tuân thủ lịch làm việc. Cách chấm công thủ công bằng giấy, bảng tính hoặc việc nhập dữ liệu bằng tay thường gây tốn thời gian, dễ sai lệch và khó truy vết khi có khiếu nại.
+
+Đề tài “Hệ thống chấm công IoT bằng vân tay” được thực hiện nhằm xây dựng một mô hình có khả năng nhận dạng người dùng bằng cảm biến vân tay, ghi nhận sự kiện chấm công trên thiết bị ESP8266, đồng bộ dữ liệu lên Firebase và cung cấp ứng dụng Android để nhân viên, quản trị viên theo dõi cũng như xử lý dữ liệu. Ngoài chức năng chấm công, hệ thống còn có các chức năng quản lý nhân viên, thiết bị, ca làm, lịch làm việc, đơn từ, tăng ca, bảng công, bảng lương, thông báo và nhật ký thao tác.
+
+Điểm được chú trọng trong quá trình xây dựng là tách sự kiện chấm công gốc khỏi kết quả diễn giải. Thiết bị ghi nhận sự kiện trước; ứng dụng dựa trên ca làm, lịch làm và các quy tắc nghiệp vụ để xác định đi đúng giờ, đi trễ, về sớm, tăng ca hoặc cần xem xét. Cách làm này giúp hạn chế việc sửa trực tiếp dữ liệu gốc và hỗ trợ truy vết khi cần kiểm tra.
+
+Trong báo cáo này, nhóm trình bày cơ sở lý thuyết, kết quả khảo sát, thiết kế phần cứng và phần mềm, cách triển khai sản phẩm, các tác nhân và Use Case, cũng như kế hoạch chụp ảnh và quay video để chứng minh hệ thống hoạt động.
+
+
+DANH MỤC TỪ VIẾT TẮT
+
+IoT       Internet of Things - Internet vạn vật
+MCU       Microcontroller Unit - vi điều khiển
+UART      Universal Asynchronous Receiver/Transmitter
+I2C       Inter-Integrated Circuit
+NTP       Network Time Protocol
+Wi-Fi     Wireless Fidelity
+RFID      Radio Frequency Identification
+API       Application Programming Interface
+UI        User Interface
+MVVM      Model - View - ViewModel
+FCM       Firebase Cloud Messaging
+SDK       Software Development Kit
+FAR       False Acceptance Rate - tỷ lệ chấp nhận nhầm
+FRR       False Rejection Rate - tỷ lệ từ chối nhầm
+CRUD      Create, Read, Update, Delete
+OTP       One-Time Password
+
+
+CHƯƠNG 1. CƠ SỞ LÝ THUYẾT VÀ KHẢO SÁT
+
+1.1. Tổng quan về hệ thống nhúng
+
+Hệ thống nhúng là một hệ thống máy tính được tích hợp bên trong một thiết bị để thực hiện một hoặc một nhóm chức năng chuyên biệt. Khác với máy tính đa dụng, hệ thống nhúng thường được thiết kế theo yêu cầu của một bài toán cụ thể, có giới hạn về tài nguyên xử lý, bộ nhớ, năng lượng và kích thước.
+
+Một hệ thống nhúng thông thường gồm các thành phần:
+
+- Vi điều khiển hoặc bộ xử lý trung tâm để chạy chương trình điều khiển.
+- Cảm biến để thu nhận dữ liệu từ môi trường.
+- Bộ nhớ để lưu chương trình, cấu hình hoặc dữ liệu tạm thời.
+- Mạch giao tiếp như UART, I2C, SPI, GPIO hoặc Wi-Fi.
+- Cơ cấu chấp hành để tạo ra tác động vật lý.
+- Phần mềm firmware điều khiển thiết bị theo các trạng thái và sự kiện.
+
+Các đặc điểm quan trọng của hệ thống nhúng là tính chuyên dụng, khả năng phản hồi theo thời gian, độ ổn định, khả năng khởi động tự động và khả năng hoạt động trong điều kiện tài nguyên hạn chế. Trong đề tài này, ESP8266 là bộ điều khiển trung tâm của thiết bị chấm công. Cảm biến vân tay là thiết bị đầu vào; màn hình LCD, LED, còi và servo là các thiết bị hiển thị hoặc chấp hành.
+
+Một hệ thống nhúng còn phải quan tâm đến các vấn đề mà phần mềm trên máy tính thông thường có thể ít gặp hơn, chẳng hạn như nhiễu nguồn, mất Wi-Fi, mất điện đột ngột, chân GPIO ảnh hưởng đến quá trình boot, giới hạn dòng của nguồn cấp và khả năng lưu dữ liệu khi mạng tạm thời không hoạt động.
+
+1.2. Tổng quan về Internet of Things
+
+Internet of Things, thường gọi là IoT, là mô hình trong đó các thiết bị vật lý được gắn cảm biến, bộ điều khiển và khả năng kết nối để thu thập, trao đổi, lưu trữ hoặc xử lý dữ liệu. Một hệ thống IoT thường gồm bốn lớp chính:
+
+1. Lớp thiết bị: cảm biến, vi điều khiển, cơ cấu chấp hành và các thiết bị đầu cuối.
+2. Lớp kết nối: Wi-Fi, Ethernet, Bluetooth, mạng di động hoặc giao thức truyền dữ liệu.
+3. Lớp nền tảng dữ liệu: máy chủ, cơ sở dữ liệu, xác thực, xử lý sự kiện và đồng bộ.
+4. Lớp ứng dụng: màn hình quản trị, báo cáo, cảnh báo, phân tích và các chức năng nghiệp vụ.
+
+Một số mô hình còn tách riêng lớp xử lý biên và lớp bảo mật. Xử lý biên là việc thực hiện một phần xử lý ngay trên thiết bị gần nơi phát sinh dữ liệu, giúp giảm độ trễ và cho phép thiết bị tiếp tục hoạt động khi kết nối không ổn định.
+
+Trong IoT, dữ liệu không chỉ được đưa lên mạng mà còn phải có định danh, thời gian, trạng thái, nguồn phát sinh và chính sách truy cập rõ ràng. Vì vậy, một hệ thống IoT hoàn chỉnh cần quan tâm đồng thời đến phần cứng, giao thức, cơ sở dữ liệu, xác thực người dùng, phân quyền, khả năng phục hồi và khả năng quan sát nhật ký.
+
+1.3. Mối liên hệ giữa hệ thống nhúng và IoT trong đề tài
+
+Trong đề tài này, phần hệ thống nhúng thực hiện nhiệm vụ gần thiết bị:
+
+- Đọc dữ liệu từ cảm biến vân tay AS608/R307.
+- So khớp mẫu vân tay cục bộ trên cảm biến.
+- Điều khiển LED, còi, LCD và servo cửa.
+- Đọc công tắc cửa hoặc trạng thái vật lý.
+- Lấy thời gian NTP và tạo sự kiện chấm công.
+- Lưu hàng đợi cục bộ khi Wi-Fi hoặc Firebase tạm thời không truy cập được.
+
+Phần IoT thực hiện nhiệm vụ kết nối và quản lý dữ liệu:
+
+- ESP8266 kết nối Wi-Fi và xác thực Firebase Anonymous theo luồng Spark hiện tại.
+- Sự kiện chấm công được ghi vào Firestore với mã sự kiện, mã thiết bị, mã vân tay, thời gian, loại sự kiện và trạng thái xử lý.
+- Ứng dụng Android đọc dữ liệu, áp dụng quy tắc ca làm và hiển thị kết quả cho từng vai trò.
+- Firestore Rules kiểm soát quyền đọc và ghi.
+- Cloud Functions là phần mở rộng tùy chọn khi dự án chuyển sang Blaze; bản Spark hiện tại không phụ thuộc bắt buộc vào Functions.
+
+Có thể mô tả luồng tổng quát như sau:
+
+    Người dùng
+        |
+        v
+    Cảm biến vân tay -> ESP8266 -> Wi-Fi -> Firebase Firestore -> Ứng dụng Android
+        |                 |                                  |
+        |                 +-> LCD/LED/còi/servo                 +-> Quy tắc nghiệp vụ,
+        |                                                        báo cáo, phân quyền
+        +-> nhận dạng cục bộ
+
+[HÌNH 1.1 - Sơ đồ mối liên hệ giữa hệ thống nhúng, IoT và ứng dụng. Nhóm tự vẽ lại bằng draw.io hoặc Visio.]
+
+1.4. Nghiên cứu các công trình và hướng tiếp cận liên quan
+
+Nghiên cứu “The Internet of Things: A survey” của Atzori, Iera và Morabito trình bày IoT như một lĩnh vực kết hợp giữa nhận dạng đối tượng, mạng cảm biến, truyền thông, điện toán và xử lý dữ liệu. Kết quả nghiên cứu cho thấy giá trị của IoT không chỉ nằm ở việc kết nối thiết bị, mà còn ở việc biến dữ liệu từ thiết bị thành thông tin có thể sử dụng trong nghiệp vụ.
+
+Nghiên cứu của Gubbi và các cộng sự về kiến trúc, thành phần và hướng phát triển của IoT nhấn mạnh vai trò của cảm biến, kết nối, nền tảng điện toán đám mây, phân tích dữ liệu và ứng dụng. Mô hình này phù hợp với đề tài vì hệ thống cần phối hợp giữa thiết bị chấm công, lưu trữ trực tuyến và phần mềm quản lý.
+
+Từ các hướng tiếp cận trên, nhóm rút ra một số nguyên tắc áp dụng cho sản phẩm:
+
+- Thiết bị phải có định danh riêng để phân biệt nhiều máy chấm công.
+- Mỗi sự kiện cần có timestamp, nguồn thiết bị và thông tin người dùng phù hợp.
+- Hệ thống cần xử lý được trường hợp mất kết nối, không nên mất toàn bộ dữ liệu chỉ vì Wi-Fi bị gián đoạn.
+- Dữ liệu gốc nên được bảo toàn; kết quả nghiệp vụ có thể được tính lại khi lịch hoặc quy tắc thay đổi.
+- Quyền truy cập phải được phân chia giữa quản trị viên và nhân viên.
+- Các thao tác thay đổi dữ liệu quan trọng cần có nhật ký để kiểm tra sau này.
+
+1.5. Khảo sát sản phẩm trên thị trường Việt Nam và thế giới
+
+1.5.1. Nhóm sản phẩm phổ biến tại Việt Nam
+
+Qua khảo sát các dòng máy chấm công đang được phân phối tại Việt Nam, có thể thấy nhóm sản phẩm phổ biến thường có các đặc điểm sau:
+
+- Nhận dạng bằng vân tay, thẻ RFID, mã PIN hoặc kết hợp nhiều phương thức.
+- Thiết bị độc lập có màn hình và bộ nhớ giao dịch bên trong.
+- Kết nối USB, TCP/IP, RS232/RS485 hoặc Wi-Fi tùy dòng máy.
+- Có phần mềm quản lý nhân viên, ca làm, bảng công và xuất báo cáo.
+- Một số dòng có thể kết hợp với khóa cửa hoặc hệ thống kiểm soát ra vào.
+
+Ronald Jack là một thương hiệu được phân phối phổ biến tại thị trường Việt Nam, có danh mục máy chấm công vân tay/thẻ và phần mềm quản lý chấm công. Đây là nhóm sản phẩm gần với bài toán của đề tài ở góc độ nghiệp vụ: quản lý nhân viên, ca làm, dữ liệu chấm công và báo cáo. Tuy nhiên, sản phẩm thương mại thường đóng gói sẵn phần cứng và phần mềm, người dùng ít can thiệp vào firmware hoặc quy tắc xử lý bên trong.
+
+Nhóm sản phẩm tại Việt Nam thường có ưu điểm là dễ mua, có đơn vị hỗ trợ lắp đặt và phù hợp với doanh nghiệp vừa và nhỏ. Hạn chế thường gặp là dữ liệu phụ thuộc vào phần mềm riêng, khó tùy biến sâu theo quy trình đặc thù; chi phí tăng khi cần mở rộng sang các nghiệp vụ hoặc thiết bị khác.
+
+1.5.2. ZKTeco F18
+
+ZKTeco F18 là một thiết bị chấm công/kiểm soát ra vào độc lập được công bố trên trang ZKTeco. Theo thông tin sản phẩm, thiết bị hỗ trợ vân tay, có màn hình, bộ nhớ mẫu vân tay và giao dịch, các giao tiếp như TCP/IP, USB, RS232/RS485 hoặc Wiegand tùy cấu hình, và có thể kết nối với hệ thống kiểm soát ra vào.
+
+Điểm đáng chú ý khi so sánh với đề tài:
+
+- Sản phẩm thương mại có thiết kế cơ khí hoàn chỉnh, giao diện và giao thức ổn định.
+- Dung lượng người dùng và giao dịch lớn hơn nhiều so với mô hình sinh viên.
+- Có nhiều giao tiếp chuyên dụng cho triển khai doanh nghiệp.
+- Tuy nhiên, thuật toán và firmware là phần đóng; nhóm không chủ động điều chỉnh toàn bộ nghiệp vụ theo mã nguồn của mình.
+
+1.5.3. Suprema BioStation 2/BioStation 2A
+
+Suprema BioStation là dòng thiết bị đầu cuối sinh trắc học hướng đến kiểm soát ra vào và chấm công. Trang sản phẩm của Suprema công bố các đặc điểm như kết nối mạng, Wi-Fi hoặc PoE tùy mẫu, khả năng hoạt động ngoài trời ở một số dòng, màn hình màu, quản lý số lượng người dùng lớn và tích hợp với nền tảng BioStar.
+
+So với đề tài, sản phẩm Suprema thể hiện hướng phát triển ở phân khúc chuyên nghiệp: phần cứng được chuẩn hóa, độ bền và khả năng quản trị tập trung cao, có nền tảng tích hợp và bộ công cụ dành cho doanh nghiệp. Đổi lại, chi phí và độ phức tạp triển khai cao hơn; người học khó quan sát hoặc tùy chỉnh các thành phần nội bộ.
+
+1.5.4. Bảng so sánh khảo sát
+
+Tiêu chí                  Sản phẩm phổ biến VN   ZKTeco/Suprema        Sản phẩm của nhóm
+-----------------------  ---------------------  ---------------------  -------------------------
+Nhận dạng                Vân tay/thẻ/PIN        Vân tay/thẻ/PIN        Vân tay
+Xử lý tại thiết bị       Có                     Có                     Có, nhờ cảm biến
+Kết nối                  LAN/USB/Wi-Fi tùy máy  LAN/PoE/Wi-Fi tùy mẫu  Wi-Fi ESP8266
+Lưu dữ liệu              Phần mềm hãng          Nền tảng hãng          Firebase Firestore
+Quy tắc nghiệp vụ        Theo phần mềm hãng     Theo nền tảng hãng     Có thể tùy biến bằng Kotlin
+Quản lý ca/lịch          Có                     Có                     Có
+Offline                  Tùy sản phẩm           Tùy sản phẩm           Có hàng đợi LittleFS
+Điều khiển cửa           Tùy model              Có ở dòng kiểm soát    Có servo mô hình
+Mã nguồn                 Thường đóng            Đóng                   Nhóm chủ động phát triển
+Chi phí/khả năng học tập Thương mại             Thương mại cao cấp     Phù hợp prototype/đồ án
+Chứng nhận sản phẩm      Tùy nhà sản xuất       Theo nhà sản xuất      Chưa phải thiết bị thương mại
+
+Bảng trên là so sánh định hướng, không phải phép đo tuyệt đối giữa các model. Khi đưa vào bản in cuối cùng, nhóm nên chụp màn hình hoặc trích thông số chính thức của từng model tại thời điểm khảo sát.
+
+1.6. Phân tích và định hướng cho sản phẩm của nhóm
+
+Từ khảo sát, sản phẩm của nhóm được định hướng như một prototype IoT có tính mở và có giá trị học tập. Sản phẩm không cạnh tranh trực tiếp với máy thương mại về độ bền, dung lượng, chứng nhận sinh trắc học hay khả năng hỗ trợ sau bán hàng. Giá trị chính của đề tài nằm ở việc nhóm tự thiết kế được chuỗi hoàn chỉnh từ phần cứng đến ứng dụng:
+
+- Tự xây dựng thiết bị đọc vân tay và điều khiển cửa mô hình.
+- Tự thiết kế giao tiếp giữa thiết bị và Firebase.
+- Tự tổ chức dữ liệu chấm công gốc và dữ liệu đã diễn giải.
+- Tự xây dựng quy tắc ca làm, lịch làm, nghỉ phép, tăng ca và bảng công.
+- Có phân quyền Admin/Employee.
+- Có khả năng tiếp tục ghi nhận và đồng bộ sự kiện sau khi mạng trở lại.
+- Có thể mở rộng thiết bị, màn hình quản lý hoặc báo cáo mà không phải thay đổi toàn bộ mô hình.
+
+Một điểm quan trọng của phiên bản hiện tại là nhóm chọn luồng Firebase Spark: ESP8266 xác thực Anonymous và ghi sự kiện theo Firestore Rules; Android xử lý diễn giải cục bộ theo các quy tắc hiện có. Cloud Functions được giữ như phần mở rộng tùy chọn khi dự án nâng cấp Blaze. Cách này phù hợp với điều kiện chưa sử dụng gói Blaze, nhưng cần ghi rõ trong báo cáo rằng đây là giải pháp prototype, chưa phải kiến trúc production cho dữ liệu nhạy cảm.
+
+Các hạn chế cần trung thực nêu trong báo cáo:
+
+- Chưa có số liệu FAR/FRR được đo theo một quy trình thử nghiệm chuẩn. Không được tự ghi một tỷ lệ chính xác nếu chưa đo.
+- Thông số dòng điện đỉnh của servo, điện áp chính xác của từng module và sai số thời gian cần được đo hoặc lấy từ datasheet đúng mã linh kiện.
+- Firebase Anonymous phù hợp cho thiết bị prototype nhưng cần thiết kế lại danh tính thiết bị, secret và quy trình thu hồi khi đưa vào vận hành thực tế.
+- Cloud Functions, nếu dùng cho backend resolver hoặc thông báo tự động, thường cần triển khai theo gói Blaze; phiên bản hiện tại không coi Functions là thành phần bắt buộc.
+- Chưa có chứng nhận EMC, chống nước, chống phá hoại hoặc đánh giá an toàn điện như sản phẩm thương mại.
+
+1.7. Mục tiêu, yêu cầu và phạm vi đề tài
+
+Mục tiêu tổng quát:
+
+Xây dựng một hệ thống chấm công IoT bằng vân tay gồm thiết bị ESP8266, cảm biến vân tay, Firebase và ứng dụng Android, có khả năng ghi nhận chấm công, quản lý nhân sự và hỗ trợ các nghiệp vụ liên quan.
+
+Mục tiêu cụ thể:
+
+1. Đọc và xác thực vân tay trên thiết bị.
+2. Ghi nhận sự kiện chấm công có thời gian và định danh thiết bị.
+3. Đồng bộ dữ liệu lên Firestore qua Wi-Fi.
+4. Hỗ trợ hàng đợi cục bộ khi mất mạng.
+5. Quản lý nhân viên, ca làm, lịch làm và đơn từ.
+6. Phân loại dữ liệu theo đúng giờ, đi trễ, về sớm, tăng ca hoặc cần xem xét.
+7. Cung cấp bảng công, bảng lương, báo cáo và audit log.
+8. Điều khiển servo cửa mô hình và hiển thị trạng thái tại thiết bị.
+
+Phạm vi thực hiện:
+
+- Một thiết bị ESP8266 và cảm biến vân tay thuộc dòng AS608/R307.
+- Ứng dụng Android viết bằng Kotlin và Jetpack Compose.
+- Firebase Authentication, Firestore, FCM/WorkManager theo phần đã triển khai.
+- Gói Firebase Spark, không phụ thuộc bắt buộc vào Cloud Functions.
+- Dữ liệu, tài khoản và chức năng ở mức prototype phục vụ đồ án.
+
+Ngoài phạm vi:
+
+- Không khẳng định đây là hệ thống tính lương pháp lý cho doanh nghiệp.
+- Không công bố độ chính xác sinh trắc học nếu chưa có phép đo chuẩn.
+- Không triển khai quy mô hàng nghìn thiết bị trong phạm vi đồ án.
+- Không xem Firebase Anonymous là giải pháp danh tính thiết bị cuối cùng cho production.
+
+
+CHƯƠNG 2. PHÂN TÍCH VÀ THIẾT KẾ HỆ THỐNG
+
+2.1. Yêu cầu chức năng và phi chức năng
+
+2.1.1. Yêu cầu chức năng
+
+Đối với nhân viên:
+
+- Đăng nhập bằng tài khoản được cấp.
+- Xem trang chủ và thông tin cá nhân.
+- Xem lịch làm việc theo tuần/tháng.
+- Gửi đăng ký lịch làm việc theo quy định.
+- Xem lịch sử chấm công của bản thân.
+- Gửi đơn nghỉ phép, điều chỉnh chấm công hoặc đăng ký tăng ca.
+- Theo dõi trạng thái các đơn đã gửi.
+- Xem thông tin bảng công/bảng lương được công khai.
+- Nhận thông báo nghiệp vụ.
+- Dùng nút Back vật lý hoặc cử chỉ Back của Android để quay về màn hình trước.
+
+Đối với quản trị viên:
+
+- Đăng nhập và xem tổng quan.
+- Thêm, sửa, khóa hoặc quản lý nhân viên.
+- Quản lý thiết bị và mã thiết bị.
+- Đăng ký/xóa hoặc quản lý ánh xạ vân tay.
+- Quản lý ca làm và lịch làm việc.
+- Duyệt lịch tuần, đơn nghỉ phép, điều chỉnh chấm công và tăng ca.
+- Xem, lọc và xử lý dữ liệu chấm công.
+- Xem bảng công, bảng lương, KPI, báo cáo và xuất CSV.
+- Quản lý phòng ban, thông báo và nhật ký audit.
+- Gửi lệnh phù hợp đến thiết bị.
+
+Đối với thiết bị ESP8266:
+
+- Kết nối Wi-Fi và xác thực Firebase.
+- Kiểm tra trạng thái cảm biến vân tay.
+- Nhận dạng vân tay.
+- Tạo sự kiện chấm công.
+- Hiển thị thông báo trên LCD, LED và còi.
+- Mở servo khi thao tác hợp lệ và tự đóng sau khoảng thời gian cấu hình.
+- Lưu tạm sự kiện vào LittleFS khi không thể đồng bộ.
+- Đồng bộ lại hàng đợi khi kết nối trở lại.
+- Gửi heartbeat và xử lý lệnh thiết bị phù hợp.
+
+2.1.2. Yêu cầu phi chức năng
+
+- Dữ liệu chấm công gốc không bị sửa trực tiếp bởi màn hình nghiệp vụ.
+- Quyền truy cập phải được kiểm tra ở cả ứng dụng và Firestore Rules.
+- Giao diện phân biệt rõ vai trò Admin và Employee.
+- Thiết bị có thể phục hồi sau mất Wi-Fi hoặc khởi động lại.
+- Thời gian của sự kiện phải được đồng bộ NTP hoặc được đánh dấu khi chưa hợp lệ.
+- Quy tắc nghiệp vụ phải được tách khỏi giao diện để dễ kiểm thử.
+- Giao diện Android không được thoát ứng dụng ngay khi người dùng đang ở màn hình con và bấm Back vật lý.
+- Các lỗi hoặc trạng thái chưa đủ dữ liệu phải hiển thị có giải thích, không âm thầm làm mất sự kiện.
+
+2.2. Thiết kế tổng thể hệ thống
+
+Sơ đồ khối đề xuất để nhóm vẽ thành hình:
+
+    +-----------------------+
+    |  Cảm biến AS608/R307  |
+    +-----------+-----------+
+                | UART/SoftwareSerial
+                v
+    +-----------+-----------+       +-------------------------+
+    | ESP8266 - Firmware   |------>| Wi-Fi Router/Internet   |
+    | - nhận dạng           |       +------------+------------+
+    | - lưu hàng đợi        |                    |
+    | - tạo event           |                    v
+    | - điều khiển cửa     |       +------------+------------+
+    +----+----+----+-------+       | Firebase Auth/Firestore |
+         |    |    |               | Rules/Notifications    |
+         |    |    |               +------------+------------+
+         |    |    |                            |
+         v    v    v                            v
+      LCD   LED/còi  Servo                +-----+------+
+                                            | Android   |
+                                            | App       |
+                                            +-----------+
+
+[HÌNH 2.1 - Sơ đồ khối tổng thể của hệ thống. Nhóm tự vẽ lại, thêm mũi tên dữ liệu và chú thích giao thức.]
+
+Luồng dữ liệu chính:
+
+1. Người dùng đặt ngón tay lên cảm biến.
+2. Cảm biến trả về mã người dùng hoặc trạng thái không hợp lệ.
+3. ESP8266 hiển thị kết quả, điều khiển cửa mô hình nếu phù hợp và tạo sự kiện.
+4. Sự kiện được gửi lên Firestore; nếu mạng lỗi thì lưu vào LittleFS.
+5. Ứng dụng Android đọc sự kiện và áp dụng AttendanceResolutionRules cùng các quy tắc lịch/ca.
+6. Kết quả được hiển thị trong lịch sử chấm công, bảng công, báo cáo hoặc màn hình quản trị.
+
+2.3. Thiết kế phần cứng
+
+2.3.1. Danh sách khối phần cứng
+
+Khối điều khiển: ESP8266.
+
+Khối nhận dạng: cảm biến vân tay AS608 hoặc R307, giao tiếp UART.
+
+Khối hiển thị: LCD 16x2 giao tiếp I2C.
+
+Khối báo hiệu: LED xanh, LED đỏ và buzzer.
+
+Khối cơ cấu chấp hành: servo, dùng làm mô hình khóa/mở cửa.
+
+Khối tương tác vật lý: công tắc cửa.
+
+Khối lưu trữ và kết nối: Wi-Fi ESP8266, LittleFS trên flash của ESP8266.
+
+2.3.2. Bảng đấu nối theo firmware hiện tại
+
+Chân ESP8266       Thiết bị/chức năng                  Ghi chú thiết kế
+-----------------  ---------------------------------  ---------------------------------------
+D5 / GPIO14        RX của SoftwareSerial              Nhận TX từ cảm biến vân tay
+D6 / GPIO12        TX của SoftwareSerial              Gửi RX đến cảm biến vân tay
+D1                 LED xanh                            Dùng điện trở hạn dòng phù hợp
+D2                 LED đỏ                              Dùng điện trở hạn dòng phù hợp
+D7                 Buzzer                              Kiểm tra dòng; dùng transistor nếu cần
+D0                 Công tắc cửa                        Kiểm tra kiểu INPUT/INPUT_PULLUP
+D8 / GPIO15        Tín hiệu servo                      Đây là chân có ràng buộc boot
+D3 / GPIO0         SDA LCD I2C                         Đây là chân nhạy boot
+D4 / GPIO2         SCL LCD I2C                         Đây là chân nhạy boot
+3V3/GND            Logic ESP8266                        Không đưa 5V trực tiếp vào GPIO
+Nguồn riêng        Servo                               Khuyến nghị nguồn 5V riêng, chung GND
+
+Theo firmware, cảm biến vân tay được khởi tạo ở tốc độ 57600 baud. LCD dùng địa chỉ I2C 0x27; nếu module thực tế dùng 0x3F thì cần chỉnh lại cấu hình. Firmware có ghi chú về việc các chân D3/D4 có thể ảnh hưởng quá trình khởi động nếu bị kéo mức không phù hợp.
+
+2.3.3. Bảng thông số kỹ thuật cần trình bày trong báo cáo
+
+Thiết bị              Thông số dùng trong thiết kế       Số chân/kết nối       Điện áp/sai số
+-------------------  ---------------------------------  --------------------  -----------------------------
+ESP8266 NodeMCU      Wi-Fi 2.4 GHz, GPIO, UART          Theo board thực tế    Logic 3.3V; nguồn vào cần đối chiếu board
+AS608/R307           UART, baud 57600 trong firmware    VCC/GND/TX/RX         Điền theo datasheet đúng module
+LCD 16x2 I2C         I2C, địa chỉ 0x27 hoặc 0x3F        VCC/GND/SDA/SCL       Điền theo backpack, cần kiểm tra mức logic
+Servo SG90 hoặc tương đương  Góc đóng/mở theo firmware  VCC/GND/signal        Dùng nguồn 5V; đo dòng đỉnh thực tế
+LED xanh             Báo thao tác hợp lệ               Anode/cathode         Cần điện trở hạn dòng
+LED đỏ               Báo lỗi hoặc trạng thái chờ        Anode/cathode         Cần điện trở hạn dòng
+Buzzer               Báo âm thanh                       VCC/GND/signal        Kiểm tra dòng tải và mạch đệm
+Công tắc cửa         Báo trạng thái vật lý              Một GPIO + GND        Xác nhận điện trở kéo
+
+Không nên điền một con số “độ chính xác vân tay” chung cho AS608/R307 nếu nhóm chưa xác định đúng mã module và chưa thử nghiệm. Các thông số như FAR, FRR, thời gian nhận dạng, góc servo, dòng không tải/dòng kẹt và sai số đồng hồ phải lấy từ datasheet hoặc đo thực tế.
+
+2.3.4. Vấn đề nguồn và an toàn phần cứng
+
+- ESP8266 sử dụng logic 3.3V. Board NodeMCU cụ thể có thể có nhiều phương án cấp nguồn, vì vậy nhóm cần ghi đúng theo board đang cầm trên tay, không suy ra chỉ từ tên ESP8266.
+- Servo có thể tạo dòng tăng cao khi khởi động hoặc bị kẹt. Nên dùng nguồn 5V riêng, nối chung mass với ESP8266 và bổ sung tụ lọc gần servo.
+- Nếu LCD backpack được cấp 5V, cần kiểm tra mức điện áp SDA/SCL. Có thể dùng chuyển mức logic hoặc cấu hình nguồn phù hợp để bảo vệ GPIO.
+- D8/GPIO15, D3/GPIO0 và D4/GPIO2 là các chân có liên quan đến điều kiện boot của ESP8266. Khi lắp mạch thật, phải kiểm tra trạng thái các chân lúc bật nguồn.
+- Dây cảm biến, servo và dây nguồn nên được cố định; tránh để nhiễu hoặc lực cơ học làm tuột dây trong video demo.
+
+2.3.5. Kế hoạch đo đạc để hoàn thiện bảng thông số
+
+Nhóm nên bổ sung các phép đo sau:
+
+1. Đo điện áp tại ESP8266, cảm biến, LCD và servo khi không tải.
+2. Đo dòng lúc khởi động, lúc Wi-Fi truyền dữ liệu và lúc servo mở/đóng.
+3. Đo thời gian từ lúc đặt ngón tay đến lúc hiển thị kết quả.
+4. Thử ít nhất N lần với từng ngón tay hợp lệ và không hợp lệ.
+5. Tính tỷ lệ nhận dạng đúng, từ chối đúng, chấp nhận nhầm và từ chối nhầm:
+
+   Tỷ lệ nhận dạng đúng = số lần nhận đúng / tổng số lần thử x 100%
+   FAR = số lần chấp nhận nhầm / tổng số lần thử không hợp lệ x 100%
+   FRR = số lần từ chối nhầm / tổng số lần thử hợp lệ x 100%
+
+N, điều kiện thử, số người thử và mã cảm biến phải ghi rõ để kết quả có ý nghĩa. Nếu chưa thực hiện, ghi “chưa đo” thay vì tự điền.
+
+2.4. Thiết kế phần mềm
+
+2.4.1. Kiến trúc Android
+
+Ứng dụng Android được tổ chức theo hướng MVVM:
+
+    +----------------------+        +----------------------+
+    | Jetpack Compose UI  |<------>| MainViewModel        |
+    | Admin/Employee      |        | State + actions      |
+    +----------------------+        +----------+-----------+
+                                                 |
+                                                 v
+                                      +----------+-----------+
+                                      | FirebaseRepository  |
+                                      | Auth/Firestore/FCM  |
+                                      +----------+-----------+
+                                                 |
+                                                 v
+                                      +----------+-----------+
+                                      | Firebase services   |
+                                      +----------------------+
+
+    Domain rules: AttendanceResolutionRules, SchedulingRules,
+    WeeklyScheduling, DashboardRules, EmployeeRules, PresenceRules,
+    ReportRules, OvertimeRules, KpiBonusRules, RequestRules,
+    AuditRules, OfflineQueueRules.
+
+[HÌNH 2.2 - Sơ đồ kiến trúc MVVM. Hình cần thể hiện mũi tên UI -> ViewModel -> Repository -> Firebase và các Domain Rules được gọi để xử lý nghiệp vụ.]
+
+Các thành phần chính:
+
+- MainActivity: điểm vào của ứng dụng Android.
+- ChamCongApp: điều hướng, session, shell Admin/Employee và xử lý BackHandler.
+- MainViewModel: quản lý state, tải dữ liệu và thực hiện hành động từ UI.
+- FirebaseRepository: lớp giao tiếp Firebase Authentication, Firestore, FCM và các luồng dữ liệu.
+- Domain rules: các hàm thuần hoặc gần thuần để tính toán lịch, trạng thái, báo cáo và phân loại chấm công.
+- Model: các lớp dữ liệu như Employee, Attendance, WorkShift, WorkSchedule, LeaveRequest, OvertimeRequest, Payroll, DeviceSnapshot.
+
+2.4.2. Phân tách dữ liệu gốc và dữ liệu diễn giải
+
+Mỗi lần quét tạo một attendance event gốc. Event có thể mang các trường như eventId, deviceId, fingerprintId, employeeId nếu ánh xạ được, timestamp, type, resolutionStatus và status.
+
+Ứng dụng không nên sửa nội dung gốc chỉ để làm cho bảng công hiển thị đẹp hơn. Thay vào đó, AttendanceResolutionRules đọc event, đối chiếu lịch làm và ca làm, sau đó sinh kết quả diễn giải. Nếu nhân viên gửi yêu cầu điều chỉnh hoặc quản trị viên phê duyệt, hệ thống lưu một bản ghi điều chỉnh/ghi đè có lý do và người thực hiện.
+
+Mô hình này giúp trả lời ba câu hỏi khi kiểm tra:
+
+1. Thiết bị đã ghi nhận điều gì?
+2. Quy tắc tại thời điểm xử lý đã phân loại điều đó như thế nào?
+3. Ai đã thay đổi hoặc phê duyệt kết quả sau đó?
+
+2.4.3. Quy tắc nghiệp vụ chính
+
+- Lịch làm việc thông thường từ thứ Hai đến thứ Bảy; Chủ nhật không được gán như một ngày làm bình thường trong lịch tuần.
+- Nhân viên gửi đăng ký lịch tuần kế tiếp trước 12:00 thứ Bảy theo giờ Việt Nam.
+- Quản trị viên có mốc xử lý lịch trước 17:00 thứ Bảy.
+- Ca chuẩn buổi sáng là 08:00-12:00; ca chiều là 13:00-17:00.
+- Tăng ca bổ sung nằm trong khoảng 18:00-22:00 và cần có yêu cầu/phê duyệt phù hợp, không tự xem như ca được phân công.
+- lateGraceMinutes và earlyLeaveAllowedMinutes là ngưỡng cấu hình của ca; phiên bản hiện tại dùng mặc định 10 phút cho độ trễ và 0 phút cho cho phép về sớm trong template chuẩn.
+- Nếu có chấm công vào nhưng chưa có chấm công ra, hệ thống vẫn phải đánh giá phần đi trễ theo thời điểm vào; không được bỏ qua hoàn toàn bản ghi.
+- Dữ liệu Chủ nhật vẫn có thể hiển thị trên dashboard nếu có sự kiện thực tế, dù Chủ nhật không nằm trong lịch phân công chuẩn.
+- Nghỉ phép đã được duyệt cần được ưu tiên khi phân loại trạng thái ngày làm việc.
+
+2.5. Thiết kế cơ sở dữ liệu Firestore
+
+Firestore là cơ sở dữ liệu NoSQL dạng document. Các collection dưới đây là mô hình logic theo dự án hiện tại. Firestore không tự tạo foreign key như cơ sở dữ liệu quan hệ; quan hệ giữa các document phải được kiểm soát ở ứng dụng và Rules.
+
+Collection                    Mục đích
+---------------------------  --------------------------------------------------------
+users                        Tài khoản, vai trò ADMIN/EMPLOYEE, liên kết employeeId
+employees                    Hồ sơ nhân viên, mã nhân viên, phòng ban, trạng thái
+departments                  Danh sách phòng ban
+devices                      Thông tin thiết bị, deviceId, trạng thái, heartbeat
+deviceCommands               Lệnh gửi tới thiết bị và trạng thái xử lý
+fingerprintMappings         Ánh xạ deviceId/fingerprintId với employeeId
+attendance                   Sự kiện chấm công gốc từ thiết bị
+attendanceSessions           Phiên xử lý tùy chọn, chủ yếu mở rộng khi dùng Blaze
+workSchedules                Lịch làm việc theo nhân viên/ngày/ca
+shifts                       Cấu hình ca, giờ bắt đầu/kết thúc, ngưỡng cho phép
+weeklyScheduleRequests       Đăng ký lịch tuần của nhân viên và trạng thái duyệt
+leaveRequests                Đơn nghỉ phép và trạng thái phê duyệt
+overtimeRequests             Đơn tăng ca và trạng thái phê duyệt
+attendanceAdjustments        Yêu cầu điều chỉnh chấm công
+attendanceClassificationOverrides Ghi đè phân loại kèm lý do và người thực hiện
+offScheduleAttendanceReviews Sự kiện ngoài lịch cần người quản trị xem xét
+payroll                      Kết quả bảng công/bảng lương theo kỳ
+notifications                Thông báo theo người dùng
+announcements                Thông báo chung
+audit_logs                   Nhật ký thao tác quan trọng
+settings                     Cấu hình hệ thống
+system/employeeCounter       Bộ đếm mã nhân viên hoặc dữ liệu hệ thống
+
+Quan hệ logic chính:
+
+    users.employeeId --------> employees.employeeId
+    employees.employeeId ----> workSchedules.employeeId
+    workSchedules.shiftId ---> shifts.shiftId
+    attendance.fingerprintId -> fingerprintMappings.fingerprintId
+    fingerprintMappings.employeeId -> employees.employeeId
+    attendance.employeeId ----> employees.employeeId
+    leaveRequests.employeeId -> employees.employeeId
+    overtimeRequests.employeeId -> employees.employeeId
+    payroll.employeeId -------> employees.employeeId
+    audit_logs.actorUid ------> users.uid
+
+[HÌNH 2.3 - Sơ đồ dữ liệu Firestore/quan hệ logic. Nhóm có thể chuyển phần trên thành sơ đồ collection và mũi tên liên kết.]
+
+Các trường quan trọng của attendance nên được trình bày trong báo cáo:
+
+- eventId: mã duy nhất của sự kiện.
+- deviceId: mã thiết bị phát sinh sự kiện.
+- fingerprintId: mã mẫu vân tay trên cảm biến.
+- employeeId: nhân viên sau khi ánh xạ, nếu xác định được.
+- timestamp: thời điểm thiết bị hoặc server ghi nhận.
+- type: loại sự kiện, ví dụ SCAN.
+- resolutionStatus: trạng thái diễn giải, ví dụ PENDING hoặc RESOLVED.
+- status: trạng thái nghiệp vụ/lưu trữ.
+- createdAt/updatedAt nếu có.
+
+2.6. Mô hình tác nhân và các sơ đồ Use Case
+
+2.6.1. Danh sách đầy đủ tác nhân
+
+Tác nhân 1 - Quản trị viên (Admin): người quản lý nhân viên, thiết bị, ca làm, lịch, đơn từ, bảng công, báo cáo và audit.
+
+Tác nhân 2 - Nhân viên (Employee): người đăng nhập để xem dữ liệu cá nhân, đăng ký lịch, gửi đơn và theo dõi chấm công.
+
+Tác nhân 3 - Thiết bị ESP8266: tác nhân bên ngoài gửi sự kiện chấm công, heartbeat và nhận lệnh từ hệ thống.
+
+Tác nhân 4 - Cảm biến vân tay AS608/R307: thiết bị ngoại vi cung cấp kết quả nhận dạng cho ESP8266. Trong sơ đồ tổng quát có thể vẽ như tác nhân phần cứng của firmware; khi phân tích nghiệp vụ, nó được xem là một thành phần của thiết bị ESP8266.
+
+Tác nhân 5 - Firebase Authentication/Firestore/Rules: dịch vụ bên ngoài cung cấp xác thực, lưu trữ, kiểm tra quyền và đồng bộ dữ liệu.
+
+Tác nhân 6 - Cloud Functions: dịch vụ mở rộng tùy chọn, chỉ đưa vào sơ đồ nếu nhóm triển khai các function như resolver/thông báo. Với luồng Spark hiện tại, Cloud Functions không phải tác nhân bắt buộc.
+
+Ứng dụng Android không phải là một tác nhân bên ngoài; nó là biên của hệ thống phần mềm mà nhóm xây dựng. LCD, LED, buzzer, servo và công tắc cũng không phải người dùng độc lập, mà là các thành phần của tác nhân thiết bị.
+
+2.6.2. Sơ đồ Use Case tổng quát dạng văn bản
+
+    [Quản trị viên]
+       |-- Đăng nhập
+       |-- Quản lý nhân viên/phòng ban
+       |-- Quản lý thiết bị và vân tay
+       |-- Quản lý ca/lịch
+       |-- Duyệt lịch tuần
+       |-- Duyệt nghỉ phép/tăng ca/điều chỉnh
+       |-- Xem và xử lý chấm công
+       |-- Xem bảng công/bảng lương/báo cáo
+       |-- Quản lý thông báo
+       |-- Xem audit log
+       |
+       +--------------------[ HỆ THỐNG CHẤM CÔNG IoT ]-------------------+
+       |                                                                  |
+    [Nhân viên]                                                      [Firebase]
+       |                                                                  |
+       |-- Đăng nhập                                                     |
+       |-- Xem lịch và chấm công                                         |
+       |-- Gửi lịch tuần/đơn từ                                          |
+       |-- Theo dõi trạng thái                                           |
+       |                                                                  |
+    [ESP8266] --> Gửi sự kiện / heartbeat / nhận lệnh                   |
+    [Cloud Functions] --> Xử lý mở rộng, nếu được triển khai             |
+       +------------------------------------------------------------------+
+
+[HÌNH 2.4 - Sơ đồ Use Case tổng quát. Hình chính thức cần vẽ actor ở ngoài biên hệ thống, Use Case ở trong biên và nối đúng quan hệ include/extend.]
+
+2.7. Sơ đồ lớp và nguyên tắc tổ chức mã nguồn
+
+Sơ đồ lớp khái quát:
+
+    +----------------+       +-------------------+
+    | User           |       | Employee          |
+    | uid, role      |------>| employeeId, name  |
+    +----------------+       +---------+---------+
+                                      |
+             +------------------------+-----------------------+
+             |                        |                       |
+             v                        v                       v
+      +-------------+          +-------------+          +-------------+
+      | WorkSchedule|--------->| WorkShift   |          | Attendance  |
+      | date, shift |          | start/end   |          | event/time  |
+      +-------------+          +-------------+          +------+------+ 
+                                                                     |
+                                                                     v
+                                                            +----------------+
+                                                            | Resolution     |
+                                                            | status/result   |
+                                                            +----------------+
+
+    +-------------+          +----------------+          +-------------+
+    | LeaveRequest|          | OvertimeRequest|         | Payroll     |
+    +-------------+          +----------------+          +-------------+
+             \                       |                         /
+              \_____________________|________________________/
+                                    |
+                              Employee/period
+
+    +-------------+          +------------------+
+    | Device      |--------->| DeviceCommand    |
+    | deviceId    |          | command/status   |
+    +------+------+          +------------------+
+           |
+           v
+    +----------------------+
+    | FingerprintMapping   |
+    | device/finger/user   |
+    +----------------------+
+
+[HÌNH 2.5 - Sơ đồ lớp khái quát. Nhóm cần chuyển thành UML có thuộc tính, phương thức quan trọng và quan hệ rõ ràng.]
+
+Các lớp luật nghiệp vụ không nên phụ thuộc trực tiếp vào composable hoặc Firebase SDK nếu không cần thiết. Việc tách các lớp như AttendanceResolutionRules, DashboardRules, AuditRules và ReportRules giúp viết unit test và kiểm tra từng trường hợp biên.
+
+2.8. Thiết kế bảo mật và phân quyền
+
+- Authentication dùng Email/Password cho người dùng Android.
+- ESP8266 dùng Firebase Anonymous theo luồng Spark hiện tại.
+- Role được lưu và kiểm tra cho Admin/Employee.
+- Firestore Rules hạn chế document nào được đọc/ghi.
+- Dữ liệu gốc attendance cần hạn chế chỉnh sửa sau khi thiết bị gửi lên.
+- Các thao tác duyệt, sửa, xóa, khóa tài khoản và thay đổi cấu hình cần tạo audit log.
+- Không đưa Wi-Fi password hoặc thông tin bí mật thật vào file mã nguồn chia sẻ. Dùng secrets.h hoặc file cấu hình không commit.
+- Khi triển khai production, cần thay Anonymous bằng danh tính thiết bị có khả năng thu hồi, xoay vòng token hoặc một gateway an toàn hơn.
+- Không lưu mẫu ảnh vân tay thô trong Firestore nếu không cần thiết. Module vân tay giữ template; hệ thống chỉ lưu mã ánh xạ và metadata cần cho nghiệp vụ.
+
+
+CHƯƠNG 3. TRIỂN KHAI VÀ ĐÁNH GIÁ SẢN PHẨM
+
+3.1. Môi trường triển khai
+
+Phần Android:
+
+- Ngôn ngữ: Kotlin.
+- Giao diện: Jetpack Compose.
+- Kiến trúc: MVVM kết hợp Repository và Domain Rules.
+- Dịch vụ: Firebase Authentication, Firestore, FCM/Notifications và WorkManager theo phần đã tích hợp.
+- Build: Gradle/Android Gradle Plugin theo cấu hình dự án.
+
+Phần firmware:
+
+- Vi điều khiển: ESP8266.
+- Môi trường nạp: Arduino IDE hoặc môi trường tương thích.
+- Thư viện chính: ESP8266WiFi, ESP8266HTTPClient, WiFiClientSecureBearSSL, ArduinoJson, Adafruit_Fingerprint, SoftwareSerial, Servo, LiquidCrystal_I2C, LittleFS.
+- Đồng bộ thời gian: NTP với pool.ntp.org hoặc time.google.com.
+
+Phần backend:
+
+- Firebase Authentication.
+- Cloud Firestore.
+- Firestore Security Rules.
+- Cloud Functions là phần tùy chọn, không bắt buộc trong gói Spark hiện tại.
+
+3.2. Triển khai firmware trên ESP8266
+
+Firmware được chia thành các tab/chức năng để dễ bảo trì:
+
+- esp8266_fingerprint.ino: cấu hình và phần chính.
+- 10_helpers.ino: hàm hỗ trợ.
+- 11_lcd.ino: màn hình LCD.
+- 12_as608.ino: giao tiếp và thao tác cảm biến vân tay.
+- 13_servo.ino: điều khiển servo.
+- 14_outputs_switch.ino: LED, buzzer và công tắc.
+- 20_firebase_auth.ino: xác thực Firebase.
+- 30_attendance_storage.ino: lưu trữ hàng đợi attendance.
+- 40_attendance_service.ino: tạo và đồng bộ sự kiện.
+- 60_device_commands.ino: đọc và xử lý lệnh thiết bị.
+- 90_main.ino: vòng lặp và điều phối.
+- secrets.h.example: mẫu cấu hình bí mật.
+
+Các chu kỳ chính trong firmware hiện tại:
+
+- Heartbeat thiết bị: khoảng 30 giây.
+- Đồng bộ attendance: khoảng 5 giây.
+- Thử kết nối Wi-Fi lại: khoảng 10 giây.
+- Thử cảm biến lại: khoảng 15 giây.
+- Cập nhật đồng hồ LCD: khoảng 1 giây.
+- Servo tự đóng sau khoảng 5000 mili giây theo cấu hình hiện tại.
+
+Hàng đợi offline được lưu trên LittleFS, với giới hạn dung lượng được cấu hình khoảng 12.288 byte trong firmware. Việc này giúp hạn chế mất sự kiện khi mạng tạm thời lỗi; khi mạng trở lại, firmware sẽ gửi dần các sự kiện đang chờ.
+
+Luồng trạng thái thiết bị:
+
+    BOOT
+      -> kiểm tra cấu hình
+      -> kết nối Wi-Fi
+      -> xác thực Firebase
+      -> kiểm tra NTP
+      -> kiểm tra cảm biến
+      -> READY
+          -> chờ vân tay
+          -> nhận dạng thành công/thất bại
+          -> báo LED/còi/LCD
+          -> mở servo nếu hợp lệ
+          -> tạo attendance event
+          -> gửi Firestore hoặc lưu outbox
+
+[HÌNH 3.1 - Sơ đồ trạng thái firmware. Nhóm cần vẽ lại dạng state machine và chụp ảnh thiết bị ở mỗi trạng thái quan trọng.]
+
+3.3. Triển khai ứng dụng Android
+
+Ứng dụng có hai shell chính.
+
+Admin shell có các khu vực chính:
+
+- Tổng quan.
+- Tác vụ/chấm công.
+- Đơn từ.
+- Phân ca.
+- Nhân viên.
+
+Các module quản trị được mở từ các luồng tương ứng gồm thiết bị, ca làm, lịch, bảng công, bảng lương, hiệu suất, báo cáo, tháng công, audit, phòng ban và thông báo.
+
+Employee shell có các khu vực chính:
+
+- Trang chủ.
+- Lịch làm việc.
+- Chấm công của tôi.
+- Đơn từ.
+- Cá nhân.
+
+Trong shell, back stack nội bộ được duy trì cho các màn hình con. Khi người dùng bấm nút Back vật lý hoặc cử chỉ Back của Android ở màn hình con, ứng dụng quay về màn hình trước. Khi đã ở màn hình gốc và không còn màn hình nội bộ để quay lại, hành vi mặc định của Android được giữ lại.
+
+3.4. Triển khai Firebase theo gói Spark
+
+Luồng triển khai hiện tại không yêu cầu nâng cấp Blaze để chạy phần cốt lõi:
+
+1. Android đăng nhập bằng Email/Password.
+2. ESP8266 xác thực Anonymous.
+3. ESP8266 tạo bản ghi attendance có trạng thái chờ xử lý.
+4. Firestore Rules kiểm tra quyền và dữ liệu thiết bị.
+5. Android đọc dữ liệu và xử lý diễn giải cục bộ.
+6. Các bản ghi điều chỉnh, duyệt đơn và audit được ghi theo quyền của người dùng.
+
+Cloud Functions được coi là phần mở rộng. Nếu sau này nhóm bật Blaze và triển khai Functions để xử lý resolver, thông báo hoặc tác vụ nền, cần cập nhật sơ đồ kiến trúc và README để tách rõ phần bắt buộc với phần tùy chọn.
+
+Phân biệt các loại thay đổi khi triển khai:
+
+- Thay đổi giao diện hoặc logic Android: build và cài APK mới lên điện thoại; không cần Firebase deploy.
+- Thay đổi Firestore Rules: cần deploy Rules nếu muốn môi trường Firebase online dùng Rules mới.
+- Thay đổi Cloud Functions: cần deploy Functions và thường phải dùng gói phù hợp; không áp dụng cho luồng Spark cốt lõi hiện tại.
+- Thay đổi firmware: nạp lại chương trình vào ESP8266.
+- Thay đổi cấu hình Wi-Fi/secret: cập nhật secrets.h hoặc cấu hình tương ứng, không đưa bí mật thật vào Git.
+
+3.5. Mô tả chi tiết các Use Case
+
+UC-01 - Đăng nhập
+
+Tác nhân chính: Admin hoặc Employee.
+Tác nhân phụ: Firebase Authentication.
+
+Mục tiêu: Người dùng xác thực để vào đúng giao diện theo vai trò.
+
+Điều kiện trước: Tài khoản đã tồn tại và thiết bị Android có kết nối mạng.
+
+Luồng chính:
+
+1. Người dùng nhập email và mật khẩu.
+2. Ứng dụng gửi yêu cầu đến Firebase Authentication.
+3. Firebase xác nhận thông tin.
+4. Ứng dụng tải profile và role.
+5. Hệ thống mở Admin shell hoặc Employee shell.
+
+Luồng thay thế: Sai mật khẩu, tài khoản bị khóa, mạng lỗi hoặc profile thiếu employeeId. Ứng dụng phải hiển thị lỗi rõ ràng và không mở nhầm màn hình quyền hạn.
+
+Kết quả: Tạo session hợp lệ hoặc trả về thông báo lỗi.
+
+UC-02 - Quản lý nhân viên
+
+Tác nhân chính: Admin.
+Tác nhân phụ: Firestore.
+
+Mục tiêu: Tạo, cập nhật, khóa hoặc xem hồ sơ nhân viên.
+
+Luồng chính:
+
+1. Admin mở màn hình Nhân viên.
+2. Hệ thống tải danh sách và bộ lọc.
+3. Admin nhập hoặc chỉnh sửa thông tin.
+4. Hệ thống kiểm tra mã nhân viên, email, phòng ban và trạng thái.
+5. Firestore lưu dữ liệu.
+6. Audit log ghi lại người thao tác.
+
+Luồng thay thế: Mã trùng, dữ liệu thiếu, tài khoản không thể tạo hoặc Rules từ chối.
+
+Kết quả: Hồ sơ được tạo/cập nhật hoặc giao diện hiển thị lý do thất bại.
+
+UC-03 - Đăng ký vân tay
+
+Tác nhân chính: Admin.
+Tác nhân phụ: ESP8266, cảm biến AS608/R307, Firestore.
+
+Mục tiêu: Gắn một fingerprintId trên thiết bị với một employeeId.
+
+Luồng chính:
+
+1. Admin chọn nhân viên và thiết bị.
+2. Admin chọn ID mẫu cần đăng ký.
+3. Hệ thống gửi lệnh phù hợp đến thiết bị hoặc thực hiện thao tác enrollment tại thiết bị.
+4. Người dùng đặt cùng một ngón tay theo hướng dẫn trên LCD.
+5. Cảm biến đọc hai lần và lưu template nếu hợp lệ.
+6. Hệ thống lưu mapping deviceId/fingerprintId/employeeId.
+7. Audit log ghi nhận thao tác.
+
+Luồng thay thế: Cảm biến không phản hồi, đặt sai ngón tay, timeout, ID đã tồn tại hoặc mạng lỗi. Mapping không được ghi nếu enrollment chưa thành công.
+
+Kết quả: Mẫu được gắn với nhân viên hoặc trạng thái thất bại được hiển thị.
+
+UC-04 - Chấm công bằng vân tay
+
+Tác nhân chính: Nhân viên.
+Tác nhân phụ: Cảm biến, ESP8266, Firebase, Android.
+
+Mục tiêu: Ghi nhận một sự kiện chấm công.
+
+Luồng chính:
+
+1. Nhân viên đặt ngón tay lên cảm biến.
+2. Cảm biến trả về fingerprintId.
+3. ESP8266 tra mapping cục bộ hoặc metadata phù hợp.
+4. Thiết bị hiển thị tên/mã hoặc thông báo xác nhận.
+5. Servo mở cửa mô hình nếu điều kiện cho phép; LED xanh và buzzer báo thành công.
+6. ESP8266 tạo attendance event với timestamp, deviceId, fingerprintId và trạng thái chờ xử lý.
+7. Event được gửi lên Firestore.
+8. Android đọc event, đối chiếu lịch/ca và hiển thị trạng thái.
+
+Luồng thay thế:
+
+- Không nhận dạng: LED đỏ/buzzer báo lỗi, không mở cửa.
+- Mất mạng: event được lưu vào LittleFS outbox rồi gửi lại sau.
+- Chưa có NTP hợp lệ: thiết bị không nên ghi thời gian giả mà không đánh dấu; xử lý theo chính sách firmware hiện tại.
+- Không có lịch hoặc sự kiện ngoài lịch: chuyển sang trạng thái cần xem xét theo quy tắc.
+
+Kết quả: Có một event gốc không bị sửa trực tiếp; kết quả phân loại có thể là đúng giờ, đi trễ, về sớm, tăng ca, ngoài lịch hoặc cần xử lý.
+
+UC-05 - Gửi lệnh đến thiết bị
+
+Tác nhân chính: Admin.
+Tác nhân phụ: Firestore, ESP8266.
+
+Mục tiêu: Gửi lệnh như đồng bộ cấu hình, kiểm tra thiết bị hoặc thao tác enrollment theo chức năng đã hỗ trợ.
+
+Luồng chính:
+
+1. Admin chọn thiết bị.
+2. Chọn loại lệnh và nhập tham số cần thiết.
+3. Firestore lưu command ở trạng thái chờ.
+4. ESP8266 đọc command, kiểm tra đúng deviceId và quyền/định dạng.
+5. Thiết bị thực hiện hoặc từ chối lệnh.
+6. Thiết bị ghi trạng thái thành công/thất bại.
+7. Android hiển thị kết quả.
+
+Luồng thay thế: Thiết bị offline, lệnh hết hạn, tham số không hợp lệ hoặc thiết bị không đủ điều kiện.
+
+UC-06 - Đăng ký lịch làm việc tuần
+
+Tác nhân chính: Employee.
+Tác nhân phụ: Firestore, Admin.
+
+Mục tiêu: Nhân viên gửi lịch làm việc mong muốn cho tuần kế tiếp.
+
+Luồng chính:
+
+1. Employee mở Lịch làm việc.
+2. Chọn tuần và các ngày/ca phù hợp.
+3. Hệ thống loại ngày Chủ nhật khỏi lịch phân công chuẩn nếu không được cấu hình đặc biệt.
+4. Employee gửi yêu cầu trước hạn thứ Bảy 12:00 giờ Việt Nam.
+5. Firestore lưu weeklyScheduleRequest ở trạng thái chờ duyệt.
+6. Admin xem và duyệt/chỉnh sửa trước hạn xử lý.
+
+Luồng thay thế: Gửi quá hạn, thiếu ca, trùng lịch hoặc tuần đã khóa.
+
+Kết quả: Yêu cầu được gửi, từ chối hoặc chờ xử lý.
+
+UC-07 - Duyệt lịch và phân ca
+
+Tác nhân chính: Admin.
+Tác nhân phụ: Employee, Firestore.
+
+Mục tiêu: Chuyển yêu cầu lịch tuần thành lịch làm việc được áp dụng.
+
+Luồng chính:
+
+1. Admin mở danh sách yêu cầu.
+2. Kiểm tra ngày, ca, số lượng nhân viên và điều kiện nghiệp vụ.
+3. Duyệt, từ chối hoặc chỉnh sửa.
+4. Hệ thống tạo/cập nhật workSchedules.
+5. Employee nhận thông báo hoặc thấy trạng thái mới.
+
+UC-08 - Gửi và duyệt đơn nghỉ phép/điều chỉnh chấm công
+
+Tác nhân chính: Employee; người duyệt là Admin.
+Tác nhân phụ: Firestore, Notifications.
+
+Luồng chính:
+
+1. Employee chọn loại đơn, ngày, lý do và bằng chứng nếu có.
+2. Hệ thống kiểm tra ngày và dữ liệu bắt buộc.
+3. Employee gửi đơn.
+4. Admin xem, duyệt hoặc từ chối.
+5. Kết quả được ghi và gửi thông báo.
+6. Quy tắc phân loại ưu tiên đơn nghỉ phép đã duyệt khi tính trạng thái ngày.
+
+UC-09 - Đăng ký và duyệt tăng ca
+
+Tác nhân chính: Employee; người duyệt là Admin.
+
+Mục tiêu: Quản lý tăng ca trong khoảng thời gian được cho phép.
+
+Luồng chính:
+
+1. Employee gửi yêu cầu tăng ca với thời gian và lý do.
+2. Hệ thống kiểm tra cửa sổ tăng ca, ví dụ 18:00-22:00.
+3. Admin duyệt hoặc từ chối.
+4. Nếu được duyệt, dữ liệu được dùng khi tính bảng công/bảng lương.
+
+Không được coi mọi hoạt động ngoài ca là tăng ca tự động nếu chưa có quy tắc hoặc phê duyệt phù hợp.
+
+UC-10 - Xem chấm công, bảng công, bảng lương và báo cáo
+
+Tác nhân chính: Admin hoặc Employee tùy phạm vi dữ liệu.
+Tác nhân phụ: AttendanceResolutionRules, ReportRules, Firestore, CsvReportExporter.
+
+Admin có thể xem dữ liệu toàn hệ thống theo quyền; Employee chỉ xem phạm vi của mình. Hệ thống cho phép lọc thời gian, trạng thái và nhân viên, sau đó tổng hợp thành bảng công, KPI, bảng lương hoặc file CSV. Các bộ lọc cần phân biệt dữ liệu raw/resolved/legacy để tránh đếm trùng hoặc bỏ sót.
+
+UC-11 - Xem audit và thông báo
+
+Tác nhân chính: Admin hoặc Employee.
+
+Admin xem các thao tác quan trọng; Employee xem thông báo dành cho mình. Audit phải thể hiện actor, thời gian, loại thao tác, đối tượng và kết quả nếu có. Thông báo không được dùng thay cho trạng thái dữ liệu chính.
+
+UC-12 - Điều hướng bằng nút Back vật lý
+
+Tác nhân chính: Admin hoặc Employee.
+
+Mục tiêu: Quay về màn hình trước bằng nút Back của điện thoại.
+
+Luồng chính:
+
+1. Người dùng mở một màn hình con.
+2. Người dùng nhấn nút Back vật lý hoặc dùng cử chỉ Back.
+3. ChamCongApp kiểm tra back stack của shell hiện tại.
+4. Nếu còn màn hình trước, app hiển thị màn hình đó.
+5. Nếu đang ở màn hình gốc, để Android xử lý theo hành vi mặc định.
+
+Kết quả: Người dùng không bị thoát ứng dụng ngay khi đang ở màn hình con.
+
+3.6. Kịch bản kiểm thử và minh chứng hoạt động
+
+Phần này cần có cả mô tả và hình ảnh/video. Hình ảnh chỉ là minh chứng cho nội dung đã viết, không thay thế cho mô tả.
+
+3.6.1. Kiểm thử phần cứng và firmware
+
+KT-FW-01 - Khởi động thiết bị
+
+Mục tiêu: Kiểm tra ESP8266 boot, LCD hiển thị, Wi-Fi và trạng thái cảm biến.
+
+Các bước: Cấp nguồn, quan sát LCD, chờ kết nối, kiểm tra log Serial.
+
+Kết quả cần chụp: LCD ở trạng thái khởi động, đã kết nối Wi-Fi, thiết bị ready.
+
+[HÌNH 3.2 - Ảnh thiết bị sau khi cấp nguồn và kết nối thành công.]
+
+KT-FW-02 - Nhận dạng vân tay hợp lệ
+
+Các bước: Đặt ngón tay đã đăng ký, quan sát LCD/LED/buzzer/servo, kiểm tra Firestore có event.
+
+[HÌNH 3.3 - Ảnh màn hình cảm biến hoặc LCD báo nhận dạng thành công.]
+[HÌNH 3.4 - Ảnh servo ở trạng thái mở cửa.]
+
+KT-FW-03 - Từ chối vân tay không hợp lệ
+
+Các bước: Dùng ngón tay chưa đăng ký, kiểm tra LED đỏ/buzzer, xác nhận servo không mở và dữ liệu không bị ghi sai nhân viên.
+
+[HÌNH 3.5 - Ảnh trạng thái từ chối nhận dạng.]
+
+KT-FW-04 - Tự đóng cửa
+
+Các bước: Nhận dạng hợp lệ, đo thời gian từ lúc servo mở đến lúc tự đóng. Ghi giá trị thực tế, không chỉ ghi giá trị cấu hình.
+
+[VIDEO 01 - Quay liền mạch quá trình nhận dạng, servo mở và tự đóng. Link: [CẦN BỔ SUNG]]
+
+KT-FW-05 - Mất Wi-Fi và đồng bộ lại
+
+Các bước: Ngắt mạng, tạo một hoặc nhiều lần chấm công, kiểm tra outbox; bật mạng lại, kiểm tra các event được gửi lên Firestore và không bị trùng.
+
+[HÌNH 3.6 - Ảnh/log khi có event trong hàng đợi offline.]
+[HÌNH 3.7 - Ảnh Firestore sau khi hàng đợi đồng bộ lại.]
+
+KT-FW-06 - Đồng bộ NTP
+
+Các bước: Khởi động trong điều kiện có mạng, kiểm tra timestamp; thử mất mạng hoặc NTP lỗi và ghi rõ chính sách xử lý.
+
+3.6.2. Kiểm thử ứng dụng Android
+
+KT-APP-01 - Đăng nhập Admin và Employee
+
+Chụp màn hình đăng nhập thành công, giao diện Admin, giao diện Employee và trường hợp sai mật khẩu.
+
+[HÌNH 3.8 - Màn hình đăng nhập thành công của Admin.]
+[HÌNH 3.9 - Màn hình trang chủ Employee.]
+
+KT-APP-02 - Quản lý nhân viên và vân tay
+
+Mô tả ảnh: Admin chọn nhân viên, xem mã, thực hiện đăng ký/mapping vân tay và kiểm tra trạng thái thành công/thất bại.
+
+[HÌNH 3.10 - Danh sách nhân viên.]
+[HÌNH 3.11 - Màn hình mapping fingerprintId với nhân viên.]
+
+KT-APP-03 - Ca làm và lịch tuần
+
+Mô tả: Employee gửi lịch; Admin xem và duyệt; hệ thống hiển thị lịch đã áp dụng. Chụp cả trường hợp quá hạn hoặc dữ liệu không hợp lệ nếu có.
+
+[HÌNH 3.12 - Employee gửi lịch tuần.]
+[HÌNH 3.13 - Admin duyệt lịch tuần.]
+
+KT-APP-04 - Phân loại chấm công
+
+Mô tả: Dùng event thực tế để chứng minh trạng thái đúng giờ, đi trễ, về sớm, chưa checkout, ngoài lịch và tăng ca/đơn được duyệt nếu có. Không chỉ chụp dashboard; cần chụp cả dữ liệu đầu vào và kết quả.
+
+[HÌNH 3.14 - Danh sách attendance raw.]
+[HÌNH 3.15 - Kết quả sau khi resolve theo ca và lịch.]
+
+KT-APP-05 - Nghỉ phép, điều chỉnh và tăng ca
+
+Mô tả: Employee gửi đơn, Admin duyệt, kết quả thay đổi trong bảng công theo đúng quy tắc; lưu ý ghi lại mã đơn và thời điểm.
+
+[HÌNH 3.16 - Employee gửi đơn.]
+[HÌNH 3.17 - Admin duyệt đơn.]
+[HÌNH 3.18 - Bảng công sau khi đơn được duyệt.]
+
+KT-APP-06 - Báo cáo, CSV và audit
+
+Mô tả: Lọc một kỳ cụ thể, xem số liệu, xuất CSV và kiểm tra audit log. File CSV cần được mở thử để chứng minh cột và dữ liệu hợp lệ.
+
+[HÌNH 3.19 - Màn hình báo cáo.]
+[HÌNH 3.20 - Audit log.]
+[HÌNH 3.21 - File CSV sau khi xuất.]
+
+KT-APP-07 - Nút Back vật lý
+
+Mô tả: Mở từ trang gốc vào màn hình nhân viên/chi tiết/biểu mẫu, nhấn nút Back của điện thoại và ghi lại việc app quay về màn hình trước. Lặp lại từ Employee shell và Admin shell.
+
+[VIDEO 02 - Quay thao tác nhấn nút Back vật lý ở màn hình con và quay lại màn hình trước. Link: [CẦN BỔ SUNG]]
+
+3.6.3. Kịch bản quay video minh chứng
+
+Video nên quay liên tục, nhìn thấy cả thiết bị thật và màn hình ứng dụng nếu có thể. Mỗi video nên có lời mô tả ngắn:
+
+- Video A: Cấp nguồn, kết nối Wi-Fi, thiết bị sẵn sàng.
+- Video B: Đặt vân tay hợp lệ, LCD báo thành công, LED/còi/servo phản hồi.
+- Video C: Đặt vân tay không hợp lệ, thiết bị từ chối.
+- Video D: Mất Wi-Fi, chấm công offline, kết nối lại và đồng bộ.
+- Video E: Admin xử lý nhân viên/lịch/đơn và kết quả trên bảng công.
+- Video F: Nhấn nút Back vật lý để quay màn hình trước.
+
+Mỗi video ghi thêm ngày quay, phiên bản firmware, phiên bản APK, thiết bị thử và kết quả mong đợi.
+
+3.7. Kết quả kiểm thử hiện tại
+
+Kết quả lần chạy kiểm thử gần nhất:
+
+- Android: 191/191 unit test đạt với `:app:testDebugUnitTest`, Gradle 8.9 và JDK 17 (2026-09-28).
+- Firebase Functions: 32/32 test đạt với `npm test --prefix firebase/functions`. Functions hiện không thuộc luồng xử lý của dự án trên Firebase Spark.
+- Bản debug APK build thành công tại `app/build/outputs/apk/debug/app-debug.apk`.
+- Bản release có R8, minify và shrink build thành công khi loại trừ các task `lintVital`; môi trường offline chưa có `com.android.tools.lint:lint-gradle:31.7.3`. APK được tạo là `app-release-unsigned.apk` vì chưa cấu hình keystore ký phát hành.
+
+Lưu ý: Các con số test và kết quả build ở trên là từ lần chạy trước khi bổ sung xử lý biên 5.000 bản ghi. Bản sửa biên mới nhất chưa được chạy lại test/build trong lần cập nhật báo cáo này.
+
+Trong cấu hình Firebase Spark, Firestore giữ sự kiện attendance gốc; Android diễn giải sự kiện theo lịch và quy tắc nghiệp vụ. Không xem kết quả trên từng Android client là nguồn sự thật tập trung. Việc resolve bằng transaction ở backend chỉ được tính đến khi dự án chuyển sang hạ tầng phù hợp, có thể phát sinh chi phí Blaze.
+
+Attendance realtime của Admin được giới hạn ở một cửa sổ gần nhất. Hồ sơ nhân viên lấy các lượt mới nhất theo `timestamp` ngay trong truy vấn Firestore và hỗ trợ tải tiếp bằng cursor. Lịch sử báo cáo truy vấn theo khoảng ngày, chia trang và có giới hạn 5.000 bản ghi để kiểm soát RAM. Khi đạt đúng 5.000, ứng dụng truy vấn kiểm tra thêm một bản ghi sau cursor cuối: nếu không còn dữ liệu, báo cáo vẫn được xem là đầy đủ và cho phép xuất CSV; nếu còn dữ liệu, ứng dụng báo cần thu hẹp khoảng ngày và khóa xuất CSV để không tạo file thiếu dữ liệu.
+
+Luồng báo cáo xóa dữ liệu của bộ lọc cũ khi bắt đầu truy vấn mới. Khi tải lỗi, trạng thái yêu cầu được mở lại, lỗi được hiển thị và người dùng có thể thử lại. Nút xuất CSV chỉ hoạt động khi kết quả tương ứng với bộ lọc hiện tại đã tải hoàn tất.
+
+Firmware công khai trạng thái hàng đợi LittleFS (`OK/WARNING/FULL/ERROR`) và dung lượng đã dùng. Khi hàng đợi đầy, thiết bị hiển thị lỗi và từ chối nhận lượt mới; heartbeat báo `firebaseSyncStatus = ERROR` nếu LittleFS lỗi hoặc hàng đợi đầy.
+
+Android dùng mặc định `versionCode = 2`, `versionName = "1.1.0"`, bật minify/shrink cho release và nhận thông tin ký qua biến môi trường. Chỉ có thể phát hành APK đã ký sau khi cấu hình keystore thật.
+
+Firestore Rules Emulator chưa được chạy trong môi trường kiểm tra đã ghi nhận do Firebase CLI yêu cầu Java 21 trong khi môi trường khi đó sử dụng Java 17. Vì vậy, không kết luận Rules đã được kiểm thử đầy đủ trên Emulator.
+
+Các kết quả tự động không thay thế cho kiểm thử trên điện thoại thật, thử nghiệm mất điện khi LittleFS đang ghi, hay video chứng minh hoạt động end-to-end. Nhóm cần bổ sung minh chứng tại mục 3.6.
+
+3.8. Đánh giá mức độ hoàn thành
+
+Đã triển khai hoặc đã có trong mã nguồn:
+
+- Ứng dụng Android Kotlin/Compose với shell Admin và Employee.
+- Firebase Authentication và Firestore.
+- Mô hình attendance raw và logic resolve cục bộ.
+- Quản lý nhân viên, ca, lịch, đơn, báo cáo và audit theo các luồng hiện có.
+- Firmware ESP8266 đọc vân tay, LCD, LED, buzzer, servo, Wi-Fi, NTP và hàng đợi LittleFS.
+- Xử lý Back vật lý/cử chỉ trong các shell của ứng dụng.
+- Unit test và build debug theo kết quả nêu trên.
+
+Phần cần nhóm bổ sung trước khi nộp:
+
+- Sơ đồ phần cứng vẽ bằng công cụ và ảnh mạch thật.
+- Datasheet đúng mã linh kiện.
+- Số đo điện áp, dòng và kết quả nhận dạng thực nghiệm.
+- Ảnh màn hình theo từng Use Case.
+- Video hoạt động end-to-end.
+- Link hoặc mã nguồn phụ lục nếu giảng viên yêu cầu.
+- Kiểm thử Firestore Rules trên môi trường tương thích Java 21 hoặc ghi rõ hạn chế.
+
+3.9. Hạn chế và hướng phát triển
+
+Hạn chế:
+
+- Mô hình phần cứng chưa đạt mức sản phẩm thương mại.
+- Độ chính xác sinh trắc học chưa được đo theo bộ dữ liệu và quy trình chuẩn.
+- Firebase Anonymous và logic resolver cục bộ chỉ phù hợp cho prototype Spark.
+- Chưa có cơ chế quản lý secret thiết bị ở cấp production.
+- Chưa đánh giá tải khi có nhiều thiết bị và nhiều sự kiện đồng thời.
+- Chưa kiểm thử đầy đủ trong điều kiện mất điện đột ngột khi đang ghi LittleFS.
+- Chưa có vỏ bảo vệ, chống nước, chống bụi và chống phá hoại.
+
+Hướng phát triển:
+
+1. Thiết kế gateway hoặc Cloud Functions có xác thực thiết bị chặt chẽ hơn.
+2. Dùng App Check, custom claims hoặc mô hình token có khả năng thu hồi.
+3. Chuẩn hóa schema, index và chiến lược phân vùng dữ liệu Firestore.
+4. Thêm monitor, cảnh báo thiết bị offline và dashboard sức khỏe thiết bị.
+5. Đo FAR/FRR trên nhiều người dùng, ngón tay và điều kiện môi trường.
+6. Thay servo mô hình bằng cơ cấu khóa phù hợp nếu triển khai thật.
+7. Thiết kế PCB, nguồn riêng, bảo vệ ngược cực và vỏ thiết bị.
+8. Thêm mã hóa, xoay vòng secret và quy trình cập nhật firmware.
+9. Bổ sung kiểm thử UI, integration test và Rules emulator trong CI.
+10. Đánh giá chi phí trên mỗi thiết bị và khả năng mở rộng nhiều chi nhánh.
+
+
+KẾT LUẬN
+
+Đề tài đã xây dựng được một mô hình chấm công IoT có sự kết hợp giữa thiết bị nhúng, cảm biến vân tay, kết nối Wi-Fi, Firebase và ứng dụng Android. Thiết bị đảm nhiệm việc nhận dạng và tạo sự kiện gần nơi phát sinh dữ liệu; Firebase đảm nhiệm lưu trữ và đồng bộ; ứng dụng Android đảm nhiệm quản lý, diễn giải nghiệp vụ và báo cáo.
+
+Điểm đáng chú ý về mặt thiết kế là sự tách biệt giữa attendance event gốc và kết quả phân loại. Nhờ đó, hệ thống có thể giải thích một bản ghi được xử lý ra sao, hỗ trợ điều chỉnh có lý do và lưu audit. Việc có hàng đợi offline cũng giúp mô hình sát hơn với điều kiện sử dụng thực tế, nơi Wi-Fi có thể không ổn định.
+
+Sản phẩm hiện tại nên được trình bày đúng là prototype phục vụ học tập và chứng minh kiến thức hệ thống nhúng, IoT, Android, Firebase và thiết kế phần mềm. Để nâng cấp thành sản phẩm thực tế, nhóm cần tiếp tục hoàn thiện nguồn, bảo mật thiết bị, đo lường độ chính xác, thiết kế cơ khí, khả năng mở rộng và kiểm thử thực địa.
+
+
+TÀI LIỆU THAM KHẢO
+
+[1] L. Atzori, A. Iera, G. Morabito, “The Internet of Things: A survey”, Computer Networks, 2010.
+    DOI: https://doi.org/10.1016/j.comnet.2010.05.010
+
+[2] R. Gubbi, R. Buyya, S. Marusic, M. Palaniswami, “Internet of Things (IoT): A vision, architectural elements, and future directions”, arXiv, 2013.
+    URL: https://arxiv.org/abs/1207.0203
+
+[3] ZKTeco Việt Nam, sản phẩm F18.
+    URL: https://www.zkteco.vn/Van-Taya7q/F18
+
+[4] ZKTeco Technology, F18 product information.
+    URL: https://zkteco.technology/en/product/f18/
+
+[5] Suprema, Outdoor Fingerprint Terminal BioStation 2.
+    URL: https://www.supremainc.com/en/hardware/amp/outdoor-fingerprint-terminal-biostation-2.asp
+
+[6] Suprema documentation, BioStation 2A.
+    URL: https://docs.supremainc.com/en/device/biostation_2a/
+
+[7] Suprema, technical/A&E specification and BioStar information.
+    URL: https://kb.supremainc.com/knowledge/doku.php?id=en%3Atc_aespec
+
+[8] Ronald Jack Việt Nam, danh mục sản phẩm.
+    URL: https://www.ronaldjackvietnam.vn/san-pham
+
+[9] Espressif, tài liệu ESP8266 và hướng dẫn phần cứng. Nhóm bổ sung đúng đường dẫn datasheet đã sử dụng.
+    URL: [CẦN BỔ SUNG THEO BOARD THỰC TẾ]
+
+[10] Tài liệu cảm biến AS608/R307, LCD I2C, servo và module nguồn.
+     URL/datasheet: [CẦN BỔ SUNG ĐÚNG MÃ LINH KIỆN]
+
+Ngày truy cập các nguồn web: 27/09/2026.
+
+
+PHỤ LỤC A. DANH SÁCH LINH KIỆN VÀ THÔNG SỐ CẦN BỔ SUNG
+
+STT  Linh kiện                    Mã thực tế  Số lượng  Giá tham khảo  Ghi chú
+---  --------------------------  ----------  --------  -------------  -------------------------------
+1    Board ESP8266               [điền]      [điền]    [điền]         Chụp mặt board và ghi nguồn
+2    Cảm biến vân tay            [điền]      [điền]    [điền]         Ghi AS608/R307 đúng mã
+3    LCD 16x2 I2C                [điền]      [điền]    [điền]         Ghi địa chỉ 0x27/0x3F
+4    Servo                        [điền]      [điền]    [điền]         Ghi dòng đỉnh và góc
+5    LED xanh                    [điền]      [điền]    [điền]         Ghi giá trị điện trở
+6    LED đỏ                      [điền]      [điền]    [điền]         Ghi giá trị điện trở
+7    Buzzer                      [điền]      [điền]    [điền]         Ghi có transistor hay không
+8    Công tắc                    [điền]      [điền]    [điền]         Ghi kiểu nối
+9    Nguồn 5V cho servo          [điền]      [điền]    [điền]         Ghi dòng định mức
+10   Dây, breadboard, phụ kiện   [điền]      [điền]    [điền]         Bổ sung nếu có
+
+Mẫu thông số nhóm cần điền cho từng linh kiện:
+
+- Điện áp định mức:
+- Dải điện áp cho phép:
+- Dòng tiêu thụ trung bình:
+- Dòng đỉnh:
+- Số chân:
+- Giao tiếp:
+- Nhiệt độ hoạt động:
+- Sai số hoặc độ chính xác theo datasheet:
+- Sai số đo thực tế:
+- Nguồn tài liệu:
+
+
+PHỤ LỤC B. DANH SÁCH HÌNH ẢNH VÀ VIDEO CẦN CHUẨN BỊ
+
+Hình 1.1: Mối liên hệ hệ thống nhúng và IoT.
+Hình 2.1: Sơ đồ khối tổng thể.
+Hình 2.2: Kiến trúc phần mềm MVVM.
+Hình 2.3: Sơ đồ dữ liệu Firestore.
+Hình 2.4: Sơ đồ Use Case tổng quát.
+Hình 2.5: Sơ đồ lớp.
+Hình 3.1: Sơ đồ trạng thái firmware.
+Hình 3.2: Thiết bị sau khi khởi động.
+Hình 3.3: Nhận dạng vân tay hợp lệ.
+Hình 3.4: Servo mở cửa.
+Hình 3.5: Vân tay không hợp lệ.
+Hình 3.6: Hàng đợi offline.
+Hình 3.7: Dữ liệu sau đồng bộ.
+Hình 3.8: Đăng nhập Admin.
+Hình 3.9: Trang chủ Employee.
+Hình 3.10: Danh sách nhân viên.
+Hình 3.11: Mapping vân tay.
+Hình 3.12: Employee gửi lịch.
+Hình 3.13: Admin duyệt lịch.
+Hình 3.14: Attendance raw.
+Hình 3.15: Attendance đã resolve.
+Hình 3.16: Gửi đơn.
+Hình 3.17: Duyệt đơn.
+Hình 3.18: Bảng công sau duyệt.
+Hình 3.19: Báo cáo.
+Hình 3.20: Audit log.
+Hình 3.21: CSV xuất ra.
+
+Video 01: Nhận dạng và mở/đóng cửa.
+Video 02: Nút Back vật lý.
+Video 03: Offline outbox và đồng bộ.
+Video 04: Luồng Admin/Employee.
+
+Khi chèn ảnh vào bản báo cáo Word/PDF, mỗi ảnh nên có:
+
+- Số hình.
+- Tên hình.
+- Một đoạn mô tả ngay trước hoặc ngay sau hình.
+- Nguồn ảnh: “Nhóm thực hiện” nếu là ảnh tự chụp.
+- Thời điểm chụp hoặc phiên bản phần mềm nếu cần đối chiếu.
+
+
+PHỤ LỤC C. DANH SÁCH SƠ ĐỒ CẦN VẼ LẠI
+
+1. Sơ đồ khối phần cứng.
+2. Sơ đồ đấu dây ESP8266 - cảm biến - LCD - LED - buzzer - servo - switch.
+3. Sơ đồ kiến trúc phần mềm MVVM.
+4. Sơ đồ Use Case tổng quát.
+5. Sơ đồ Use Case chi tiết cho Admin.
+6. Sơ đồ Use Case chi tiết cho Employee.
+7. Sơ đồ Use Case/sequence cho thiết bị ESP8266.
+8. Sơ đồ cơ sở dữ liệu Firestore.
+9. Sơ đồ lớp.
+10. Sơ đồ tuần tự chấm công.
+11. Sơ đồ tuần tự duyệt đơn.
+12. Sơ đồ trạng thái firmware.
+
+Gợi ý sơ đồ tuần tự chấm công:
+
+    Employee -> Sensor: Đặt ngón tay
+    Sensor -> ESP8266: fingerprintId/kết quả
+    ESP8266 -> LCD/LED/Buzzer: Hiển thị và báo hiệu
+    ESP8266 -> Servo: Mở cửa nếu hợp lệ
+    ESP8266 -> Firestore: Gửi attendance event
+    Firestore -> Android: Dữ liệu mới
+    Android -> Domain Rules: Resolve theo lịch/ca
+    Domain Rules -> UI: Hiển thị trạng thái và báo cáo
+
+Gợi ý sơ đồ tuần tự mất mạng:
+
+    ESP8266 -> Wi-Fi/Firebase: Gửi event
+    Wi-Fi/Firebase -> ESP8266: Timeout/lỗi
+    ESP8266 -> LittleFS: Lưu event vào outbox
+    ESP8266 -> Wi-Fi/Firebase: Thử lại
+    Wi-Fi/Firebase -> ESP8266: Thành công
+    ESP8266 -> LittleFS: Xóa event đã xác nhận
+
+KẾT THÚC TÀI LIỆU
