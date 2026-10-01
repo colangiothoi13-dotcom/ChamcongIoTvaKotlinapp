@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.ShiftCategory
 import vn.chamcong.iot.model.WorkShift
+import vn.chamcong.iot.domain.defaultShiftTemplates
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import java.time.LocalDate
@@ -33,23 +34,22 @@ import java.time.LocalDate
 @Composable
 fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
     var editor by remember { mutableStateOf<WorkShift?>(null) }
+    var showOvertimeAssignment by remember { mutableStateOf(false) }
+    val defaults = remember { defaultShiftTemplates().map { it.resolve() } }
+    val displayedShifts = defaults.map { standard -> state.shifts.firstOrNull { it.id == standard.id } ?: standard } +
+        state.shifts.filter { it.category == ShiftCategory.SUPPLEMENTARY.name && it.active }
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Quản lý ca làm", style = MaterialTheme.typography.titleLarge)
-        Text("Ca mặc định: sáng 08:00–12:00, chiều 13:00–17:00. Ca mới tối đa 4 giờ, không qua ngày; tăng ca gửi đơn riêng 18:00–22:00. Các ca cũ vẫn được giữ.", style = MaterialTheme.typography.bodySmall)
+        Text("Ca sáng và ca chiều có sẵn. Chỉ thêm ca tăng ca cho nhân viên khi cần; các ca cũ vẫn được giữ trong lịch sử.", style = MaterialTheme.typography.bodySmall)
         Button(onClick = {
             vm.clearError()
-            editor = WorkShift(name = "Ca sáng", effectiveFrom = LocalDate.now().toString())
-        }) { Text("Thêm ca") }
-        if (state.shifts.isEmpty()) {
-            Text("Chưa có ca. Hãy tạo ca sáng, ca chiều hoặc ca bổ sung.")
-        } else {
-            state.shifts.forEach { shift ->
+            showOvertimeAssignment = true
+        }) { Text("Thêm ca tăng ca") }
+        displayedShifts.forEach { shift ->
                 ShiftRow(shift) {
                     vm.clearError()
-                    // Template snapshots must keep the times used by previously assigned schedules.
-                    editor = if (shift.id.startsWith("weekly_v1_")) shift.copy(id = "") else shift
+                    if (shift.category == ShiftCategory.SUPPLEMENTARY.name) editor = shift
                 }
-            }
         }
     }
     editor?.let { shift ->
@@ -60,6 +60,49 @@ fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
             onSave = { value -> vm.saveShift(value) { editor = null } }
         )
     }
+    if (showOvertimeAssignment) {
+        OvertimeAssignmentDialog(state, vm,
+            onDismiss = { showOvertimeAssignment = false })
+    }
+}
+
+@Composable
+private fun OvertimeAssignmentDialog(state: MainUiState, vm: MainViewModel, onDismiss: () -> Unit) {
+    val employees = state.operationalEmployees.filter { it.active }.sortedBy { it.fullName }
+    var employeeId by remember { mutableStateOf("") }
+    var workDate by remember { mutableStateOf(LocalDate.now().toString()) }
+    var reason by remember { mutableStateOf("") }
+    val date = runCatching { LocalDate.parse(workDate) }.getOrNull()
+    val alreadyAssigned = state.overtimeRequests.any { it.employeeId == employeeId && it.workDate == workDate }
+    AlertDialog(
+        onDismissRequest = { if (!state.saving) onDismiss() },
+        title = { Text("Phân ca tăng ca cho nhân viên") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                Text("Ca tăng ca cố định 18:00–22:00. Chọn nhân viên và ngày làm việc.")
+                employees.forEach { employee ->
+                    FilterChip(selected = employeeId == employee.id, onClick = { employeeId = employee.id },
+                        label = { Text("${employee.code} • ${employee.fullName}") })
+                }
+                if (employees.isEmpty()) Text("Chưa có nhân viên đang làm")
+                OutlinedTextField(workDate, { workDate = it }, Modifier.fillMaxWidth(),
+                    label = { Text("Ngày tăng ca (yyyy-MM-dd)") }, singleLine = true,
+                    isError = date == null || date.dayOfWeek.value == 7)
+                if (alreadyAssigned) Text("Nhân viên đã có ca tăng ca ngày này", color = MaterialTheme.colorScheme.error)
+                OutlinedTextField(reason, { reason = it.take(500) }, Modifier.fillMaxWidth(),
+                    label = { Text("Lý do phân ca") })
+                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            Button(enabled = !state.saving && employeeId.isNotBlank() && date != null &&
+                date.dayOfWeek.value in 1..6 && reason.isNotBlank() && !alreadyAssigned,
+                onClick = { vm.assignOvertimeToEmployee(employeeId, workDate, reason) { onDismiss() } }) {
+                Text("Phân ca")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !state.saving) { Text("Hủy") } }
+    )
 }
 
 @Composable
@@ -70,8 +113,12 @@ private fun ShiftRow(shift: WorkShift, onEdit: () -> Unit) {
             Text("${shiftCategoryLabel(shift.category)} • ${shift.startTime}–${shift.endTime}")
             Text("Cho phép sớm ${shift.allowEarlyMinutes} phút • Đi trễ ${shift.lateGraceMinutes} phút • Về sớm ${shift.earlyLeaveAllowedMinutes} phút", style = MaterialTheme.typography.bodySmall)
             Text("Nghỉ: ${shift.breakStartTime ?: "-"}–${shift.breakEndTime ?: "-"} • ${if (shift.countsOvertime) "Có tính tăng ca" else "Không tính tăng ca"}", style = MaterialTheme.typography.bodySmall)
-            Text("Áp dụng từ ${shift.effectiveFrom}${shift.effectiveTo?.let { " đến $it" } ?: ""}", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = onEdit) { Text(if (shift.id.startsWith("weekly_v1_")) "Tạo bản tùy chỉnh" else "Chỉnh sửa") }
+            Text(if (shift.id.startsWith("weekly_v1_")) "Ca mặc định" else
+                "Áp dụng từ ${shift.effectiveFrom}${shift.effectiveTo?.let { " đến $it" } ?: ""}",
+                style = MaterialTheme.typography.bodySmall)
+            if (shift.category == ShiftCategory.SUPPLEMENTARY.name) {
+                TextButton(onClick = onEdit) { Text("Chỉnh sửa") }
+            }
         }
     }
 }
@@ -102,7 +149,7 @@ private fun ShiftEditorDialog(
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("Loại ca")
                 Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                    ShiftCategory.entries.forEach { item ->
+                    listOf(ShiftCategory.SUPPLEMENTARY).forEach { item ->
                         FilterChip(
                             selected = category == item.name,
                             onClick = {

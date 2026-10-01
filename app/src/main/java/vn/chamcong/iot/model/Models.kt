@@ -2,6 +2,8 @@ package vn.chamcong.iot.model
 
 import com.google.firebase.Timestamp
 import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 
 data class Employee(
     val id: String = "",
@@ -25,6 +27,10 @@ data class Employee(
 fun Employee.terminationLocalDate(): LocalDate? = terminationDate
     .takeIf(String::isNotBlank)
     ?.let { value -> runCatching { LocalDate.parse(value) }.getOrNull() }
+
+/** A retired employee remains in operational views through the month of departure. */
+fun Employee.visibleOutsideRetiredList(now: YearMonth = YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh"))): Boolean =
+    active || terminationLocalDate()?.let { !YearMonth.from(it).isBefore(now) } == true
 
 enum class AttendanceType { CHECK_IN, CHECK_OUT }
 enum class AttendanceStatus { ON_TIME, LATE, EARLY_LEAVE, NORMAL }

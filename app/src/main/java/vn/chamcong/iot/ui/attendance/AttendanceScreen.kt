@@ -4,6 +4,7 @@ import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,12 +37,13 @@ import vn.chamcong.iot.model.Attendance
 @Composable
 fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
     var target by remember { mutableStateOf<AttendanceAdjustmentTarget?>(null) }
+    var scanReview by remember { mutableStateOf<Pair<Attendance, Attendance>?>(null) }
     var offScheduleTarget by remember { mutableStateOf<Attendance?>(null) }
     var employeeMenu by remember { mutableStateOf(false) }
     var departmentMenu by remember { mutableStateOf(false) }
     val statuses = listOf("Tất cả" to null, "Đúng giờ" to "NORMAL", "Đi trễ" to "LATE", "Về sớm" to "EARLY_LEAVE")
     val types = listOf("Tất cả loại" to null, "Vào ca" to "CHECK_IN", "Ra ca" to "CHECK_OUT")
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
+    val filters: @Composable ColumnScope.() -> Unit = {
         AttendanceDateRangeControls(state, vm)
         if (state.attendanceDatePreset == "SINGLE" || state.attendanceDateFilter.isNotBlank()) {
         OutlinedTextField(
@@ -70,7 +72,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                         vm.setAttendanceDepartmentFilter(null)
                         departmentMenu = false
                     })
-                    state.employees.map { it.department.trim() }.filter(String::isNotBlank).distinct().sorted().forEach { department ->
+                    state.operationalEmployees.map { it.department.trim() }.filter(String::isNotBlank).distinct().sorted().forEach { department ->
                         DropdownMenuItem(text = { Text(department) }, onClick = {
                             vm.setAttendanceDepartmentFilter(department)
                             departmentMenu = false
@@ -79,7 +81,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 }
             }
             androidx.compose.foundation.layout.Box {
-                val employeeName = state.employees.firstOrNull { it.id == state.attendanceEmployeeFilter }?.fullName
+                val employeeName = state.operationalEmployees.firstOrNull { it.id == state.attendanceEmployeeFilter }?.fullName
                 FilterChip(
                     selected = employeeName != null,
                     onClick = { employeeMenu = true },
@@ -90,7 +92,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                         vm.setAttendanceEmployeeFilter(null)
                         employeeMenu = false
                     })
-                    state.employees.sortedBy { it.fullName }.forEach { employee ->
+                    state.operationalEmployees.sortedBy { it.fullName }.forEach { employee ->
                         DropdownMenuItem(text = { Text(employee.fullName.ifBlank { employee.code }) }, onClick = {
                             vm.setAttendanceEmployeeFilter(employee.id)
                             employeeMenu = false
@@ -146,23 +148,39 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
             }
         }
         Text("${state.visibleAttendance.size} lượt chấm", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = AppSpacing.xSmall))
-        AttendanceList(state.visibleAttendance, Modifier.weight(1f),
-            adjustmentEnabled = !state.saving,
-            onAdjust = if (vm.hasAdminAccess()) { row ->
-                vm.clearError()
-                target = attendanceAdjustmentTarget(row, state)
-            } else null,
-            onReviewUnscheduled = if (vm.hasAdminAccess()) { row ->
-                vm.clearError()
-                offScheduleTarget = row
-            } else null)
     }
+    AttendanceList(state.visibleAttendance, Modifier.fillMaxSize(),
+        adjustmentEnabled = !state.saving,
+        scanReviewIds = (state.attendance + state.historicalAttendance)
+            .filter { it.type == "SCAN" && it.resolutionStatus == "PENDING" }
+            .map { it.id }.toSet() - state.attendanceClassificationOverrides.map { it.attendanceId }.toSet(),
+        onAdjust = if (vm.hasAdminAccess()) { row ->
+            vm.clearError()
+            target = attendanceAdjustmentTarget(row, state)
+        } else null,
+        onReviewScan = if (vm.hasAdminAccess()) { row ->
+            val source = (state.attendance + state.historicalAttendance).firstOrNull { it.id == row.id }
+            if (source != null) {
+                vm.clearError()
+                scanReview = row to source
+            }
+        } else null,
+        onReviewUnscheduled = if (vm.hasAdminAccess()) { row ->
+            vm.clearError()
+            offScheduleTarget = row
+        } else null,
+        header = filters)
     target?.let { selected ->
         AttendanceAdjustmentDialog(selected, state,
             onDismiss = { if (!state.saving) target = null },
             onSubmit = { adjustment ->
                 if (vm.hasAdminAccess() && !state.saving) vm.adjustAttendance(adjustment) { target = null }
             })
+    }
+    scanReview?.let { (row, source) ->
+        AttendanceScanReviewDialog(row, source, state.saving, state.error,
+            onDismiss = { scanReview = null },
+            onSubmit = { correction -> vm.correctAttendanceClassification(correction) { scanReview = null } })
     }
     offScheduleTarget?.let { selected ->
         OffScheduleReviewDialog(

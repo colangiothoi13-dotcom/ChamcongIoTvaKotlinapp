@@ -22,8 +22,7 @@ void setup() {
   initializeAs608();
 
   showLcd("DANG KET NOI", "WIFI...");
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  beginWifiConnection();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
   uint32_t wifiStarted = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - wifiStarted < 15000) {
@@ -50,7 +49,7 @@ void setup() {
   }
   Serial.println("\nSan sang cham cong");
   if (sensorReady) showReadyScreen();
-  else showLcd("LOI CAM BIEN", "KIEM TRA DAY");
+  else showSensorReconnectScreen();
 }
 
 void loop() {

@@ -27,7 +27,7 @@ private data class ShiftHubItem(
 )
 
 private val shiftHubItems = listOf(
-    ShiftHubItem(AppDestination.SHIFTS, "Quản lý ca sáng, ca chiều và ca bổ sung/tăng ca", Icons.Default.Schedule),
+    ShiftHubItem(AppDestination.SHIFTS, "Ca sáng, ca chiều mặc định và phân tăng ca cho nhân viên", Icons.Default.Schedule),
     ShiftHubItem(AppDestination.SCHEDULE, "Chọn nhiều nhân viên và ngày từ thứ hai đến chủ nhật để phân ca", Icons.Default.Event)
 )
 

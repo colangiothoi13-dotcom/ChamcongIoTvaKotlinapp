@@ -99,6 +99,10 @@ void showLcd(const String& firstLine, const String& secondLine) {
   renderLcd(firstLine, secondLine);
 }
 
+void showSensorReconnectScreen() {
+  showLcd("CAM BIEN LOI", "DANG KET NOI LAI");
+}
+
 bool hasValidClock() {
   return time(nullptr) >= MIN_VALID_UNIX_TIME;
 }
@@ -134,7 +138,8 @@ void showIdleScreen() {
 }
 
 void showReadyScreen() {
-  showIdleScreen();
+  if (sensorReady) showIdleScreen();
+  else showSensorReconnectScreen();
 }
 
 void maybeUpdateIdleClock() {

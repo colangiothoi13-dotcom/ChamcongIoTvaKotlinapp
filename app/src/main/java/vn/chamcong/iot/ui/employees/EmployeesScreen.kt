@@ -30,7 +30,7 @@ fun EmployeesScreen(
     onSalary: (Employee) -> Unit,
     onRemove: (Employee, Boolean) -> Unit
 ) {
-    val departments = listOf("Tất cả") + state.employees.map { it.department.trim() }
+    val departments = listOf("Tất cả") + state.employees.filter { state.showRetired || it.active }.map { it.department.trim() }
         .filter(String::isNotBlank)
         .distinct()
         .sorted()

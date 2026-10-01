@@ -59,6 +59,18 @@ class WeeklySchedulingPresentationTest {
         assertEquals(listOf("morning", "evening"), assignableScheduleShifts(shifts).map { it.id })
     }
 
+    @Test fun assignmentPickerCollapsesDuplicateMorningAndAfternoonShifts() {
+        val shifts = listOf(
+            WorkShift(id = "legacy-morning", category = ShiftCategory.MORNING.name),
+            WorkShift(id = "weekly_v1_morning_0800_1200", category = ShiftCategory.MORNING.name),
+            WorkShift(id = "legacy-afternoon", category = ShiftCategory.EVENING.name),
+            WorkShift(id = "weekly_v1_afternoon_1300_1700", category = ShiftCategory.EVENING.name,
+                startTime = "13:00", endTime = "17:00")
+        )
+        assertEquals(listOf("weekly_v1_morning_0800_1200", "weekly_v1_afternoon_1300_1700"),
+            assignableScheduleShifts(shifts).map { it.id })
+    }
+
     @Test fun scheduleShowsEmployeeAsWorkingAfterLateCheckIn() {
         val date = LocalDate.parse("2026-09-21")
         val shift = WorkShift(

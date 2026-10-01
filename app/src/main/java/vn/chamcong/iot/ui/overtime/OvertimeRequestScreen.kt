@@ -99,8 +99,9 @@ fun EmployeeOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
 fun AdminOvertimeRequestSection(state: MainUiState, vm: MainViewModel) {
     var statusFilter by remember { mutableStateOf<String?>(null) }
     var rejecting by remember { mutableStateOf<OvertimeRequest?>(null) }
+    val operationalIds = state.operationalEmployees.mapTo(mutableSetOf()) { it.id }
     val visibleRequests = state.overtimeRequests.filter { request ->
-        statusFilter == null || request.status == statusFilter
+        request.employeeId in operationalIds && (statusFilter == null || request.status == statusFilter)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {

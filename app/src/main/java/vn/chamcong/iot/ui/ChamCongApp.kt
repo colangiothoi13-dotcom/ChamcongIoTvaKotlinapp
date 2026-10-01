@@ -91,6 +91,7 @@ val adminPrimaryDestinations = listOf(
 )
 
 val adminTaskDestinations = listOf(
+    AppDestination.ATTENDANCE,
     AppDestination.PRESENCE,
     AppDestination.DEVICES,
     AppDestination.SHIFT_MANAGEMENT,
@@ -249,7 +250,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
             state.message?.let { Text(it, color=MaterialTheme.colorScheme.primary, modifier=Modifier.padding(bottom=AppSpacing.small)) }
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (selected) {
-                AppDestination.DASHBOARD -> DashboardScreen(state, vm) { navigate(AppDestination.ATTENDANCE) }
+                AppDestination.DASHBOARD -> DashboardScreen(state, vm, ::navigate)
                 AppDestination.TASKS -> AdminTasksScreen { destination -> navigate(destination) }
                 AppDestination.SHIFT_MANAGEMENT -> ShiftManagementScreen { destination -> navigate(destination) }
                 AppDestination.EMPLOYEES -> EmployeesScreen(
@@ -276,7 +277,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 AppDestination.REPORTS -> ReportsScreen(state, vm)
                 AppDestination.MONTHLY_TIMESHEET -> MonthlyTimesheetScreen(
                     month = state.selectedAdminTimesheetMonth,
-                    employees = state.employees,
+                    employees = state.operationalEmployees,
                     summariesForEmployee = { employeeId -> vm.employeeMonthSummaries(employeeId, state.selectedAdminTimesheetMonth) },
                     onPreviousMonth = { vm.moveAdminTimesheetMonth(-1) },
                     onNextMonth = { vm.moveAdminTimesheetMonth(1) },
@@ -285,7 +286,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 AppDestination.DEPARTMENTS -> DepartmentsScreen(
                     departments = state.departments,
                     employeeCounts = state.departments.associate { department ->
-                        department.id to state.employees.count { employee ->
+                        department.id to state.operationalEmployees.count { employee ->
                             employee.active && (employee.departmentId == department.id || employee.department == department.name)
                         }
                     },
@@ -549,18 +550,24 @@ private fun Dashboard(state: MainUiState) {
     attendance: List<Attendance>,
     modifier: Modifier = Modifier,
     adjustmentEnabled: Boolean = true,
+    scanReviewIds: Set<String> = emptySet(),
     onAdjust: ((Attendance) -> Unit)? = null,
-    onReviewUnscheduled: ((Attendance) -> Unit)? = null
+    onReviewScan: ((Attendance) -> Unit)? = null,
+    onReviewUnscheduled: ((Attendance) -> Unit)? = null,
+    header: @Composable ColumnScope.() -> Unit
 ) = LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+    item { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium), content = header) }
     if (attendance.isEmpty()) item { Text("Chưa có lượt chấm phù hợp") }
-    items(attendance, key = { it.id }) { AttendanceRow(it, adjustmentEnabled, onAdjust, onReviewUnscheduled) }
+    items(attendance, key = { it.id }) { AttendanceRow(it, adjustmentEnabled, onAdjust, onReviewScan, onReviewUnscheduled, it.id in scanReviewIds) }
 }
 
 @Composable private fun AttendanceRow(
     item: Attendance,
     adjustmentEnabled: Boolean = true,
     onAdjust: ((Attendance) -> Unit)? = null,
-    onReviewUnscheduled: ((Attendance) -> Unit)? = null
+    onReviewScan: ((Attendance) -> Unit)? = null,
+    onReviewUnscheduled: ((Attendance) -> Unit)? = null,
+    scanReviewAvailable: Boolean = false
 ) {
     val time = remember(item.timestamp) {
         SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).apply {
@@ -597,7 +604,11 @@ private fun Dashboard(state: MainUiState) {
                     enabled = adjustmentEnabled
                 ) { Text(if (item.offScheduleReviewStatus == "PENDING") "Duyệt ngoài lịch" else "Xử lý chấm ngoài lịch") }
             }
-            if (onAdjust != null && item.offScheduleReviewStatus != "REJECTED") TextButton(
+            if (scanReviewAvailable && onReviewScan != null) TextButton(
+                onClick = { onReviewScan(item) },
+                enabled = adjustmentEnabled && item.employeeId.isNotBlank() && attendanceAdjustmentDate(item) != null
+            ) { Text("Xác nhận / Xóa") }
+            else if (onAdjust != null && item.offScheduleReviewStatus != "REJECTED") TextButton(
                 onClick = { onAdjust(item) },
                 enabled = adjustmentEnabled && item.employeeId.isNotBlank() && attendanceAdjustmentDate(item) != null
             ) { Text("Điều chỉnh") }

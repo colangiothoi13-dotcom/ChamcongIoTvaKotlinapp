@@ -28,7 +28,7 @@ import java.util.Locale
 fun AuditScreen(state: MainUiState) {
     var query by remember { mutableStateOf("") }
     val normalized = query.trim().lowercase()
-    val logs = state.auditLogs.filter { log ->
+    val logs = state.visibleAuditLogs.filter { log ->
         normalized.isBlank() || listOf(log.action, log.targetType, log.targetId, log.actorName, log.details)
             .any { it.lowercase().contains(normalized) }
     }

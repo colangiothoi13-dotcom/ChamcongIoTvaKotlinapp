@@ -55,7 +55,7 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
     var bulkAssignment by remember { mutableStateOf(false) }
     var reviewRequest by remember { mutableStateOf<WeeklyScheduleRequest?>(null) }
     val dates = weekDates(state.selectedWeekStart)
-    val activeEmployees = state.employees.filter { it.active }
+    val activeEmployees = state.operationalEmployees.filter { it.active }
     val attendance = state.attendanceForSummaries
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
@@ -119,9 +119,10 @@ private fun WeeklyScheduleRequestReviewSection(
     onReview: (WeeklyScheduleRequest) -> Unit
 ) {
     val weekStart = state.selectedWeekStart
-    val weekRequests = state.weeklyScheduleRequests.filter { it.weekStart == weekStart.toString() }
+    val operationalIds = state.operationalEmployees.mapTo(mutableSetOf()) { it.id }
+    val weekRequests = state.weeklyScheduleRequests.filter { it.weekStart == weekStart.toString() && it.employeeId in operationalIds }
         .sortedWith(compareBy<WeeklyScheduleRequest> { it.status != WeeklyScheduleRequestStatus.PENDING }.thenBy { it.employeeName })
-    val activeEmployees = state.employees.filter { it.active }
+    val activeEmployees = state.operationalEmployees.filter { it.active }
     val submittedEmployeeIds = weekRequests.map { it.employeeId }.toSet()
     val missingEmployees = activeEmployees.filter { it.id !in submittedEmployeeIds }
     val pending = weekRequests.filter { it.status == WeeklyScheduleRequestStatus.PENDING }
@@ -311,6 +312,7 @@ private fun scheduleStatusTextColor(tone: ScheduleStatusTone) = when (tone) {
 
 @Composable
 private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (LocalDate) -> Unit) {
+    val operationalIds = state.operationalEmployees.mapTo(mutableSetOf()) { it.id }
     val first = month.atDay(1)
     val days = (0 until month.lengthOfMonth()).map { first.plusDays(it.toLong()) }
     val cells: List<LocalDate?> = List(first.dayOfWeek.value - 1) { null } + days
@@ -331,7 +333,7 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
                             androidx.compose.foundation.layout.Spacer(Modifier.size(AppTouchTarget.minimum))
                         } else {
                             val canAssign = date.dayOfWeek != DayOfWeek.SUNDAY
-                            val count = state.schedules.count { it.date == date.toString() }
+                            val count = state.schedules.count { it.date == date.toString() && it.employeeId in operationalIds }
                             Card(
                                 onClick = { if (canAssign) onDay(date) },
                                 enabled = canAssign,
@@ -356,14 +358,14 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
 @Composable
 private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarget, vm: MainViewModel, onDismiss: () -> Unit) {
     val existing = state.schedules.firstOrNull { it.employeeId == target.employee?.id && it.date == target.date.toString() }
-    val assignableShifts = assignableScheduleShifts(state.shifts)
+    val assignableShifts = assignableScheduleShifts(state.shifts + vn.chamcong.iot.domain.defaultShiftTemplates().map { it.resolve() })
     var selectedShiftIds by remember(target.date, target.employee?.id, assignableShifts, existing?.shiftIds) {
         val existingIds = existing?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
             .filter { id -> assignableShifts.any { it.id == id } }
         mutableStateOf(existingIds.ifEmpty { listOfNotNull(assignableShifts.firstOrNull()?.id) })
     }
-    var selectedDepartment by remember(target.date, target.employee?.id) { mutableStateOf(state.employees.map { it.department }.firstOrNull { it.isNotBlank() }.orEmpty()) }
-    var selectedEmployee by remember(target.date, target.employee?.id) { mutableStateOf(target.employee ?: state.employees.firstOrNull { it.active }) }
+    var selectedDepartment by remember(target.date, target.employee?.id) { mutableStateOf(state.operationalEmployees.map { it.department }.firstOrNull { it.isNotBlank() }.orEmpty()) }
+    var selectedEmployee by remember(target.date, target.employee?.id) { mutableStateOf(target.employee ?: state.operationalEmployees.firstOrNull { it.active }) }
     var overrideHours by remember(target.date, target.employee?.id) { mutableStateOf(existing?.workedHoursOverride?.toString().orEmpty()) }
     var adjustmentNote by remember(target.date, target.employee?.id) { mutableStateOf(existing?.adjustmentNote.orEmpty()) }
     AlertDialog(
@@ -374,12 +376,12 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                 Text(if (target.departmentMode) "Ngày: ${target.date}" else "${target.employee?.code} • ${target.employee?.fullName}\nNgày: ${target.date}")
                 if (target.departmentMode) {
                     Text("Phòng ban")
-                    state.employees.map { it.department }.filter(String::isNotBlank).distinct().forEach { department ->
+                    state.operationalEmployees.map { it.department }.filter(String::isNotBlank).distinct().forEach { department ->
                         FilterChip(selected = selectedDepartment == department, onClick = { selectedDepartment = department }, label = { Text(department) })
                     }
                 } else if (target.employee == null) {
                     Text("Nhân viên")
-                    state.employees.filter { it.active }.forEach { candidate ->
+                    state.operationalEmployees.filter { it.active }.forEach { candidate ->
                         FilterChip(
                             selected = selectedEmployee?.id == candidate.id,
                             onClick = { selectedEmployee = candidate },

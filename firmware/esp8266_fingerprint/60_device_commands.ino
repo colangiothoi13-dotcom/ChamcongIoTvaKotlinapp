@@ -262,7 +262,7 @@ bool finishDeviceCommand() {
   delay(1500);
   if (pendingCommandType == "DELETE_FINGERPRINT" || pendingCommandType == "ENROLL_FINGERPRINT") {
     if (sensorReady) startWaitingForFingerRemoval();
-    else showLcd("LOI CAM BIEN", "KIEM TRA DAY");
+    else showSensorReconnectScreen();
   } else {
     showReadyScreen();
   }

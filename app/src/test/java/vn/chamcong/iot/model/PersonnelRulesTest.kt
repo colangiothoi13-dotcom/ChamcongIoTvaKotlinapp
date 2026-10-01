@@ -1,7 +1,14 @@
 ﻿package vn.chamcong.iot.model
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.YearMonth
 class PersonnelRulesTest {
+ @Test fun retiredEmployeeDisappearsStartingNextMonth() {
+  val employee = Employee(id="e1", active=false, terminationDate="2026-09-27")
+  assertTrue(employee.visibleOutsideRetiredList(YearMonth.of(2026, 9)))
+  assertFalse(employee.visibleOutsideRetiredList(YearMonth.of(2026, 10)))
+  assertTrue(employee.copy(active=true).visibleOutsideRetiredList(YearMonth.of(2026, 10)))
+ }
  @Test fun skipsExistingCodes() { assertEquals("NV0013", nextEmployeeCode(3, listOf("NV0012", "OLD-99"))) }
  @Test fun neverReusesRetiredSequence() { assertEquals("NV0101", nextEmployeeCode(100, listOf("NV0001"))) }
  @Test fun snapshotSurvivesChanges() {

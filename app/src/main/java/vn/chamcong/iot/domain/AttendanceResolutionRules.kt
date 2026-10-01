@@ -45,8 +45,9 @@ fun validateAttendanceClassificationOverride(override: AttendanceClassificationO
     require(override.sourceTimestamp != Instant.EPOCH) { "Thiếu thời điểm lượt chấm gốc" }
     require(override.sourceType.isNotBlank() && override.sourceStatus.isNotBlank()) { "Thiếu phân loại gốc" }
     require(override.sourceResolutionStatus.isNotBlank()) { "Thiếu trạng thái xử lý gốc" }
-    require(override.correctedType in AttendanceType.entries.map { it.name }) { "Phân loại vào/ra không hợp lệ" }
-    require(override.correctedStatus in AttendanceStatus.entries.map { it.name }) { "Trạng thái công không hợp lệ" }
+    require(override.correctedType in AttendanceType.entries.map { it.name } + "DISCARDED") { "Phân loại vào/ra không hợp lệ" }
+    require(override.correctedStatus in AttendanceStatus.entries.map { it.name } + "DISCARDED") { "Trạng thái công không hợp lệ" }
+    require((override.correctedType == "DISCARDED") == (override.correctedStatus == "DISCARDED")) { "Trạng thái loại bỏ không hợp lệ" }
     require(override.reason.isNotBlank() && override.reason.length <= 500) { "Lý do bắt buộc và tối đa 500 ký tự" }
     require(override.actorId.isNotBlank() && override.actorName.isNotBlank()) { "Thiếu thông tin Admin thực hiện" }
     require(override.previousType != override.correctedType || override.previousStatus != override.correctedStatus) {
@@ -78,7 +79,13 @@ fun applyAttendanceClassificationOverrides(
         val correction = latestByScan[row.id] ?: return@map row
         val scanTimestamp = row.timestamp.toDate().toInstant()
         if (row.id.isBlank() || scanTimestamp != correction.sourceTimestamp) row
-        else row.copy(type = correction.correctedType, status = correction.correctedStatus)
+        else row.copy(
+            type = correction.correctedType,
+            status = correction.correctedStatus,
+            resolutionStatus = if (correction.sourceType == "SCAN") {
+                if (correction.correctedType == "DISCARDED") "DISCARDED" else AttendanceResolutionStatus.ACCEPTED.name
+            } else row.resolutionStatus
+        )
     }
 }
 

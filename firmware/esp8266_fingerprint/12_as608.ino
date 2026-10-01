@@ -14,6 +14,7 @@ void setSensorError(const String& message) {
   sensorError = message;
   setLatestError(message);
   Serial.printf("AS608: vo hieu hoa doc cam bien (%s)\n", sensorError.c_str());
+  showSensorReconnectScreen();
 }
 
 void markSensorReady() {
@@ -41,7 +42,6 @@ void initializeAs608() {
   if (!sensorConnected) {
     Serial.println("Khong tim thay cam bien van tay");
     setSensorError("AS608 khong xac thuc duoc");
-    showLcd("LOI CAM BIEN", "KIEM TRA DAY");
   } else {
     markSensorReady();
   }
@@ -107,6 +107,7 @@ void maybeRecoverSensor() {
   if (sensorReady || millis() - lastSensorRetry < SENSOR_RETRY_INTERVAL_MS) return;
   lastSensorRetry = millis();
   Serial.println("AS608: thu ket noi lai cam bien");
+  showSensorReconnectScreen();
   if (finger.verifyPassword()) {
     markSensorReady();
   } else {
@@ -119,7 +120,7 @@ bool handleFingerprintRemoval() {
 
   if (!sensorReady) {
     waitingForFingerRemoval = false;
-    showLcd("LOI CAM BIEN", "KIEM TRA DAY");
+    showSensorReconnectScreen();
     delay(200);
     return true;
   }
@@ -130,7 +131,6 @@ bool handleFingerprintRemoval() {
     showReadyScreen();
   } else if (imageStatus != FINGERPRINT_OK) {
     setSensorError("AS608 loi khi kiem tra ngon tay");
-    showLcd("LOI CAM BIEN", "KIEM TRA DAY");
     waitingForFingerRemoval = false;
   } else if (millis() - fingerRemovalStarted >= 10000) {
     showLcd("NHAC NGON TAY", "RA KHOI CAM BIEN");
@@ -150,7 +150,6 @@ void handleFingerprintScan() {
   if (imageStatus != FINGERPRINT_OK) {
     if (imageStatus != FINGERPRINT_NOFINGER) {
       setSensorError("AS608 loi khi doc van tay");
-      showLcd("LOI CAM BIEN", "KIEM TRA DAY");
     }
     delay(80);
     return;

@@ -28,8 +28,9 @@ internal fun WeeklyScheduleWarning(state: MainUiState) {
         while (true) { now = Instant.now(); delay(1000) }
     }
     val weekStart = mondayOfWeek(state.selectedWeekStart)
-    val requests = state.weeklyScheduleRequests.filter { it.weekStart == weekStart.toString() }
-    val missingCount = state.employees.count { employee -> employee.active && requests.none { it.employeeId == employee.id } }
+    val operationalIds = state.operationalEmployees.mapTo(mutableSetOf()) { it.id }
+    val requests = state.weeklyScheduleRequests.filter { it.weekStart == weekStart.toString() && it.employeeId in operationalIds }
+    val missingCount = state.operationalEmployees.count { employee -> employee.active && requests.none { it.employeeId == employee.id } }
     val pendingCount = requests.count { it.status == WeeklyScheduleRequestStatus.PENDING }
     val revisionCount = requests.count { it.status == WeeklyScheduleRequestStatus.NEEDS_REVISION }
     val employeeDeadline = weekStart.minusDays(2).atTime(12, 0).atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant()
@@ -60,9 +61,9 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
     var end by remember(template) { mutableStateOf("") }
     val resolved = runCatching { template.resolve(start, end) }
     val validation = resolved.exceptionOrNull()?.localizedMessage
-    val unavailableEmployees = unavailableWeeklyEmployeeIds(state.employees, employees)
+    val unavailableEmployees = unavailableWeeklyEmployeeIds(state.operationalEmployees, employees)
     val selectionValidation = resolved.getOrNull()?.let { shift ->
-        runCatching { weeklyAssignmentPayload(state.employees, employees, week, dates, shift, "preview") }
+        runCatching { weeklyAssignmentPayload(state.operationalEmployees, employees, week, dates, shift, "preview") }
     }
     val validSelection = selectionValidation?.isSuccess == true
     AlertDialog(
@@ -79,12 +80,12 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
                         Text("Bỏ nhân viên không còn khả dụng")
                     }
                 }
-                state.employees.filter { it.active }.forEach { employee ->
+                state.operationalEmployees.filter { it.active }.forEach { employee ->
                     SelectionRow("${employee.code} • ${employee.fullName}", employee.id in employees, !state.saving) {
                         employees = if (it) employees + employee.id else employees - employee.id
                     }
                 }
-                if (state.employees.none { it.active }) Text("Chưa có nhân viên đang làm")
+                if (state.operationalEmployees.none { it.active }) Text("Chưa có nhân viên đang làm")
                 Text("Chọn ngày (${dates.size})")
                 weekDates(week).forEachIndexed { index, date ->
                     SelectionRow("Thứ ${index + 2} • $date", date in dates, !state.saving) {
@@ -104,7 +105,7 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
                         label = { Text("Giờ kết thúc (HH:mm)") }, isError = validation != null)
                     validation?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
-                Text("${employees.size * dates.size} lịch sẽ được lưu. Lịch cùng nhân viên/ngày sẽ được cập nhật; mỗi ngày chỉ có một ca.")
+                Text("${employees.size * dates.size} lịch sẽ được lưu. Ca cùng loại trong ngày sẽ được cập nhật; ca sáng hoặc ca chiều đã phân vẫn được giữ lại.")
                 selectionValidation?.exceptionOrNull()?.localizedMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }

@@ -52,6 +52,7 @@ import vn.chamcong.iot.model.DeviceCommandType
 import vn.chamcong.iot.model.Department
 import vn.chamcong.iot.model.Announcement
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.visibleOutsideRetiredList
 import vn.chamcong.iot.model.EmployeeDaySummary
 import vn.chamcong.iot.model.AppNotification
 import vn.chamcong.iot.model.AuditLog
@@ -136,6 +137,26 @@ data class MainUiState(
     val message: String? = null,
     val error: String? = null
 ) {
+    val operationalEmployees: List<Employee>
+        get() = employees.filter { it.visibleOutsideRetiredList() }
+
+    private val hiddenRetiredEmployeeIds: Set<String>
+        get() = employees.filterNot { it.visibleOutsideRetiredList() }.mapTo(mutableSetOf()) { it.id }
+
+    val visibleAdminNotifications: List<AppNotification>
+        get() = notifications.filter { it.recipientEmployeeId !in hiddenRetiredEmployeeIds }
+
+    val visibleAuditLogs: List<AuditLog>
+        get() {
+            val hidden = employees.filterNot { it.visibleOutsideRetiredList() }
+            return auditLogs.filter { log -> hidden.none { employee ->
+                log.targetId == employee.id || log.details.contains("employeeId=${employee.id}") ||
+                    (employee.fullName.isNotBlank() && Regex(
+                        "(?<!\\p{L})${Regex.escape(employee.fullName)}(?!\\p{L})", RegexOption.IGNORE_CASE
+                    ).containsMatchIn(log.details))
+            } }
+        }
+
     private val allAttendance: List<Attendance>
         get() = (attendance + historicalAttendance)
             .distinctBy { row ->
@@ -146,7 +167,10 @@ data class MainUiState(
 
     /** Effective rows are derived locally in Spark mode; Firestore raw scans stay immutable. */
     val sparkResolvedAttendance: List<Attendance>
-        get() = resolveSparkPendingAttendance(allAttendance, schedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh"))
+        get() = resolveSparkPendingAttendance(
+            applyAttendanceClassificationOverrides(allAttendance, attendanceClassificationOverrides),
+            schedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh")
+        )
     private val allEmployeeAttendance: List<Attendance>
         get() = (employeeAttendance + employeeAttendanceHistory)
             .distinctBy { row ->
@@ -155,24 +179,28 @@ data class MainUiState(
                 }
             }
     val employeeSparkResolvedAttendance: List<Attendance>
-        get() = resolveSparkPendingAttendance(allEmployeeAttendance, employeeSchedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh"))
+        get() = resolveSparkPendingAttendance(
+            applyAttendanceClassificationOverrides(allEmployeeAttendance, attendanceClassificationOverrides),
+            employeeSchedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh")
+        )
     val employeeAttendanceForSummaries: List<Attendance>
         get() = applyAttendanceClassificationOverrides(employeeSparkResolvedAttendance, attendanceClassificationOverrides)
+            .filterNot { it.type == "DISCARDED" }
     val attendanceForSummaries: List<Attendance>
         get() = applyOffScheduleReviewDecisions(
             applyAttendanceClassificationOverrides(sparkResolvedAttendance, attendanceClassificationOverrides),
             offScheduleAttendanceReviews,
             ZoneId.of("Asia/Ho_Chi_Minh")
-        )
+        ).filter { it.type != "DISCARDED" && it.employeeId !in hiddenRetiredEmployeeIds }
 
     // Derived on every state snapshot, including schedule, shift and adjustment emissions.
     val dashboard: DashboardSummary
-        get() = summarizeDashboard(employees, attendanceForSummaries, selectedWeekStart,
+        get() = summarizeDashboard(operationalEmployees, attendanceForSummaries, selectedWeekStart,
             schedules = schedules, shifts = shifts, adjustments = attendanceAdjustments)
 
     val dailyDashboard: DailyDashboardSummary
         get() = summarizeDailyDashboard(
-            employees = employees,
+            employees = operationalEmployees,
             attendance = attendanceForSummaries,
             schedules = schedules,
             shifts = shifts,
@@ -187,7 +215,7 @@ data class MainUiState(
 
     val visibleAttendance: List<Attendance>
         get() {
-            val byEmployee = employees.associateBy(Employee::id)
+            val byEmployee = operationalEmployees.associateBy(Employee::id)
             val zone = ZoneId.of("Asia/Ho_Chi_Minh")
             val today = LocalDate.now(zone)
             val selectedRange: AttendanceDateRange? = when (attendanceDatePreset) {
@@ -214,11 +242,13 @@ data class MainUiState(
         }
 
     val visibleLeaveRequests: List<LeaveRequest>
-        get() = leaveRequests.filter { selectedRequestFilter.isNullOrBlank() || it.status == selectedRequestFilter }
+        get() = leaveRequests.filter {
+            it.employeeId !in hiddenRetiredEmployeeIds && (selectedRequestFilter.isNullOrBlank() || it.status == selectedRequestFilter)
+        }
 
     val presenceRecords: List<PresenceRecord>
         get() = classifyPresenceForEmployees(
-            employees = employees,
+            employees = operationalEmployees,
             attendance = attendanceForSummaries,
             requests = leaveRequests,
             date = selectedPresenceDate,
@@ -230,7 +260,7 @@ data class MainUiState(
 
     val weeklyWorkSummary: WeeklyWorkSummary
         get() = summarizeWeeklyWork(
-            employees = employees,
+            employees = operationalEmployees,
             attendance = attendanceForSummaries,
             schedules = schedules,
             shifts = shifts.associateBy { it.id },
@@ -623,6 +653,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveShift(shift: WorkShift, done: () -> Unit) = perform(done) {
         repository.saveShift(shift)
         "Đã lưu ca ${shift.name}"
+    }
+    fun assignOvertimeToEmployee(employeeId: String, workDate: String, reason: String, done: () -> Unit) = perform(done) {
+        repository.assignOvertimeToEmployee(employeeId, workDate, reason)
+        "Đã phân ca tăng ca 18:00–22:00 cho nhân viên"
     }
     fun assignShift(schedule: WorkSchedule, done: () -> Unit) = perform(done) {
         repository.saveSchedule(schedule)
@@ -1047,7 +1081,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun reportAttendanceRows(filter: ReportFilter): List<AttendanceReportRow> = vn.chamcong.iot.domain.attendanceReportRows(
         filter = filter,
-        employees = _state.value.employees,
+        employees = _state.value.operationalEmployees,
         attendance = _state.value.attendanceForSummaries,
         schedules = _state.value.schedules,
         shifts = _state.value.shifts,
@@ -1059,7 +1093,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun kpiBonusBreakdowns(month: YearMonth): Map<String, KpiBonusBreakdown> {
         val current = _state.value
         return calculateMonthlyKpiBonuses(
-            employees = current.employees,
+            employees = current.operationalEmployees,
             month = month,
             attendance = current.attendanceForSummaries,
             schedules = current.schedules,

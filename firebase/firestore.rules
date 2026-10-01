@@ -137,13 +137,16 @@ service cloud.firestore {
         && nonBlank(data.attendanceId) && nonBlank(data.employeeId) && nonBlank(data.employeeName)
         && data.scheduleDate is string && data.scheduleDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
         && data.sourceTimestamp is timestamp
-        && data.sourceType in ['CHECK_IN', 'CHECK_OUT']
-        && data.sourceStatus in ['ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL']
-        && data.sourceResolutionStatus == 'ACCEPTED'
-        && data.previousType in ['CHECK_IN', 'CHECK_OUT']
-        && data.previousStatus in ['ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL']
-        && data.correctedType in ['CHECK_IN', 'CHECK_OUT']
-        && data.correctedStatus in ['ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL']
+        && ((data.sourceType in ['CHECK_IN', 'CHECK_OUT']
+            && data.sourceStatus in ['ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL']
+            && data.sourceResolutionStatus == 'ACCEPTED')
+          || (data.sourceType == 'SCAN' && data.sourceStatus == 'PENDING'
+            && data.sourceResolutionStatus == 'PENDING'))
+        && data.previousType in ['SCAN', 'CHECK_IN', 'CHECK_OUT', 'DISCARDED']
+        && data.previousStatus in ['PENDING', 'ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL', 'DISCARDED']
+        && data.correctedType in ['CHECK_IN', 'CHECK_OUT', 'DISCARDED']
+        && data.correctedStatus in ['ON_TIME', 'LATE', 'EARLY_LEAVE', 'NORMAL', 'DISCARDED']
+        && (data.correctedType == 'DISCARDED' ? data.correctedStatus == 'DISCARDED' : data.correctedStatus != 'DISCARDED')
         && (data.previousType != data.correctedType || data.previousStatus != data.correctedStatus)
         && nonBlank(data.reason) && data.reason.size() <= 500
         && data.actorId == request.auth.uid && nonBlank(data.actorName)
@@ -792,9 +795,26 @@ service cloud.firestore {
           || (updated.status == 'REJECTED' && nonBlank(updated.rejectionReason)))
         && matchingOvertimeReviewAudit(id, existing, updated);
     }
+    function validAdminOvertimeAssignment(id, data) {
+      let auditPath = /databases/$(database)/documents/audit_logs/$(id + '_OVERTIME_ASSIGN');
+      let audit = getAfter(auditPath).data;
+      return isAdmin() && validOvertimeRequest(data)
+        && matchesActiveEmployeeSnapshot(data)
+        && id == data.employeeId + '_' + data.workDate
+        && data.status == 'APPROVED'
+        && nonBlank(data.reason)
+        && data.createdAt == request.time && data.reviewedAt == request.time
+        && data.reviewerId == request.auth.uid && nonBlank(data.reviewerName)
+        && data.rejectionReason == null
+        && !exists(auditPath) && existsAfter(auditPath)
+        && audit.action == 'OVERTIME_ASSIGN'
+        && audit.targetType == 'overtimeRequest' && audit.targetId == id
+        && audit.actorId == request.auth.uid && audit.actorName == data.reviewerName
+        && audit.reason == data.reason && audit.createdAt == request.time;
+    }
     match /overtimeRequests/{id} {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
-      allow create: if isEmployee()
+      allow create: if (isEmployee()
         && validOvertimeRequest(request.resource.data)
         && nonBlank(request.resource.data.reason)
         && request.resource.data.startTime == '18:00'
@@ -808,7 +828,8 @@ service cloud.firestore {
         && request.resource.data.reviewerId == null
         && request.resource.data.reviewerName == null
         && request.resource.data.reviewedAt == null
-        && request.resource.data.rejectionReason == null;
+        && request.resource.data.rejectionReason == null)
+        || validAdminOvertimeAssignment(id, request.resource.data);
       allow update: if isAdmin()
         && validOvertimeReview(id, resource.data, request.resource.data);
       allow delete: if false;

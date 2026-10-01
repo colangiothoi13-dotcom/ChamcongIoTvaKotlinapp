@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
+import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.model.AttendanceResolutionStatus
 import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.OffScheduleAttendanceReview
@@ -19,6 +20,25 @@ import java.time.ZoneId
 import java.util.Date
 
 class AttendanceResolutionRulesTest {
+    @Test
+    fun pendingScanCanBeConfirmedOrDiscardedWithoutChangingRawScan() {
+        val instant = Instant.parse("2026-09-14T01:00:00Z")
+        val raw = Attendance(id = "scan-1", employeeId = "e1", employeeName = "An",
+            type = "SCAN", status = "PENDING", resolutionStatus = "PENDING",
+            timestamp = Timestamp(Date.from(instant)))
+        val base = AttendanceClassificationOverride(attendanceId = raw.id, employeeId = raw.employeeId,
+            employeeName = raw.employeeName, scheduleDate = "2026-09-14", sourceTimestamp = instant,
+            sourceType = raw.type, sourceStatus = raw.status, sourceResolutionStatus = raw.resolutionStatus,
+            previousType = raw.type, previousStatus = raw.status, correctedType = "CHECK_IN",
+            correctedStatus = "NORMAL", reason = "Admin confirmed", actorId = "admin", actorName = "Admin")
+        val confirmed = applyAttendanceClassificationOverrides(listOf(raw), listOf(base)).single()
+        assertTrue(isAcceptedAttendance(confirmed))
+        assertEquals("SCAN", raw.type)
+        val discarded = applyAttendanceClassificationOverrides(listOf(raw),
+            listOf(base.copy(correctedType = "DISCARDED", correctedStatus = "DISCARDED"))).single()
+        assertFalse(isAcceptedAttendance(discarded))
+        assertEquals("DISCARDED", discarded.type)
+    }
     private val zone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val scheduleDate = LocalDate.of(2026, 9, 14)
     private val overnightShift = WorkShift(

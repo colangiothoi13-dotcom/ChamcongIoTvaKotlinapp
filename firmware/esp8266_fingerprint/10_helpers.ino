@@ -1,12 +1,41 @@
 // Shared network, error, and attendance-failure helpers.
 
+void beginWifiConnection() {
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  lastWifiReconnectAttempt = millis();
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
 void maintainWifiConnection() {
-  if (WiFi.status() == WL_CONNECTED) return;
+  const wl_status_t status = WiFi.status();
+  if (status == WL_CONNECTED) {
+    if (!wifiWasConnected) {
+      wifiWasConnected = true;
+      Serial.println("WIFI da ket noi");
+      if (time(nullptr) < MIN_VALID_UNIX_TIME) {
+        configTime(0, 0, "pool.ntp.org", "time.google.com");
+        Serial.println("WIFI: dang dong bo lai gio NTP");
+      }
+      if (attendanceOutboxBytes() > 0) {
+        attendanceSyncIntervalMs = ATTENDANCE_SYNC_INTERVAL_MS;
+        lastAttendanceSync = millis() - ATTENDANCE_SYNC_INTERVAL_MS;
+      }
+    }
+    return;
+  }
+
+  if (wifiWasConnected) {
+    wifiWasConnected = false;
+    Serial.printf("WIFI mat ket noi (status=%d)\n", status);
+  }
   if (millis() - lastWifiReconnectAttempt < WIFI_RECONNECT_INTERVAL_MS) return;
 
   lastWifiReconnectAttempt = millis();
-  Serial.printf("WIFI mat ket noi, dang thu ket noi lai (status=%d)\n", WiFi.status());
-  WiFi.reconnect();
+  Serial.printf("WIFI dang ket noi lai (status=%d)\n", status);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
 void deferHttpsRequests(const char* operation) {

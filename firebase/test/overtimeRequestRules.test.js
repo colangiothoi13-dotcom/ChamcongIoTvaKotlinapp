@@ -88,6 +88,32 @@ async function createOvertime(actor, employeeId, workDate, overrides = {}) {
   return { id, response };
 }
 
+async function assignOvertime(actor, employeeId, workDate, includeAudit = true) {
+  const id = `${employeeId}_${workDate}`;
+  const reason = "Admin assigned overtime";
+  const data = overtimeFields(employeeId, workDate, {
+    reason: { stringValue: reason }, status: { stringValue: "APPROVED" },
+    reviewerId: { stringValue: actor.uid }, reviewerName: { stringValue: "Rules Admin" }
+  });
+  delete data.reviewedAt;
+  const writes = [{
+    update: { name: documentName(`overtimeRequests/${id}`), fields: data },
+    updateTransforms: [
+      { fieldPath: "createdAt", setToServerValue: "REQUEST_TIME" },
+      { fieldPath: "reviewedAt", setToServerValue: "REQUEST_TIME" }
+    ]
+  }];
+  if (includeAudit) writes.push({
+    update: { name: documentName(`audit_logs/${id}_OVERTIME_ASSIGN`), fields: {
+      actorId: { stringValue: actor.uid }, actorName: { stringValue: "Rules Admin" },
+      action: { stringValue: "OVERTIME_ASSIGN" }, targetType: { stringValue: "overtimeRequest" },
+      targetId: { stringValue: id }, reason: { stringValue: reason }, details: { stringValue: reason }
+    } },
+    updateTransforms: [{ fieldPath: "createdAt", setToServerValue: "REQUEST_TIME" }]
+  });
+  return request(`${database}/documents:commit`, "POST", actor.token, { writes });
+}
+
 async function reviewOvertime(actor, id, status, reason, { includeAudit = true } = {}) {
   const reviewerName = actor.uid === admin.uid ? "Rules Admin" : "Rules Employee";
   const writes = [{
@@ -138,6 +164,12 @@ before(async () => {
   await seedEmployee(employee.employeeId, `Employee ${employee.employeeId}`, "Engineering");
   await seedEmployee(otherEmployee.employeeId, `Employee ${otherEmployee.employeeId}`, "Engineering");
   await seedEmployee(inactiveEmployee.employeeId, `Employee ${inactiveEmployee.employeeId}`, "Engineering", false);
+});
+
+test("admin_directly_assigns_overtime_with_audit_record", async () => {
+  await expectStatus(await assignOvertime(admin, employee.employeeId, "2026-10-05"), 200, "admin assignment");
+  await expectStatus(await assignOvertime(admin, otherEmployee.employeeId, "2026-10-06", false), 403,
+    "assignment without audit");
 });
 
 test("employee creates a pending overtime request for their own deterministic document", async () => {

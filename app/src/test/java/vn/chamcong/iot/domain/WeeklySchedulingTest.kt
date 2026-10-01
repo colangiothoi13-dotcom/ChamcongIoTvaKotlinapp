@@ -50,6 +50,50 @@ class WeeklySchedulingTest {
         assertTrue(templates.all { it.category in setOf("MORNING", "EVENING") })
     }
 
+    @Test fun weeklyAssignmentReusesStoredShiftSettingsButRejectsChangedTimeWindow() {
+        val morning = defaultShiftTemplates().first().resolve()
+        val stored = morning.copy(name = "Ca sáng hiện tại", allowEarlyMinutes = 30, lateGraceMinutes = 5)
+        assertEquals(stored, weeklyAssignmentShift(morning, stored))
+        assertEquals(morning, weeklyAssignmentShift(morning, null))
+        assertTrue(runCatching {
+            weeklyAssignmentShift(morning, stored.copy(endTime = "11:30"))
+        }.isFailure)
+        assertTrue(runCatching {
+            weeklyAssignmentShift(morning, stored.copy(active = false))
+        }.isFailure)
+    }
+
+    @Test fun weeklyAssignmentKeepsOtherDayShiftAndEarlierHourAdjustmentOnRetry() {
+        val morning = defaultShiftTemplates()[0].resolve()
+        val afternoon = defaultShiftTemplates()[1].resolve()
+        val incoming = WorkSchedule(employeeId = "e1", employeeName = "An", date = "2026-09-21",
+            shiftId = morning.id, shiftIds = listOf(morning.id), shiftName = morning.name)
+        val existing = WorkSchedule(employeeId = "e1", date = incoming.date,
+            shiftId = afternoon.id, shiftIds = listOf(afternoon.id), shiftName = afternoon.name,
+            overtimeHours = 2, workedHoursOverride = 7.5, adjustmentNote = "Đã duyệt", note = "Ghi chú cũ")
+        val shifts = listOf(morning, afternoon).associateBy { it.id }
+        val merged = mergeWeeklyAssignment(incoming, existing, morning, shifts)
+        assertEquals(listOf(morning.id, afternoon.id), merged.shiftIds)
+        assertEquals("Ca sáng + Ca chiều", merged.shiftName)
+        assertEquals(2, merged.overtimeHours)
+        assertEquals(7.5, merged.workedHoursOverride!!, 0.0)
+        assertEquals("Đã duyệt", merged.adjustmentNote)
+        assertEquals("Ghi chú cũ", merged.note)
+        assertEquals(merged, mergeWeeklyAssignment(incoming, merged, morning, shifts))
+    }
+
+    @Test fun weeklyAssignmentReplacesOnlyShiftOfSameCategory() {
+        val morning = defaultShiftTemplates()[0].resolve()
+        val afternoon = defaultShiftTemplates()[1].resolve()
+        val oldMorning = morning.copy(id = "old_morning", startTime = "07:00", endTime = "11:00")
+        val incoming = WorkSchedule(employeeId = "e1", date = "2026-09-21", shiftId = morning.id)
+        val existing = incoming.copy(shiftId = oldMorning.id, shiftIds = listOf(oldMorning.id, afternoon.id))
+        val merged = mergeWeeklyAssignment(incoming, existing, morning,
+            listOf(morning, afternoon, oldMorning).associateBy { it.id })
+        assertEquals(listOf(morning.id, afternoon.id), merged.shiftIds)
+        assertFalse(oldMorning.id in merged.shiftIds)
+    }
+
     @Test fun callerConstructedSupplementaryAndReservedVirtualShiftsCannotBeAssigned() {
         val custom = WorkShift(id = "custom-overtime", name = "Overtime", category = "SUPPLEMENTARY",
             startTime = "18:00", endTime = "21:00", effectiveFrom = "2026-01-01")

@@ -36,6 +36,47 @@ fun defaultShiftTemplates(): List<ShiftTemplate> = listOf(
     ShiftTemplate("afternoon", "Ca chiều", "EVENING", "13:00", "17:00")
 )
 
+/** Reuse the saved shift's settings while keeping the stable template ID tied to its time window. */
+fun weeklyAssignmentShift(template: WorkShift, stored: WorkShift?): WorkShift {
+    validateScheduleShift(template)
+    if (stored == null) return template
+    require(stored.id == template.id && stored.category == template.category &&
+        stored.startTime == template.startTime && stored.endTime == template.endTime && stored.active) {
+        "Ca mẫu đã đổi giờ, loại hoặc ngừng hoạt động. Vui lòng kiểm tra cấu hình ca."
+    }
+    validateScheduleShift(stored)
+    return stored
+}
+
+/** Add or replace the selected category without discarding another shift already assigned that day. */
+fun mergeWeeklyAssignment(
+    incoming: WorkSchedule,
+    existing: WorkSchedule?,
+    selectedShift: WorkShift,
+    shiftsById: Map<String, WorkShift>
+): WorkSchedule {
+    val previousIds = existing?.let(::scheduledShiftIds).orEmpty()
+    val retained = previousIds.map { id ->
+        shiftsById[id] ?: error("Ca đã phân trước đó không còn tồn tại: $id")
+    }.filter { it.category != selectedShift.category }
+    require(retained.all { it.active && canAssignScheduleShift(it) }) {
+        "Một ca đã phân trước đó không còn hoạt động. Vui lòng kiểm tra lịch ngày ${incoming.date}."
+    }
+    val selected = (retained + selectedShift).distinctBy { it.id }.sortedBy { it.startTime }
+    require(selected.size in 1..2 && selected.map { it.category }.distinct().size == selected.size) {
+        "Mỗi ngày chỉ được có một ca sáng và một ca chiều"
+    }
+    return incoming.copy(
+        shiftId = selected.first().id,
+        shiftIds = selected.map { it.id },
+        shiftName = selected.joinToString(" + ") { it.name },
+        overtimeHours = existing?.overtimeHours ?: incoming.overtimeHours,
+        workedHoursOverride = existing?.workedHoursOverride,
+        adjustmentNote = existing?.adjustmentNote.orEmpty(),
+        note = existing?.note.orEmpty()
+    )
+}
+
 private val weeklyScheduleZone = ZoneId.of("Asia/Ho_Chi_Minh")
 
 fun weeklyScheduleSubmissionDeadline(

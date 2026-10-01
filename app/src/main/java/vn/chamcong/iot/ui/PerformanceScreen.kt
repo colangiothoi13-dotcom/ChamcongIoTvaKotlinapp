@@ -48,10 +48,10 @@ internal fun PerformanceScreen(state: MainUiState, vm: MainViewModel) {
             style = MaterialTheme.typography.bodySmall
         )
         LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-            if (state.employees.isEmpty()) {
+            if (state.operationalEmployees.isEmpty()) {
                 item { Text("Chưa có nhân viên để tính hiệu suất") }
             }
-            items(state.employees, key = { it.id }) { employee ->
+            items(state.operationalEmployees, key = { it.id }) { employee ->
                 val breakdown = breakdowns[employee.id] ?: KpiBonusBreakdown()
                 PerformanceCard(employee.fullName.ifBlank { employee.id }, employee.code, breakdown)
             }

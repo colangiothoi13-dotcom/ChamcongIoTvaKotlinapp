@@ -15,7 +15,7 @@ class NavigationStructureTest {
     @Test
     fun adminTaskHubKeepsEveryNonPrimaryAdminModuleReachable() {
         assertEquals(
-            listOf("Có mặt", "Thiết bị", "Phân ca", "Ca làm", "Lịch", "Lương", "Hiệu suất", "Báo cáo", "Bảng công tháng", "Nhật ký", "Phòng ban", "Thông báo"),
+            listOf("Chấm công", "Có mặt", "Thiết bị", "Phân ca", "Ca làm", "Lịch", "Lương", "Hiệu suất", "Báo cáo", "Bảng công tháng", "Nhật ký", "Phòng ban", "Thông báo"),
             adminTaskDestinations.map { it.title }
         )
     }

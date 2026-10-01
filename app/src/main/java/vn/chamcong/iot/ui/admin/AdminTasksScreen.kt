@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Campaign
@@ -63,6 +64,7 @@ val adminTaskGroups = listOf(
     AdminTaskGroup(
         "Vận hành",
         listOf(
+            AdminTaskItem(AppDestination.ATTENDANCE, "Xem và xử lý lượt chấm công", Icons.Default.Fingerprint),
             AdminTaskItem(AppDestination.PRESENCE, "Biết nhanh ai đang có mặt", Icons.Default.HowToReg),
             AdminTaskItem(AppDestination.DEVICES, "Theo dõi trạng thái và điều khiển thiết bị từ xa", Icons.Default.Devices)
         )
@@ -71,7 +73,7 @@ val adminTaskGroups = listOf(
         "Lịch & ca",
         listOf(
             AdminTaskItem(AppDestination.SHIFT_MANAGEMENT, "Mở nhanh quản lý ca và lịch làm việc", Icons.Default.CalendarMonth),
-            AdminTaskItem(AppDestination.SHIFTS, "Tạo ca sáng, ca chiều và ca bổ sung", Icons.Default.Schedule),
+            AdminTaskItem(AppDestination.SHIFTS, "Hai ca mặc định và phân tăng ca cho nhân viên", Icons.Default.Schedule),
             AdminTaskItem(AppDestination.SCHEDULE, "Phân ca theo tuần/tháng và sao chép lịch", Icons.Default.Event)
         )
     ),

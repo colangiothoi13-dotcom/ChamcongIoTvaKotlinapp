@@ -25,6 +25,10 @@ import vn.chamcong.iot.domain.validateScheduleShift
 import vn.chamcong.iot.domain.validateWorkedHoursOverride
 import vn.chamcong.iot.domain.validateAuditLog
 import vn.chamcong.iot.domain.validateAttendanceClassificationOverride
+import vn.chamcong.iot.domain.defaultShiftTemplates
+import vn.chamcong.iot.domain.mergeWeeklyAssignment
+import vn.chamcong.iot.domain.scheduledShiftIds
+import vn.chamcong.iot.domain.weeklyAssignmentShift
 import vn.chamcong.iot.domain.validateEmployeeAccountInput
 import vn.chamcong.iot.domain.isWeeklyScheduleSubmissionOpen
 import vn.chamcong.iot.model.*
@@ -583,10 +587,11 @@ class FirebaseRepository(
         val stored = adjustment.copy(actorId = currentUserId, actorName = currentUserName, reason = adjustment.reason.trim())
         validateAttendanceAdjustment(stored)
         val collection = db.collection("attendanceAdjustments")
-        val previous = collection.whereEqualTo("employeeId", stored.employeeId)
-            .whereEqualTo("scheduleDate", stored.scheduleDate)
-            .orderBy("createdAt", Query.Direction.DESCENDING).limit(1)
-            .get(Source.SERVER).await().documents.firstOrNull()?.toAttendanceAdjustment()
+        val previous = collection.whereEqualTo("scheduleDate", stored.scheduleDate)
+            .get(Source.SERVER).await().documents
+            .mapNotNull { it.toAttendanceAdjustment() }
+            .filter { it.employeeId == stored.employeeId }
+            .maxByOrNull { it.createdAt }
         val ref = collection.document()
         // Shared id lets rules enforce the audit/adjustment pair in both directions.
         val auditRef = db.collection("audit_logs").document(ref.id)
@@ -624,15 +629,18 @@ class FirebaseRepository(
             source.resolutionStatus == requested.sourceResolutionStatus) {
             "Lượt chấm đã thay đổi. Đóng hộp thoại và mở lại trước khi sửa."
         }
-        require(source.resolutionStatus == AttendanceResolutionStatus.ACCEPTED.name &&
-            source.type in AttendanceType.entries.map { it.name }) {
-            "Chỉ sửa phân loại của lượt chấm đã được hệ thống chấp nhận"
+        require((source.resolutionStatus == AttendanceResolutionStatus.ACCEPTED.name &&
+            source.type in AttendanceType.entries.map { it.name }) ||
+            (source.type == "SCAN" && source.resolutionStatus == AttendanceResolutionStatus.PENDING.name)) {
+            "Chỉ xử lý lượt quét đang chờ hoặc lượt chấm đã được chấp nhận"
         }
 
         val collection = db.collection("attendanceClassificationOverrides")
+        // Sorting on the server here would require a composite index for attendanceId + createdAt.
         val previous = collection.whereEqualTo("attendanceId", requested.attendanceId)
-            .orderBy("createdAt", Query.Direction.DESCENDING).limit(1)
-            .get(Source.SERVER).await().documents.firstOrNull()?.toAttendanceClassificationOverride()
+            .get(Source.SERVER).await().documents
+            .mapNotNull { it.toAttendanceClassificationOverride() }
+            .maxByOrNull { it.createdAt }
         val previousType = previous?.correctedType ?: source.type
         val previousStatus = previous?.correctedStatus ?: source.status
         val ref = collection.document()
@@ -752,6 +760,7 @@ class FirebaseRepository(
 
     suspend fun saveShift(shift: WorkShift): String {
         validateShift(shift)
+        require(shift.category == ShiftCategory.SUPPLEMENTARY.name) { "Ca sáng và ca chiều đã có mặc định; chỉ thêm ca tăng ca" }
         val ref = if (shift.id.isBlank()) db.collection("shifts").document() else db.collection("shifts").document(shift.id)
         ref.set(shift.copy(id = "")).await()
         writeAuditLog(AuditLog(
@@ -765,6 +774,12 @@ class FirebaseRepository(
         return ref.id
     }
 
+    private suspend fun ensureDefaultShiftStored(shiftId: String) {
+        val standard = defaultShiftTemplates().map { it.resolve() }.firstOrNull { it.id == shiftId } ?: return
+        val ref = db.collection("shifts").document(shiftId)
+        if (!ref.get(Source.SERVER).await().exists()) ref.set(standard.copy(id = "")).await()
+    }
+
     suspend fun saveSchedule(schedule: WorkSchedule) {
         require(schedule.employeeId.isNotBlank()) { "Chưa chọn nhân viên" }
         require(schedule.shiftId.isNotBlank()) { "Chưa chọn ca" }
@@ -775,6 +790,7 @@ class FirebaseRepository(
             "Có thể chọn tối đa hai ca khác nhau trong ngày"
         }
         require(selectedShiftIds.first() == schedule.shiftId) { "Ca chính phải là ca đầu tiên trong danh sách" }
+        selectedShiftIds.forEach { ensureDefaultShiftStored(it) }
         val selectedShifts = selectedShiftIds.map { requireActiveAssignableShift(it) }
         require(selectedShifts.map { it.category }.distinct().size == selectedShifts.size) {
             "Trong ngày chỉ có thể chọn một ca sáng và một ca chiều"
@@ -796,10 +812,14 @@ class FirebaseRepository(
         ))
     }
 
-    /** Explicit assignment only. Stable template IDs are create-only, including concurrent saves. */
+    /** Keep existing shift settings and the other shift already assigned to each employee/day. */
     suspend fun saveWeeklySchedules(shift: WorkShift, schedules: List<WorkSchedule>) {
         validateScheduleShift(shift)
         require(schedules.isNotEmpty())
+        require(schedules.all { it.shiftId == shift.id } &&
+            schedules.map { scheduleDocumentId(it.employeeId, it.date) }.distinct().size == schedules.size) {
+            "Danh sách phân ca trùng hoặc không đúng ca đã chọn"
+        }
         require(schedules.all { LocalDate.parse(it.date).dayOfWeek.value in 1..6 }) {
             "Không thể phân ca vào Chủ nhật"
         }
@@ -810,18 +830,34 @@ class FirebaseRepository(
                 val auditRef = db.collection("audit_logs").document()
                 db.runTransaction { transaction ->
                     val snapshot = transaction.get(shiftRef)
-                    if (snapshot.exists()) {
-                        require(snapshot.toObject(WorkShift::class.java)?.copy(id = shift.id) == shift) {
-                            "Ca mẫu đã bị thay đổi. Vui lòng kiểm tra cấu hình ca."
-                        }
-                    } else transaction.set(shiftRef, shift.copy(id = ""))
+                    val stored = if (snapshot.exists()) snapshot.toObject(WorkShift::class.java)?.copy(id = shift.id)
+                        ?: error("Không thể đọc ca mẫu đã lưu") else null
+                    val selectedShift = weeklyAssignmentShift(shift, stored)
+                    val scheduleRefs = chunk.associateWith { schedule ->
+                        db.collection("workSchedules").document(scheduleDocumentId(schedule.employeeId, schedule.date))
+                    }
+                    val previousSchedules = scheduleRefs.mapValues { (_, ref) ->
+                        val previous = transaction.get(ref)
+                        if (previous.exists()) previous.toObject(WorkSchedule::class.java)
+                            ?: error("Không thể đọc lịch đã phân") else null
+                    }
+                    val previousShiftIds = previousSchedules.values.filterNotNull()
+                        .flatMap(::scheduledShiftIds).distinct().filterNot { it == shift.id }
+                    val shiftsById = previousShiftIds.associateWith { id ->
+                        val previous = transaction.get(db.collection("shifts").document(id))
+                        previous.toObject(WorkShift::class.java)?.copy(id = id)
+                            ?: error("Ca đã phân trước đó không còn tồn tại: $id")
+                    } + (shift.id to selectedShift)
+
+                    if (stored == null) transaction.set(shiftRef, shift.copy(id = ""))
                     chunk.forEach { schedule ->
-                        // Only schedule fields: preserve legacy hours adjustments and all attendance history.
-                        transaction.set(db.collection("workSchedules").document(scheduleDocumentId(schedule.employeeId, schedule.date)),
-                            mapOf("id" to "", "employeeId" to schedule.employeeId, "employeeName" to schedule.employeeName,
-                                "department" to schedule.department, "date" to schedule.date, "shiftId" to shift.id,
-                                "shiftIds" to listOf(shift.id),
-                                "shiftName" to shift.name, "overtimeHours" to 0, "assignedBy" to currentUserId,
+                        val merged = mergeWeeklyAssignment(schedule, previousSchedules[schedule], selectedShift, shiftsById)
+                        // Merge only schedule fields so earlier hour adjustments and notes remain intact.
+                        transaction.set(scheduleRefs.getValue(schedule),
+                            mapOf("id" to "", "employeeId" to merged.employeeId, "employeeName" to merged.employeeName,
+                                "department" to merged.department, "date" to merged.date, "shiftId" to merged.shiftId,
+                                "shiftIds" to merged.shiftIds,
+                                "shiftName" to merged.shiftName, "overtimeHours" to merged.overtimeHours, "assignedBy" to currentUserId,
                                 "source" to "ADMIN"), SetOptions.merge())
                     }
                     transaction.set(auditRef, AuditLog(actorId = currentUserId, actorName = currentUserName,
@@ -1028,6 +1064,7 @@ class FirebaseRepository(
         require(department.isNotBlank()) { "Chưa chọn phòng ban" }
         require(dates.isNotEmpty()) { "Chưa chọn ngày phân ca" }
         validateScheduleShift(shift)
+        ensureDefaultShiftStored(shift.id)
         requireActiveAssignableShift(shift.id)
         validateOvertimeHours(overtimeHours)
         val employees = db.collection("employees")
@@ -1494,6 +1531,38 @@ class FirebaseRepository(
             .set(canonicalRequest.copy(id = requestId, status = OvertimeRequestStatus.PENDING.name).toOvertimeFirestoreData())
             .await()
         return requestId
+    }
+
+    suspend fun assignOvertimeToEmployee(employeeId: String, workDate: String, reason: String) {
+        val date = LocalDate.parse(workDate)
+        require(date.dayOfWeek.value in 1..6) { "Không thể phân tăng ca vào Chủ nhật" }
+        require(reason.trim().isNotBlank()) { "Cần nhập lý do phân tăng ca" }
+        require(currentUserId.isNotBlank()) { "Chưa đăng nhập" }
+        val employee = db.collection("employees").document(employeeId).get(Source.SERVER).await()
+            .toObject(Employee::class.java)?.copy(id = employeeId)
+        require(employee != null && employee.active && employee.fullName.isNotBlank()) {
+            "Nhân viên không còn hoạt động hoặc không tồn tại"
+        }
+        val requestId = scheduleDocumentId(employeeId, workDate)
+        val requestRef = db.collection("overtimeRequests").document(requestId)
+        val auditRef = db.collection("audit_logs").document("${requestId}_OVERTIME_ASSIGN")
+        db.runTransaction { transaction ->
+            require(!transaction.get(requestRef).exists()) { "Nhân viên đã có ca tăng ca ngày này" }
+            val request = OvertimeRequest(
+                employeeId = employee.id, employeeName = employee.fullName, department = employee.department,
+                workDate = workDate, reason = reason.trim(), status = OvertimeRequestStatus.APPROVED.name,
+                reviewerId = currentUserId, reviewerName = currentUserName
+            )
+            validateOvertimeRequest(request)
+            transaction.set(requestRef, request.toOvertimeFirestoreData() +
+                ("reviewedAt" to FieldValue.serverTimestamp()))
+            transaction.set(auditRef, AuditLog(
+                actorId = currentUserId, actorName = currentUserName,
+                action = AuditAction.OVERTIME_ASSIGN.name, targetType = "overtimeRequest",
+                targetId = requestId, reason = reason.trim(),
+                details = "Phân ca tăng ca 18:00–22:00 ngày $workDate cho ${employee.fullName}"
+            ).toFirestoreData())
+        }.await()
     }
 
     suspend fun reviewOvertimeRequest(
