@@ -1,5 +1,8 @@
 package vn.chamcong.iot.ui.reports
 
+import vn.chamcong.iot.ui.loadAttendanceRange
+import vn.chamcong.iot.ui.retryAttendanceRange
+
 import vn.chamcong.iot.ui.AppSpacing
 import android.content.Context
 import android.content.Intent
