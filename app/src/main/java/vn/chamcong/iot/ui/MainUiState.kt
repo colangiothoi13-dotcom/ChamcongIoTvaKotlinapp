@@ -5,6 +5,7 @@ import vn.chamcong.iot.domain.filterAttendance
 import vn.chamcong.iot.domain.filterEmployees
 import vn.chamcong.iot.domain.applyAttendanceClassificationOverrides
 import vn.chamcong.iot.domain.applyOffScheduleReviewDecisions
+import vn.chamcong.iot.domain.applyApprovedOffScheduleReviewsToSchedules
 import vn.chamcong.iot.domain.resolveSparkPendingAttendance
 import vn.chamcong.iot.domain.classifyPresenceForEmployees
 import vn.chamcong.iot.domain.mondayOfWeek
@@ -63,6 +64,7 @@ data class MainUiState(
     val schedules: List<WorkSchedule> = emptyList(),
     val weeklyScheduleRequests: List<WeeklyScheduleRequest> = emptyList(),
     val employeeWeeklyScheduleRequest: WeeklyScheduleRequest? = null,
+    val employeeWeeklyTargetWeekStart: LocalDate = mondayOfWeek(LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"))).plusWeeks(1),
     val leaveRequests: List<LeaveRequest> = emptyList(),
     val overtimeRequests: List<OvertimeRequest> = emptyList(),
     val notifications: List<AppNotification> = emptyList(),
@@ -102,6 +104,33 @@ data class MainUiState(
     val operationalEmployees: List<Employee>
         get() = employees.filter { it.visibleOutsideRetiredList() }
 
+    fun historicalEmployees(month: YearMonth): List<Employee> =
+        employees.filter { it.visibleOutsideRetiredList(month) }
+
+    private val attendanceSelectedRange: AttendanceDateRange?
+        get() {
+            val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+            val today = LocalDate.now(zone)
+            return when (attendanceDatePreset) {
+                "TODAY" -> AttendanceDateRange(today, today)
+                "YESTERDAY" -> AttendanceDateRange(today.minusDays(1), today.minusDays(1))
+                "THIS_WEEK" -> AttendanceDateRange(mondayOfWeek(today), mondayOfWeek(today).plusDays(6))
+                "THIS_MONTH" -> AttendanceDateRange(today.withDayOfMonth(1), today.withDayOfMonth(today.lengthOfMonth()))
+                "SINGLE" -> parseAttendanceDateRange(attendanceDateFilter, attendanceDateFilter)
+                "CUSTOM" -> parseAttendanceDateRange(attendanceRangeStart, attendanceRangeEnd)
+                else -> if (attendanceDateFilter.isBlank()) null else parseAttendanceDateRange(attendanceDateFilter, attendanceDateFilter)
+            }
+        }
+
+    val attendanceFilterEmployees: List<Employee>
+        get() = attendanceSelectedRange?.let { historicalEmployees(YearMonth.from(it.start)) } ?: operationalEmployees
+
+    val effectiveSchedules: List<WorkSchedule>
+        get() = applyApprovedOffScheduleReviewsToSchedules(schedules, offScheduleAttendanceReviews, shifts)
+
+    val effectiveEmployeeSchedules: List<WorkSchedule>
+        get() = applyApprovedOffScheduleReviewsToSchedules(employeeSchedules, offScheduleAttendanceReviews, shifts)
+
     private val hiddenRetiredEmployeeIds: Set<String>
         get() = employees.filterNot { it.visibleOutsideRetiredList() }.mapTo(mutableSetOf()) { it.id }
 
@@ -131,7 +160,7 @@ data class MainUiState(
     val sparkResolvedAttendance: List<Attendance>
         get() = resolveSparkPendingAttendance(
             applyAttendanceClassificationOverrides(allAttendance, attendanceClassificationOverrides),
-            schedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh")
+            schedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh"), overtimeRequests, offScheduleAttendanceReviews
         )
     private val allEmployeeAttendance: List<Attendance>
         get() = (employeeAttendance + employeeAttendanceHistory)
@@ -143,28 +172,35 @@ data class MainUiState(
     val employeeSparkResolvedAttendance: List<Attendance>
         get() = resolveSparkPendingAttendance(
             applyAttendanceClassificationOverrides(allEmployeeAttendance, attendanceClassificationOverrides),
-            employeeSchedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh")
+            employeeSchedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh"), employeeOvertimeRequests,
+            offScheduleAttendanceReviews
         )
     val employeeAttendanceForSummaries: List<Attendance>
-        get() = applyAttendanceClassificationOverrides(employeeSparkResolvedAttendance, attendanceClassificationOverrides)
+        get() = applyOffScheduleReviewDecisions(
+            applyAttendanceClassificationOverrides(employeeSparkResolvedAttendance, attendanceClassificationOverrides),
+            offScheduleAttendanceReviews, ZoneId.of("Asia/Ho_Chi_Minh"), shifts
+        )
             .filterNot { it.type == "DISCARDED" }
-    val attendanceForSummaries: List<Attendance>
+    val historicalAttendanceForSummaries: List<Attendance>
         get() = applyOffScheduleReviewDecisions(
             applyAttendanceClassificationOverrides(sparkResolvedAttendance, attendanceClassificationOverrides),
             offScheduleAttendanceReviews,
-            ZoneId.of("Asia/Ho_Chi_Minh")
-        ).filter { it.type != "DISCARDED" && it.employeeId !in hiddenRetiredEmployeeIds }
+            ZoneId.of("Asia/Ho_Chi_Minh"), shifts
+        ).filter { it.type != "DISCARDED" }
+
+    val attendanceForSummaries: List<Attendance>
+        get() = historicalAttendanceForSummaries.filter { it.employeeId !in hiddenRetiredEmployeeIds }
 
     // Derived on every state snapshot, including schedule, shift and adjustment emissions.
     val dashboard: DashboardSummary
         get() = summarizeDashboard(operationalEmployees, attendanceForSummaries, selectedWeekStart,
-            schedules = schedules, shifts = shifts, adjustments = attendanceAdjustments)
+            schedules = effectiveSchedules, shifts = shifts, adjustments = attendanceAdjustments)
 
     val dailyDashboard: DailyDashboardSummary
         get() = summarizeDailyDashboard(
             employees = operationalEmployees,
             attendance = attendanceForSummaries,
-            schedules = schedules,
+            schedules = effectiveSchedules,
             shifts = shifts,
             requests = leaveRequests,
             adjustments = attendanceAdjustments,
@@ -177,28 +213,19 @@ data class MainUiState(
 
     val visibleAttendance: List<Attendance>
         get() {
-            val byEmployee = operationalEmployees.associateBy(Employee::id)
             val zone = ZoneId.of("Asia/Ho_Chi_Minh")
-            val today = LocalDate.now(zone)
-            val selectedRange: AttendanceDateRange? = when (attendanceDatePreset) {
-                "TODAY" -> AttendanceDateRange(today, today)
-                "YESTERDAY" -> AttendanceDateRange(today.minusDays(1), today.minusDays(1))
-                "THIS_WEEK" -> AttendanceDateRange(mondayOfWeek(today), mondayOfWeek(today).plusDays(6))
-                "THIS_MONTH" -> AttendanceDateRange(today.withDayOfMonth(1), today.withDayOfMonth(today.lengthOfMonth()))
-                "CUSTOM" -> parseAttendanceDateRange(attendanceRangeStart, attendanceRangeEnd)
-                "SINGLE" -> parseAttendanceDateRange(attendanceDateFilter, attendanceDateFilter)
-                else -> if (attendanceDateFilter.isBlank()) null else parseAttendanceDateRange(attendanceDateFilter, attendanceDateFilter)
-            }
+            val selectedRange = attendanceSelectedRange
             if ((attendanceDatePreset != null || attendanceDateFilter.isNotBlank()) && selectedRange == null) return emptyList()
+            val byEmployee = attendanceFilterEmployees.associateBy(Employee::id)
             // Spark mode keeps Firestore scans immutable, so the list screen
             // must use the locally resolved copies to show CHECK_IN/CHECK_OUT
             // instead of exposing the raw SCAN/PENDING device event.
-            val resolvedAttendance = attendanceForSummaries
+            val resolvedAttendance = historicalAttendanceForSummaries.filter { it.employeeId in byEmployee }
             val rangedAttendance = selectedRange?.let {
-                filterAttendanceByDateRange(resolvedAttendance, it, schedules, shifts, zone)
+                filterAttendanceByDateRange(resolvedAttendance, it, effectiveSchedules, shifts, zone)
             } ?: resolvedAttendance
             return filterAttendance(rangedAttendance, attendanceStatusFilter, attendanceTypeFilter,
-                schedules, shifts, attendanceAdjustments)
+                effectiveSchedules, shifts, attendanceAdjustments)
                 .filter { row -> attendanceEmployeeFilter.isNullOrBlank() || row.employeeId == attendanceEmployeeFilter }
                 .filter { row -> attendanceDepartmentFilter.isNullOrBlank() || byEmployee[row.employeeId]?.department == attendanceDepartmentFilter }
         }
@@ -216,7 +243,7 @@ data class MainUiState(
             date = selectedPresenceDate,
             zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
             adjustments = attendanceAdjustments,
-            schedules = schedules,
+            schedules = effectiveSchedules,
             shifts = shifts
         )
 
@@ -224,7 +251,7 @@ data class MainUiState(
         get() = summarizeWeeklyWork(
             employees = operationalEmployees,
             attendance = attendanceForSummaries,
-            schedules = schedules,
+            schedules = effectiveSchedules,
             shifts = shifts.associateBy { it.id },
             approvedRequests = leaveRequests,
             weekStart = selectedWeekStart,

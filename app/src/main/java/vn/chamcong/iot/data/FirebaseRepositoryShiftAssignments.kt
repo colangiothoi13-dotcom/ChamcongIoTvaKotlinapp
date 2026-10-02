@@ -7,6 +7,7 @@ import vn.chamcong.iot.domain.copyScheduleToNextWeek
 import vn.chamcong.iot.domain.canAssignScheduleShift
 import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.validateOvertimeHours
+import vn.chamcong.iot.domain.validateAuditLog
 import vn.chamcong.iot.domain.validateShift
 import vn.chamcong.iot.domain.validateScheduleShift
 import vn.chamcong.iot.domain.validateWorkedHoursOverride
@@ -21,15 +22,19 @@ suspend fun FirebaseRepository.saveShift(shift: WorkShift): String {
     validateShift(shift)
     require(shift.category == ShiftCategory.SUPPLEMENTARY.name) { "Ca sáng và ca chiều đã có mặc định; chỉ thêm ca tăng ca" }
     val ref = if (shift.id.isBlank()) db.collection("shifts").document() else db.collection("shifts").document(shift.id)
-    ref.set(shift.copy(id = "")).await()
-    writeAuditLog(AuditLog(
+    val audit = AuditLog(
         actorId = currentUserId,
         actorName = currentUserName,
         action = AuditAction.SHIFT_UPDATE.name,
         targetType = "shift",
         targetId = ref.id,
         details = "Lưu cấu hình ca ${shift.name}"
-    ))
+    )
+    validateAuditLog(audit)
+    db.runBatch { batch ->
+        batch.set(ref, shift.copy(id = ""))
+        batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+    }.await()
     return ref.id
 }
 
@@ -58,9 +63,7 @@ suspend fun FirebaseRepository.saveSchedule(schedule: WorkSchedule) {
     validateWorkedHoursOverride(schedule.workedHoursOverride)
     if (schedule.workedHoursOverride != null) require(schedule.adjustmentNote.isNotBlank()) { "Cần nhập lý do điều chỉnh giờ" }
     val id = scheduleDocumentId(schedule.employeeId, date)
-    db.collection("workSchedules").document(id)
-        .set(schedule.copy(id = "", date = date, shiftIds = selectedShiftIds, source = "ADMIN")).await()
-    writeAuditLog(AuditLog(
+    val audit = AuditLog(
         actorId = currentUserId,
         actorName = currentUserName,
         action = if (schedule.workedHoursOverride != null) AuditAction.ATTENDANCE_ADJUST.name else AuditAction.SHIFT_UPDATE.name,
@@ -68,7 +71,13 @@ suspend fun FirebaseRepository.saveSchedule(schedule: WorkSchedule) {
         targetId = id,
         reason = schedule.adjustmentNote,
         details = "Phân ca ${schedule.shiftName} ngày $date cho ${schedule.employeeName}"
-    ))
+    )
+    validateAuditLog(audit)
+    db.runBatch { batch ->
+        batch.set(db.collection("workSchedules").document(id),
+            schedule.copy(id = "", date = date, shiftIds = selectedShiftIds, source = "ADMIN"))
+        batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+    }.await()
 }
 
 /** Keep existing shift settings and the other shift already assigned to each employee/day. */
@@ -174,19 +183,23 @@ suspend fun FirebaseRepository.assignShiftToDepartment(
             }
         }
     }
-    writes.chunked(400).forEach { chunk ->
-        db.runBatch { batch ->
-            chunk.forEach { (reference, schedule) -> batch.set(reference, schedule) }
-        }.await()
-    }
-    writeAuditLog(AuditLog(
+    val audit = AuditLog(
         actorId = currentUserId,
         actorName = currentUserName,
         action = AuditAction.SHIFT_UPDATE.name,
         targetType = "department",
         targetId = department,
         details = "Phân lịch cho phòng ban $department, ngày $dates"
-    ))
+    )
+    validateAuditLog(audit)
+    val chunks = writes.chunked(400)
+    chunks.forEachIndexed { index, chunk ->
+        db.runBatch { batch ->
+            chunk.forEach { (reference, schedule) -> batch.set(reference, schedule) }
+            if (index == chunks.lastIndex) batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+        }.await()
+    }
+    if (chunks.isEmpty()) writeAuditLog(audit)
 }
 
 suspend fun FirebaseRepository.copyPreviousWeek(sourceWeekStart: String, targetWeekStart: String, assignedBy: String): Int {
@@ -212,23 +225,27 @@ suspend fun FirebaseRepository.copyPreviousWeek(sourceWeekStart: String, targetW
     // Validate all candidates before writing any copied schedule, including legacy custom IDs.
     newSchedules.flatMap { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.distinct()
         .forEach { requireActiveAssignableShift(it) }
-    newSchedules.chunked(400).forEach { chunk ->
-        db.runBatch { batch ->
-            chunk.forEach { schedule ->
-                batch.set(db.collection("workSchedules").document(schedule.id), schedule.copy(
-                    id = "", shiftIds = schedule.shiftIds.ifEmpty { listOf(schedule.shiftId) }
-                ))
-            }
-        }.await()
-    }
-    writeAuditLog(AuditLog(
+    val audit = AuditLog(
         actorId = currentUserId,
         actorName = currentUserName,
         action = AuditAction.SHIFT_UPDATE.name,
         targetType = "week",
         targetId = targetMonday.toString(),
         details = "Sao chép $sourceMonday sang $targetMonday: ${newSchedules.size} lịch"
-    ))
+    )
+    validateAuditLog(audit)
+    val chunks = newSchedules.chunked(400)
+    chunks.forEachIndexed { index, chunk ->
+        db.runBatch { batch ->
+            chunk.forEach { schedule ->
+                batch.set(db.collection("workSchedules").document(schedule.id), schedule.copy(
+                    id = "", shiftIds = schedule.shiftIds.ifEmpty { listOf(schedule.shiftId) }
+                ))
+            }
+            if (index == chunks.lastIndex) batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+        }.await()
+    }
+    if (chunks.isEmpty()) writeAuditLog(audit)
     return newSchedules.size
 }
 

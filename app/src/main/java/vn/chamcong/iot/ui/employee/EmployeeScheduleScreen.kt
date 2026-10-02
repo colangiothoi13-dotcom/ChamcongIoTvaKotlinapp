@@ -72,7 +72,7 @@ fun EmployeeScheduleScreen(
     vm: MainViewModel,
     modifier: Modifier = Modifier
 ) {
-    val schedules = state.employeeSchedules
+    val schedules = state.effectiveEmployeeSchedules
     val shifts = state.shifts
     val attendance = state.employeeAttendanceForSummaries
     var now by remember { mutableStateOf(Instant.now()) }
@@ -182,8 +182,7 @@ fun EmployeeScheduleScreen(
 
 @Composable
 private fun EmployeeWeeklyScheduleRegistration(state: MainUiState, vm: MainViewModel) {
-    val currentWeek = mondayOfWeek(LocalDate.now(employeeScheduleZone))
-    val weekStart = currentWeek.plusWeeks(1)
+    val weekStart = state.employeeWeeklyTargetWeekStart
     val weekDates = (0L..5L).map(weekStart::plusDays)
     val request = state.employeeWeeklyScheduleRequest
     val mainShifts = state.shifts

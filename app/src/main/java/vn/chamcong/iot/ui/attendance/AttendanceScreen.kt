@@ -72,7 +72,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                         vm.setAttendanceDepartmentFilter(null)
                         departmentMenu = false
                     })
-                    state.operationalEmployees.map { it.department.trim() }.filter(String::isNotBlank).distinct().sorted().forEach { department ->
+                    state.attendanceFilterEmployees.map { it.department.trim() }.filter(String::isNotBlank).distinct().sorted().forEach { department ->
                         DropdownMenuItem(text = { Text(department) }, onClick = {
                             vm.setAttendanceDepartmentFilter(department)
                             departmentMenu = false
@@ -81,7 +81,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 }
             }
             androidx.compose.foundation.layout.Box {
-                val employeeName = state.operationalEmployees.firstOrNull { it.id == state.attendanceEmployeeFilter }?.fullName
+                val employeeName = state.attendanceFilterEmployees.firstOrNull { it.id == state.attendanceEmployeeFilter }?.fullName
                 FilterChip(
                     selected = employeeName != null,
                     onClick = { employeeMenu = true },
@@ -92,7 +92,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                         vm.setAttendanceEmployeeFilter(null)
                         employeeMenu = false
                     })
-                    state.operationalEmployees.sortedBy { it.fullName }.forEach { employee ->
+                    state.attendanceFilterEmployees.sortedBy { it.fullName }.forEach { employee ->
                         DropdownMenuItem(text = { Text(employee.fullName.ifBlank { employee.code }) }, onClick = {
                             vm.setAttendanceEmployeeFilter(employee.id)
                             employeeMenu = false
@@ -185,7 +185,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
     offScheduleTarget?.let { selected ->
         OffScheduleReviewDialog(
             row = selected,
-            attendance = state.attendanceForSummaries,
+            attendance = state.historicalAttendanceForSummaries,
             shifts = state.shifts,
             busy = state.saving,
             error = state.error,
@@ -253,11 +253,11 @@ private fun AttendanceDateRangeControls(state: MainUiState, vm: MainViewModel) {
 internal fun attendanceAdjustmentTarget(row: Attendance, state: MainUiState): AttendanceAdjustmentTarget? {
     val date = attendanceAdjustmentDate(row)?.let(LocalDate::parse) ?: return null
     if (row.employeeId.isBlank()) return null
-    val schedule = state.schedules.firstOrNull { it.employeeId == row.employeeId && it.date == date.toString() }
+    val schedule = state.effectiveSchedules.firstOrNull { it.employeeId == row.employeeId && it.date == date.toString() }
     val shift = state.shifts.firstOrNull { it.id == (row.shiftId ?: schedule?.shiftId) }
     val summary = employeeDaySummary(
         employeeId = row.employeeId, date = date,
-        attendance = assignAttendanceScheduleDates(state.attendanceForSummaries, state.schedules, state.shifts, attendanceZone),
+        attendance = assignAttendanceScheduleDates(state.historicalAttendanceForSummaries, state.effectiveSchedules, state.shifts, attendanceZone),
         schedule = schedule, shift = shift, approvedLeave = false, zoneId = attendanceZone,
         adjustments = state.attendanceAdjustments
     )

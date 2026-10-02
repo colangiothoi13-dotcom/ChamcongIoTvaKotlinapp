@@ -3,7 +3,10 @@ package vn.chamcong.iot.ui
 
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.canAccessAdmin
@@ -141,9 +144,6 @@ internal fun MainViewModel.subscribeAdmin() {
     dataSubscriptions += viewModelScope.launch {
         repository.observeEnrollmentCommands().catch { e -> setError(e) }.collect { commands ->
             _state.update { it.copy(commands = commands) }
-            commands.filter { it["status"] == "COMPLETED" && it["applied"] != true }.forEach {
-                runCatching { repository.applyCompletedEnrollment(it) }.onFailure(::setError)
-            }
         }
     }
     dataSubscriptions += viewModelScope.launch {
@@ -214,6 +214,11 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
             .collect { rows -> _state.update { it.copy(attendanceClassificationOverrides = rows) } }
     }
     dataSubscriptions += viewModelScope.launch {
+        repository.observeEmployeeOffScheduleAttendanceReviews(employeeId)
+            .catch { e -> setError(e) }
+            .collect { rows -> _state.update { it.copy(offScheduleAttendanceReviews = rows) } }
+    }
+    dataSubscriptions += viewModelScope.launch {
         repository.observeEmployee(employeeId).catch { e -> setError(e) }.collect { employee ->
             _state.update { it.copy(currentEmployee = employee) }
         }
@@ -233,11 +238,21 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
             _state.update { it.copy(employeeSchedules = rows) }
         }
     }
-    val requestedWeekStart = mondayOfWeek(LocalDate.now(zoneId)).plusWeeks(1).toString()
     dataSubscriptions += viewModelScope.launch {
-        repository.observeEmployeeWeeklyScheduleRequest(employeeId, requestedWeekStart)
-            .catch { e -> setError(e) }
-            .collect { request -> _state.update { it.copy(employeeWeeklyScheduleRequest = request) } }
+        flow {
+            while (true) {
+                val now = java.time.ZonedDateTime.now(zoneId)
+                val target = mondayOfWeek(now.toLocalDate()).plusWeeks(1)
+                emit(target)
+                val rollover = target.atStartOfDay(zoneId).toInstant()
+                delay(java.time.Duration.between(now.toInstant(), rollover).toMillis().coerceAtLeast(1L))
+            }
+        }.collectLatest { target ->
+            _state.update { it.copy(employeeWeeklyTargetWeekStart = target, employeeWeeklyScheduleRequest = null) }
+            repository.observeEmployeeWeeklyScheduleRequest(employeeId, target.toString())
+                .catch { e -> setError(e) }
+                .collect { request -> _state.update { it.copy(employeeWeeklyScheduleRequest = request) } }
+        }
     }
     dataSubscriptions += viewModelScope.launch {
         repository.observeShifts().catch { e -> setError(e) }.collect { shifts ->

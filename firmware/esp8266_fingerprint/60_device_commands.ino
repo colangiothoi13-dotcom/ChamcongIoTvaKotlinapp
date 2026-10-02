@@ -9,9 +9,10 @@ bool refreshCommandVersion() {
   bool parsed = false;
   String requestId;
   String version;
+  bool applied = false;
   {
     String url = String(FIRESTORE_URL) + "/deviceCommands/" + DEVICE_ID +
-                 "?mask.fieldPaths=requestId";
+                 "?mask.fieldPaths=requestId&mask.fieldPaths=applied";
     BearSSL::WiFiClientSecure client;
     client.setInsecure();
     HTTPClient https;
@@ -28,6 +29,7 @@ bool refreshCommandVersion() {
         if (!deserializeJson(current, https.getStream())) {
           requestId = current["fields"]["requestId"]["stringValue"] | "";
           version = current["updateTime"].as<String>();
+          applied = current["fields"]["applied"]["booleanValue"] | false;
           parsed = true;
         }
       }
@@ -57,11 +59,13 @@ bool refreshCommandVersion() {
     return false;
   }
   commandVersion = version;
+  commandAlreadyApplied = applied;
   return commandVersion.length() > 0;
 }
 
 bool updateDeviceCommandStatus(const char* status, const char* message) {
   if (WiFi.status() != WL_CONNECTED || !firebaseSignIn() || !refreshCommandVersion()) return false;
+  if (commandAlreadyApplied && strcmp(status, "COMPLETED") == 0) return true;
   if (!canStartHttpsRequest("cap nhat lenh")) return false;
 
   int code = -1;
@@ -109,10 +113,101 @@ bool updateDeviceCommandStatus(const char* status, const char* message) {
   return code >= 200 && code < 300;
 }
 
-bool readDeviceCommand(uint16_t& templateId, String& type, bool& wasProcessing) {
+// The Spark device completes the reserved fingerprint slot atomically. A
+// command is marked applied only in the same Firestore commit as its employee
+// and mapping changes; the Admin application never has to be running.
+bool commitFingerprintCompletion() {
+  if (pendingCommandEmployeeId.length() == 0 || pendingCommandTemplateId == 0 ||
+      pendingCommandTemplateId > 127 || !firebaseSignIn() || !refreshCommandVersion()) return false;
+  if (commandAlreadyApplied) return true;
+  if (!canStartHttpsRequest("hoan tat van tay")) return false;
+
+  String base = FIRESTORE_URL;
+  const int prefix = base.indexOf("/v1/");
+  if (prefix < 0) return false;
+  base = base.substring(prefix + 4);
+  const String commandName = base + "/deviceCommands/" + DEVICE_ID;
+  const String employeeName = base + "/employees/" + pendingCommandEmployeeId;
+  const String mappingName = base + "/fingerprintMappings/" + String(pendingCommandTemplateId);
+  String body;
+  {
+    DynamicJsonDocument doc(3072);
+    JsonArray writes = doc.createNestedArray("writes");
+    JsonObject commandWrite = writes.createNestedObject();
+    JsonObject commandUpdate = commandWrite.createNestedObject("update");
+    commandUpdate["name"] = commandName;
+    commandUpdate["fields"]["applied"]["booleanValue"] = true;
+    commandWrite.createNestedObject("updateMask").createNestedArray("fieldPaths").add("applied");
+    commandWrite["currentDocument"]["updateTime"] = commandVersion;
+
+    JsonObject employeeWrite = writes.createNestedObject();
+    JsonObject employeeUpdate = employeeWrite.createNestedObject("update");
+    employeeUpdate["name"] = employeeName;
+    if (pendingCommandType == "ENROLL_FINGERPRINT") {
+      employeeUpdate["fields"]["fingerprintTemplateId"]["integerValue"] = String(pendingCommandTemplateId);
+    } else {
+      employeeUpdate["fields"]["fingerprintTemplateId"]["nullValue"] = nullptr;
+    }
+    employeeUpdate["fields"]["pendingTemplateId"]["nullValue"] = nullptr;
+    JsonArray employeeMask = employeeWrite.createNestedObject("updateMask").createNestedArray("fieldPaths");
+    employeeMask.add("fingerprintTemplateId");
+    employeeMask.add("pendingTemplateId");
+    employeeWrite["currentDocument"]["exists"] = true;
+
+    JsonObject mappingWrite = writes.createNestedObject();
+    if (pendingCommandType == "ENROLL_FINGERPRINT") {
+      JsonObject mappingUpdate = mappingWrite.createNestedObject("update");
+      mappingUpdate["name"] = mappingName;
+      mappingUpdate["fields"]["enabled"]["booleanValue"] = true;
+      mappingWrite.createNestedObject("updateMask").createNestedArray("fieldPaths").add("enabled");
+      mappingWrite["currentDocument"]["exists"] = true;
+    } else {
+      mappingWrite["delete"] = mappingName;
+    }
+    if (doc.overflowed()) {
+      setLatestError("Bo nho JSON lenh van tay khong du");
+      return false;
+    }
+    body.reserve(measureJson(doc) + 1);
+    serializeJson(doc, body);
+  }
+
+  int code = -1;
+  bool began = false;
+  {
+    BearSSL::WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient https;
+    if (https.begin(client, String(FIRESTORE_URL) + ":commit")) {
+      began = true;
+      https.setTimeout(8000);
+      https.addHeader("Content-Type", "application/json");
+      https.addHeader("Authorization", "Bearer " + firebaseIdToken);
+      code = https.sendRequest("POST", reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
+      https.end();
+    }
+    client.stop();
+  }
+  if (!began) {
+    deferHttpsRequests("hoan tat van tay");
+    return false;
+  }
+  recordHttpsResult("hoan tat van tay", code);
+  if (code >= 200 && code < 300) return true;
+  // A deployed backend may have applied this command between the status PATCH
+  // and this commit. Treat that idempotent completion as success.
+  if (refreshCommandVersion() && commandAlreadyApplied) return true;
+  setLatestError(String("Hoan tat van tay HTTP ") + code);
+  return false;
+}
+
+bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
+                       bool& wasProcessing, bool& wasCompleted) {
   templateId = 0;
   type = "";
   wasProcessing = false;
+  wasCompleted = false;
+  employeeId = "";
   if (WiFi.status() != WL_CONNECTED) {
     Serial.printf("LENH: WiFi chua ket noi, status=%d\n", WiFi.status());
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
@@ -135,13 +230,17 @@ bool readDeviceCommand(uint16_t& templateId, String& type, bool& wasProcessing) 
   String responseType;
   String responseVersion;
   String responseRequestId;
+  String responseEmployeeId;
+  bool responseApplied = false;
   uint16_t responseTemplateId = 0;
   {
     String url = String(FIRESTORE_URL) + "/deviceCommands/" + DEVICE_ID +
                  "?mask.fieldPaths=status"
                  "&mask.fieldPaths=type"
                  "&mask.fieldPaths=requestId"
-                 "&mask.fieldPaths=templateId";
+                 "&mask.fieldPaths=templateId"
+                 "&mask.fieldPaths=employeeId"
+                 "&mask.fieldPaths=applied";
     BearSSL::WiFiClientSecure client;
     client.setInsecure();
     HTTPClient https;
@@ -160,6 +259,8 @@ bool readDeviceCommand(uint16_t& templateId, String& type, bool& wasProcessing) 
           responseType = response["fields"]["type"]["stringValue"] | "";
           responseVersion = response["updateTime"].as<String>();
           responseRequestId = response["fields"]["requestId"]["stringValue"] | "";
+          responseEmployeeId = response["fields"]["employeeId"]["stringValue"] | "";
+          responseApplied = response["fields"]["applied"]["booleanValue"] | false;
           responseTemplateId = response["fields"]["templateId"]["integerValue"].as<uint16_t>();
           if (responseTemplateId == 0) {
             const char* templateText = response["fields"]["templateId"]["integerValue"].as<const char*>();
@@ -186,16 +287,20 @@ bool readDeviceCommand(uint16_t& templateId, String& type, bool& wasProcessing) 
       commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
       return false;
     }
-    const bool active = status == "REQUESTED" || status == "PROCESSING";
+    const bool recoverCompletion = status == "COMPLETED" && !responseApplied &&
+        (responseType == "ENROLL_FINGERPRINT" || responseType == "DELETE_FINGERPRINT");
+    const bool active = status == "REQUESTED" || status == "PROCESSING" || recoverCompletion;
     commandPollIntervalMs = active ? COMMAND_ACTIVE_POLL_INTERVAL_MS : COMMAND_IDLE_POLL_INTERVAL_MS;
     Serial.printf("LENH GET: device=%s, HTTP=200, status=%s, type=%s, heap=%u\n", DEVICE_ID,
                   status.c_str(), responseType.length() > 0 ? responseType.c_str() : "(missing)", ESP.getFreeHeap());
     if (!active) return false;
     type = responseType;
     wasProcessing = status == "PROCESSING";
+    wasCompleted = recoverCompletion;
     commandId = DEVICE_ID;
     commandVersion = responseVersion;
     commandRequestId = responseRequestId;
+    employeeId = responseEmployeeId;
     templateId = responseTemplateId;
     return type.length() > 0 && commandVersion.length() > 0;
   }
@@ -227,7 +332,10 @@ bool finishDeviceCommand() {
   } else {
     message = pendingCommandSuccess ? "Device command completed" : "Unsupported device command";
   }
-  if (!updateDeviceCommandStatus(pendingCommandSuccess ? "COMPLETED" : "FAILED", message.c_str())) {
+  const bool fingerprintSuccess = pendingCommandSuccess &&
+      (pendingCommandType == "ENROLL_FINGERPRINT" || pendingCommandType == "DELETE_FINGERPRINT");
+  const bool statusSaved = updateDeviceCommandStatus(pendingCommandSuccess ? "COMPLETED" : "FAILED", message.c_str());
+  if (!statusSaved || (fingerprintSuccess && !commitFingerprintCompletion())) {
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
     showLcd("CHO DONG BO", "KIEM TRA MANG");
     return false;
@@ -285,8 +393,10 @@ bool checkDeviceCommand() {
   }
   uint16_t templateId = 0;
   String type;
+  String employeeId;
   bool wasProcessing = false;
-  if (!readDeviceCommand(templateId, type, wasProcessing)) return false;
+  bool wasCompleted = false;
+  if (!readDeviceCommand(templateId, type, employeeId, wasProcessing, wasCompleted)) return false;
   delay(50);
   yield();
   if (!hasValidClock()) {
@@ -298,7 +408,16 @@ bool checkDeviceCommand() {
 
   pendingCommandType = type;
   pendingCommandTemplateId = templateId;
+  pendingCommandEmployeeId = employeeId;
   pendingCommandRestart = type == "RESTART_DEVICE";
+
+  // A reset after the sensor stored a template can leave a COMPLETED command
+  // awaiting its Firestore commit. Resume that commit without touching the sensor.
+  if (wasCompleted) {
+    pendingCommandSuccess = true;
+    pendingCommandResult = true;
+    return finishDeviceCommand();
+  }
 
   // A PROCESSING command found after a reset may have been interrupted while
   // touching the sensor. Never rerun it; report a deterministic failure.

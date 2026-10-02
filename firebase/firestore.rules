@@ -11,6 +11,85 @@ service cloud.firestore {
     function employeePath(employeeId) {
       return /databases/$(database)/documents/employees/$(employeeId);
     }
+    function fingerprintMappingPath(templateId) {
+      return /databases/$(database)/documents/fingerprintMappings/$(templateId);
+    }
+    function fingerprintCommandPath(deviceId) {
+      return /databases/$(database)/documents/deviceCommands/$(deviceId);
+    }
+    function completedFingerprintCommand(employeeId, templateId, deviceId, type) {
+      let command = getAfter(fingerprintCommandPath(deviceId)).data;
+      return command.type == type
+        && command.deviceId == deviceId
+        && command.employeeId == employeeId
+        && command.templateId == templateId
+        && command.status == 'COMPLETED'
+        && command.applied == true;
+    }
+    function deviceAppliesFingerprintCommand(id) {
+      let employeeId = resource.data.employeeId;
+      let templateId = resource.data.templateId;
+      let employee = employeePath(employeeId);
+      let mapping = fingerprintMappingPath(templateId);
+      return resource.data.deviceId == id
+        && resource.data.status == 'COMPLETED'
+        && resource.data.applied == false
+        && request.resource.data.status == 'COMPLETED'
+        && request.resource.data.applied == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['applied'])
+        && existsAfter(employee)
+        && getAfter(employee).data.fingerprintDeviceId == id
+        && getAfter(employee).data.fingerprintTemplateId ==
+          (resource.data.type == 'ENROLL_FINGERPRINT' ? templateId : null)
+        && getAfter(employee).data.pendingTemplateId == null
+        && (resource.data.type == 'ENROLL_FINGERPRINT'
+          ? (existsAfter(mapping) && getAfter(mapping).data.employeeId == employeeId
+            && getAfter(mapping).data.enabled == true)
+          : (resource.data.type == 'DELETE_FINGERPRINT' && !existsAfter(mapping)));
+    }
+    function deviceUpdatesFingerprintEmployee(id) {
+      let templateId = resource.data.pendingTemplateId;
+      let deviceId = resource.data.fingerprintDeviceId;
+      let mapping = fingerprintMappingPath(templateId);
+      return templateId is int
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['fingerprintTemplateId', 'pendingTemplateId'])
+        && request.resource.data.pendingTemplateId == null
+        && ((resource.data.active == true
+          && request.resource.data.fingerprintTemplateId == templateId
+          && completedFingerprintCommand(id, templateId, deviceId, 'ENROLL_FINGERPRINT')
+          && existsAfter(mapping) && getAfter(mapping).data.employeeId == id
+          && getAfter(mapping).data.enabled == true)
+          || (request.resource.data.fingerprintTemplateId == null
+            && completedFingerprintCommand(id, templateId, deviceId, 'DELETE_FINGERPRINT')
+            && !existsAfter(mapping)));
+    }
+    function deviceEnablesFingerprintMapping(id) {
+      let employeeId = resource.data.employeeId;
+      let employee = employeePath(employeeId);
+      return resource.data.templateId is int
+        && int(id) == resource.data.templateId
+        && resource.data.enabled == false
+        && request.resource.data.enabled == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enabled'])
+        && existsAfter(employee)
+        && completedFingerprintCommand(employeeId, resource.data.templateId,
+          getAfter(employee).data.fingerprintDeviceId, 'ENROLL_FINGERPRINT')
+        && getAfter(employee).data.active == true
+        && getAfter(employee).data.fingerprintTemplateId == resource.data.templateId
+        && getAfter(employee).data.pendingTemplateId == null;
+    }
+    function deviceDeletesFingerprintMapping(id) {
+      let employeeId = resource.data.employeeId;
+      let employee = employeePath(employeeId);
+      return resource.data.templateId is int
+        && int(id) == resource.data.templateId
+        && existsAfter(employee)
+        && completedFingerprintCommand(employeeId, resource.data.templateId,
+          getAfter(employee).data.fingerprintDeviceId, 'DELETE_FINGERPRINT')
+        && getAfter(employee).data.fingerprintTemplateId == null
+        && getAfter(employee).data.pendingTemplateId == null;
+    }
     function isAdmin() {
       return isEmailUser()
         && exists(userProfilePath())
@@ -471,7 +550,8 @@ service cloud.firestore {
       allow update: if isAdmin() || (isOwnEmployee(id)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['phone', 'address'])
         && request.resource.data.phone is string
-        && request.resource.data.address is string);
+        && request.resource.data.address is string)
+        || (isDevice() && deviceUpdatesFingerprintEmployee(id));
     }
     match /users/{id} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == id);
@@ -884,18 +964,22 @@ service cloud.firestore {
       allow update: if isAdmin() || (isDevice()
         && resource.data.deviceId == id
         && request.resource.data.deviceId == id
-        && request.resource.data.diff(resource.data).affectedKeys()
+        && ((request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'message', 'completedAt'])
-        && request.resource.data.status in ['REQUESTED', 'PROCESSING', 'COMPLETED', 'FAILED']
-        && (!('message' in request.resource.data)
-          || (request.resource.data.message is string && request.resource.data.message.size() <= 240))
-        && (!('completedAt' in request.resource.data)
-          || request.resource.data.completedAt == null
-          || request.resource.data.completedAt is timestamp));
+          && request.resource.data.applied == resource.data.applied
+          && request.resource.data.status in ['REQUESTED', 'PROCESSING', 'COMPLETED', 'FAILED']
+          && (!('message' in request.resource.data)
+            || (request.resource.data.message is string && request.resource.data.message.size() <= 240))
+          && (!('completedAt' in request.resource.data)
+            || request.resource.data.completedAt == null
+            || request.resource.data.completedAt is timestamp))
+          || deviceAppliesFingerprintCommand(id)));
     }
     match /fingerprintMappings/{id} {
       allow read: if isAdmin() || isDevice();
-      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isDevice() && deviceEnablesFingerprintMapping(id));
+      allow delete: if isAdmin() || (isDevice() && deviceDeletesFingerprintMapping(id));
     }
     match /system/{id} { allow read, write: if isAdmin(); }
     match /payroll/{id} {

@@ -277,7 +277,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 AppDestination.REPORTS -> ReportsScreen(state, vm)
                 AppDestination.MONTHLY_TIMESHEET -> MonthlyTimesheetScreen(
                     month = state.selectedAdminTimesheetMonth,
-                    employees = state.operationalEmployees,
+                    employees = state.historicalEmployees(state.selectedAdminTimesheetMonth),
                     summariesForEmployee = { employeeId -> vm.employeeMonthSummaries(employeeId, state.selectedAdminTimesheetMonth) },
                     onPreviousMonth = { vm.moveAdminTimesheetMonth(-1) },
                     onNextMonth = { vm.moveAdminTimesheetMonth(1) },

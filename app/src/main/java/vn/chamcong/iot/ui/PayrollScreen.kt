@@ -74,9 +74,10 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
     var settings by remember { mutableStateOf<Employee?>(null) }
     var picker by remember { mutableStateOf(false) }
     val validMonth = Regex("[0-9]{4}-(0[1-9]|1[0-2])").matches(month)
-    val operationalIds = state.operationalEmployees.mapTo(mutableSetOf()) { it.id }
+    val monthEmployees = if (validMonth) state.historicalEmployees(YearMonth.parse(month)) else emptyList()
+    val operationalIds = monthEmployees.mapTo(mutableSetOf()) { it.id }
     val rows = state.payroll.filter { it.month == month && it.employeeId in operationalIds }
-    val candidates = payrollCandidates(state.operationalEmployees, state.payroll, month)
+    val candidates = payrollCandidates(monthEmployees, state.payroll, month)
 
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         OutlinedTextField(month, { month = it }, label = { Text("Tháng lương (yyyy-MM)") }, singleLine = true, isError = !validMonth)
@@ -85,7 +86,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             if (rows.isEmpty()) item { Text("Chưa có phiếu lương đã lưu trong tháng này") }
             items(rows, key = { it.employeeId + it.month }) { p ->
-                val e = state.operationalEmployees.firstOrNull { it.id == p.employeeId }
+                val e = monthEmployees.firstOrNull { it.id == p.employeeId }
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                         val retirementLabel = if (e != null && !e.active) {
@@ -136,8 +137,8 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
         val calculatedHours = payrollHoursForMonth(
             employeeId = e.id,
             month = selectedMonth,
-            attendance = state.attendanceForSummaries,
-            schedules = state.schedules,
+            attendance = state.historicalAttendanceForSummaries,
+            schedules = state.effectiveSchedules,
             shifts = state.shifts,
             overtimeRequests = state.overtimeRequests,
             adjustments = state.attendanceAdjustments,

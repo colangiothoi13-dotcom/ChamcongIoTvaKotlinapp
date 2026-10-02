@@ -123,17 +123,20 @@ internal fun FirebaseRepository.deviceSnapshot(document: DocumentSnapshot): Devi
 suspend fun FirebaseRepository.updateDeviceConfiguration(deviceId: String, name: String, location: String) {
     require(deviceId.isNotBlank()) { "Mã thiết bị không hợp lệ" }
     require(name.isNotBlank()) { "Tên thiết bị không được để trống" }
-    db.collection("devices").document(deviceId).update(
-        mapOf("name" to name.trim(), "location" to location.trim())
-    ).await()
-    writeAuditLog(AuditLog(
+    val audit = AuditLog(
         actorId = currentUserId,
         actorName = currentUserName,
         action = AuditAction.DEVICE_CONFIG_UPDATE.name,
         targetType = "device",
         targetId = deviceId,
         details = "Đổi tên/vị trí thiết bị thành ${name.trim()} / ${location.trim()}"
-    ))
+    )
+    validateAuditLog(audit)
+    db.runBatch { batch ->
+        batch.update(db.collection("devices").document(deviceId),
+            mapOf("name" to name.trim(), "location" to location.trim()))
+        batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+    }.await()
 }
 
 suspend fun FirebaseRepository.requestDeviceCommand(deviceId: String, type: DeviceCommandType): String {
@@ -175,19 +178,19 @@ suspend fun FirebaseRepository.requestDeviceCommand(deviceId: String, type: Devi
 suspend fun FirebaseRepository.setSalary(employeeId: String, salary: Long) {
     require(salary in 0..1000000000000L) { "Mức lương không hợp lệ" }
     val ref = db.collection("employees").document(employeeId)
+    val auditRef = db.collection("audit_logs").document()
     db.runTransaction { tx ->
         val employee = tx.get(ref).toObject(Employee::class.java) ?: error("Không tìm thấy nhân viên")
         require(employee.active) { "Nhân viên đã nghỉ" }
         tx.update(ref, "baseSalary", salary)
+        val audit = AuditLog(
+            actorId = currentUserId, actorName = currentUserName,
+            action = AuditAction.EMPLOYEE_UPDATE.name, targetType = "employee",
+            targetId = employeeId, details = "Cập nhật mức lương cơ bản"
+        )
+        validateAuditLog(audit)
+        tx.set(auditRef, audit.toFirestoreData())
     }.await()
-    writeAuditLog(AuditLog(
-        actorId = currentUserId,
-        actorName = currentUserName,
-        action = AuditAction.EMPLOYEE_UPDATE.name,
-        targetType = "employee",
-        targetId = employeeId,
-        details = "Cập nhật mức lương cơ bản"
-    ))
 }
 
 suspend fun FirebaseRepository.updateEmployeeContact(employeeId: String, phone: String, address: String) {
@@ -212,18 +215,18 @@ suspend fun FirebaseRepository.savePayroll(employeeId: String, month: String, ho
     require(Regex("[0-9]{4}-(0[1-9]|1[0-2])").matches(month)) { "Tháng phải có dạng yyyy-MM" }
     val employeeRef = db.collection("employees").document(employeeId)
     val ref = db.collection("payroll").document("${employeeId}_$month")
+    val auditRef = db.collection("audit_logs").document()
     db.runTransaction { tx ->
         val e = tx.get(employeeRef).toObject(Employee::class.java)?.copy(id=employeeId) ?: error("Không tìm thấy nhân viên")
         val previous = tx.get(ref)
         require(!previous.exists()) { "Đã lưu phiếu lương tháng này. Phiếu đã lưu được giữ nguyên." }
         tx.set(ref, createPayroll(e, month, hoursWorked, bonus, deduction))
+        val audit = AuditLog(
+            actorId = currentUserId, actorName = currentUserName,
+            action = AuditAction.EMPLOYEE_UPDATE.name, targetType = "payroll",
+            targetId = ref.id, details = "Lưu phiếu lương tháng $month"
+        )
+        validateAuditLog(audit)
+        tx.set(auditRef, audit.toFirestoreData())
     }.await()
-    writeAuditLog(AuditLog(
-        actorId = currentUserId,
-        actorName = currentUserName,
-        action = AuditAction.EMPLOYEE_UPDATE.name,
-        targetType = "payroll",
-        targetId = ref.id,
-        details = "Lưu phiếu lương tháng $month"
-    ))
 }

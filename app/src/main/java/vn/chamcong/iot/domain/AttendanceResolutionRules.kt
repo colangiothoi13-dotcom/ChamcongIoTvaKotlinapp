@@ -8,6 +8,8 @@ import vn.chamcong.iot.model.AttendanceResolutionStatus
 import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.AttendanceStatus
 import vn.chamcong.iot.model.OffScheduleAttendanceReview
+import vn.chamcong.iot.model.OvertimeRequest
+import vn.chamcong.iot.model.OvertimeRequestStatus
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WorkSchedule
 import java.time.Duration
@@ -90,24 +92,25 @@ fun applyAttendanceClassificationOverrides(
 }
 
 /**
- * Spark fallback for off-schedule reviews. Cloud Functions normally writes the
- * final review status and annotates the immutable attendance row. On Spark,
- * the client cannot update either document, so a pending REJECT decision is
- * overlaid in memory for the attendance list and review controls.
+ * Spark fallback for rejected off-schedule reviews. Pending decisions remain
+ * immutable in Firestore; Android overlays the effective rejection in memory.
  */
 fun applyOffScheduleReviewDecisions(
     rows: List<Attendance>,
     reviews: List<OffScheduleAttendanceReview>,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    shifts: List<WorkShift> = emptyList()
 ): List<Attendance> {
     if (rows.isEmpty() || reviews.isEmpty()) return rows
     val rejectedReviews = reviews.filter { review ->
         review.decision == "REJECT" && review.status in setOf("PENDING", "REJECTED")
     }
     if (rejectedReviews.isEmpty()) return rows
+    val shiftsById = shifts.associateBy(WorkShift::id)
 
     return rows.map { row ->
-        if (row.type != "UNSCHEDULED" &&
+        val rawPending = row.type == "SCAN" && row.resolutionStatus == AttendanceResolutionStatus.PENDING.name
+        if (!rawPending && row.type != "UNSCHEDULED" &&
             row.resolutionStatus != AttendanceResolutionStatus.UNSCHEDULED.name) {
             return@map row
         }
@@ -116,14 +119,22 @@ fun applyOffScheduleReviewDecisions(
             ?: row.timestamp.toDate().toInstant().atZone(zoneId).toLocalDate().toString()
         val sameEmployeeDayReviews = rejectedReviews.filter { review ->
             review.scheduleDate == scheduleDate &&
-                (review.employeeId == row.employeeId ||
-                    (review.employeeName.isNotBlank() && review.employeeName == row.employeeName))
+                review.employeeId == row.employeeId &&
+                (shiftsById[review.shiftId]?.let { shift ->
+                    val window = shiftWindow(LocalDate.parse(review.scheduleDate), shift, zoneId)
+                    val eventAt = row.timestamp.toDate().toInstant()
+                    eventAt >= window.start.minusSeconds(effectiveOpenEarlySeconds(shift)) &&
+                        eventAt <= window.end.plusSeconds(effectiveCheckoutGraceSeconds(shift))
+                } ?: true)
         }
         val matchingReview = sameEmployeeDayReviews.firstOrNull { review ->
             row.shiftId.isNullOrBlank() || row.shiftId == review.shiftId
         } ?: sameEmployeeDayReviews.firstOrNull() ?: return@map row
 
         row.copy(
+            type = if (rawPending) "UNSCHEDULED" else row.type,
+            status = if (rawPending) "ABNORMAL" else row.status,
+            resolutionStatus = if (rawPending) AttendanceResolutionStatus.UNSCHEDULED.name else row.resolutionStatus,
             offScheduleReviewStatus = "REJECTED",
             offScheduleReviewerId = matchingReview.reviewerId,
             offScheduleReviewerName = matchingReview.reviewerName
@@ -375,6 +386,35 @@ private data class SparkSession(
     var closed: Boolean = false
 )
 
+/** Spark keeps the approval request immutable; expose its shift as an effective schedule. */
+fun applyApprovedOffScheduleReviewsToSchedules(
+    schedules: List<WorkSchedule>,
+    reviews: List<OffScheduleAttendanceReview>,
+    shifts: List<WorkShift>
+): List<WorkSchedule> {
+    if (reviews.isEmpty()) return schedules
+    val shiftsById = shifts.associateBy(WorkShift::id)
+    val result = schedules.associateBy { "${it.employeeId}_${it.date}" }.toMutableMap()
+    reviews.asSequence()
+        .filter { it.decision == "APPROVE" && it.status in setOf("PENDING", "APPROVED") }
+        .sortedBy { it.createdAt?.toDate()?.time ?: 0L }
+        .forEach { review ->
+            val selected = shiftsById[review.shiftId] ?: return@forEach
+            if (selected.category !in setOf("MORNING", "EVENING") ||
+                runCatching { LocalDate.parse(review.scheduleDate) }.isFailure) return@forEach
+            val key = "${review.employeeId}_${review.scheduleDate}"
+            val old = result[key]
+            val ids = (old?.let(::scheduledShiftIds).orEmpty() + selected.id).distinct()
+            if (ids.size > 2 || ids.mapNotNull { shiftsById[it]?.category }.distinct().size != ids.size) return@forEach
+            val ordered = ids.sortedBy { shiftsById[it]?.startTime.orEmpty() }
+            result[key] = (old ?: WorkSchedule(employeeId = review.employeeId,
+                employeeName = review.employeeName, date = review.scheduleDate, source = "OFF_SCHEDULE_REVIEW"))
+                .copy(shiftId = ordered.first(), shiftIds = ordered,
+                    shiftName = ordered.joinToString(" + ") { shiftsById[it]?.name.orEmpty() })
+        }
+    return result.values.toList()
+}
+
 /**
  * Resolves Spark raw scans locally without writing back to Firestore.
  *
@@ -386,15 +426,26 @@ fun resolveSparkPendingAttendance(
     rows: List<Attendance>,
     schedules: List<WorkSchedule>,
     shifts: List<WorkShift>,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    overtimeRequests: List<OvertimeRequest> = emptyList(),
+    reviews: List<OffScheduleAttendanceReview> = emptyList()
 ): List<Attendance> {
-    if (rows.isEmpty() || schedules.isEmpty() || shifts.isEmpty()) return rows
+    if (rows.isEmpty()) return rows
 
     val shiftsById = shifts.associateBy(WorkShift::id)
-    val candidates = schedules.flatMap { schedule ->
+    val effectiveSchedules = applyApprovedOffScheduleReviewsToSchedules(schedules, reviews, shifts)
+    val candidates = effectiveSchedules.flatMap { schedule ->
         val date = runCatching { LocalDate.parse(schedule.date) }.getOrNull() ?: return@flatMap emptyList()
         val scheduled = scheduledShifts(schedule, shiftsById)
         scheduled.map { shift -> SparkScheduleCandidate(schedule, shift, shiftWindow(date, shift, zoneId)) }
+    } + overtimeRequests.mapNotNull { request ->
+        val date = runCatching { LocalDate.parse(request.workDate) }.getOrNull() ?: return@mapNotNull null
+        if (runCatching { validateOvertimeRequest(request) }.isFailure) return@mapNotNull null
+        val shift = WorkShift(id = SUPPLEMENTARY_SHIFT_ID, name = "Tăng ca", category = "SUPPLEMENTARY",
+            startTime = request.startTime, endTime = request.endTime, countsOvertime = true,
+            missingCheckOutGraceMinutes = 120)
+        SparkScheduleCandidate(WorkSchedule(employeeId = request.employeeId, employeeName = request.employeeName,
+            date = request.workDate, shiftId = shift.id, shiftName = shift.name), shift, shiftWindow(date, shift, zoneId))
     }
     if (candidates.isEmpty()) return rows
 
@@ -407,6 +458,13 @@ fun resolveSparkPendingAttendance(
             val eventAt = row.timestamp.toDate().toInstant()
             val pendingScan = row.type == "SCAN" &&
                 row.resolutionStatus == AttendanceResolutionStatus.PENDING.name
+            val approvedReviews = reviews.filter { it.decision == "APPROVE" &&
+                it.status in setOf("PENDING", "APPROVED") && it.employeeId == row.employeeId &&
+                it.scheduleDate == eventAt.atZone(zoneId).toLocalDate().toString() }
+            val approvedUnscheduled = row.type == "UNSCHEDULED" &&
+                row.resolutionStatus == AttendanceResolutionStatus.UNSCHEDULED.name &&
+                row.offScheduleReviewStatus == null && approvedReviews.isNotEmpty()
+            val needsResolution = pendingScan || approvedUnscheduled
             val employeeCandidates = candidates.filter { candidate ->
                 candidate.schedule.employeeId == row.employeeId &&
                     (row.scheduleDate == null || row.scheduleDate == candidate.schedule.date) &&
@@ -414,8 +472,9 @@ fun resolveSparkPendingAttendance(
             }
             if (employeeCandidates.isEmpty()) return@forEach
 
-            val selected = if (pendingScan) {
+            val selected = if (needsResolution) {
                 employeeCandidates
+                    .filter { !approvedUnscheduled || approvedReviews.any { review -> review.shiftId == it.shift.id } }
                     .filter { candidate -> eventAt >= candidate.window.start.minusSeconds(effectiveOpenEarlySeconds(candidate.shift)) &&
                         eventAt <= candidate.window.end.plusSeconds(effectiveCheckoutGraceSeconds(candidate.shift)) }
                     .minWithOrNull(compareBy<SparkScheduleCandidate> {
@@ -428,11 +487,14 @@ fun resolveSparkPendingAttendance(
                 }.thenBy { it.window.start }.thenBy { it.shift.id })
             } ?: return@forEach
 
+            val approvedReview = approvedReviews.filter { it.shiftId == selected.shift.id }
+                .maxByOrNull { it.createdAt?.toDate()?.time ?: 0L }
+
             val date = selected.window.scheduleDate
             val key = SparkSessionKey(row.employeeId, date, selected.shift.id)
             val session = sessions.getOrPut(key) { SparkSession() }
 
-            if (!pendingScan) {
+            if (!needsResolution) {
                 if (isAcceptedAttendance(row)) {
                     when (row.type) {
                         AttendanceType.CHECK_IN.name -> {
@@ -450,6 +512,13 @@ fun resolveSparkPendingAttendance(
                 return@forEach
             }
 
+            val overtimeRequest = if (selected.shift.id == SUPPLEMENTARY_SHIFT_ID) overtimeRequests
+                .firstOrNull { it.employeeId == row.employeeId && it.workDate == selected.schedule.date } else null
+            val overtimeResolution = when (overtimeRequest?.status) {
+                OvertimeRequestStatus.PENDING.name -> AttendanceResolutionStatus.OVERTIME_PENDING.name
+                OvertimeRequestStatus.REJECTED.name -> AttendanceResolutionStatus.OVERTIME_REJECTED.name
+                else -> AttendanceResolutionStatus.ACCEPTED.name
+            }
             val duplicate = session.lastAcceptedAt?.let {
                 abs(eventAt.epochSecond - it.epochSecond) <= DUPLICATE_WINDOW_SECONDS
             } == true
@@ -504,10 +573,15 @@ fun resolveSparkPendingAttendance(
                     session.lastAcceptedAt = eventAt
                     row.copy(
                         type = type,
-                        status = status,
-                        resolutionStatus = AttendanceResolutionStatus.ACCEPTED.name,
+                        status = if (overtimeResolution == AttendanceResolutionStatus.ACCEPTED.name) status else "ABNORMAL",
+                        resolutionStatus = overtimeResolution,
                         scheduleDate = selected.schedule.date,
                         shiftId = selected.shift.id,
+                        overtimeRequestId = overtimeRequest?.id,
+                        offScheduleReviewStatus = if (approvedUnscheduled ||
+                            approvedReview?.shiftId == selected.shift.id) "APPROVED" else row.offScheduleReviewStatus,
+                        offScheduleReviewerId = approvedReview?.reviewerId ?: row.offScheduleReviewerId,
+                        offScheduleReviewerName = approvedReview?.reviewerName ?: row.offScheduleReviewerName,
                         syncStatus = "SYNCED"
                     )
                 }

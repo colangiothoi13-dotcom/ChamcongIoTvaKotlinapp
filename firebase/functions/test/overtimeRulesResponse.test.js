@@ -27,7 +27,7 @@ test("overtime approval rules test reads each GET response body only once", asyn
       return response;
     }
   });
-  assert.equal(cases.size, 12);
+  assert.equal(cases.size, 13);
   await cases.get("admin approves a pending overtime request")();
   assert.equal(responses.length, 2);
   assert.ok(responses.every(response => response.bodyUsed));

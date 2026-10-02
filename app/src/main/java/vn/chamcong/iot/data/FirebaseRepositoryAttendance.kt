@@ -19,23 +19,29 @@ fun FirebaseRepository.observeAttendanceAdjustments(): Flow<List<AttendanceAdjus
     db.collection("attendanceAdjustments").orderBy("createdAt", Query.Direction.DESCENDING)
 )
 
-fun FirebaseRepository.observeOffScheduleAttendanceReviews(): Flow<List<OffScheduleAttendanceReview>> = callbackFlow {
-    val listener = db.collection("offScheduleReviews")
+fun FirebaseRepository.observeOffScheduleAttendanceReviews(): Flow<List<OffScheduleAttendanceReview>> = observeOffScheduleReviews(
+    db.collection("offScheduleReviews")
         .orderBy("createdAt", Query.Direction.DESCENDING)
-        .limit(50)
-        .addSnapshotListener { value, error ->
+)
+
+fun FirebaseRepository.observeEmployeeOffScheduleAttendanceReviews(employeeId: String): Flow<List<OffScheduleAttendanceReview>> {
+    require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
+    return observeOffScheduleReviews(db.collection("offScheduleReviews").whereEqualTo("employeeId", employeeId))
+}
+
+private fun observeOffScheduleReviews(query: Query): Flow<List<OffScheduleAttendanceReview>> = callbackFlow {
+    val listener = query.addSnapshotListener { value, error ->
             if (error != null) close(error)
             else trySend(value?.documents.orEmpty()
                 .mapNotNull { document ->
                     document.toObject(OffScheduleAttendanceReview::class.java)?.copy(id = document.id)?.let { review ->
-                        // Spark has no trigger to turn a REJECT request from
-                        // PENDING into REJECTED. Treat that immutable request
-                        // as final for the client-side admin view.
-                        if (review.decision == "REJECT" && review.status == "PENDING") {
-                            review.copy(status = "REJECTED")
-                        } else review
+                        when {
+                            review.decision == "REJECT" && review.status == "PENDING" -> review.copy(status = "REJECTED")
+                            review.decision == "APPROVE" && review.status == "PENDING" -> review.copy(status = "APPROVED")
+                            else -> review
+                        }
                     }
-                })
+                }.sortedByDescending { it.createdAt?.toDate()?.time ?: 0L })
         }
     awaitClose { listener.remove() }
 }
@@ -190,7 +196,7 @@ suspend fun FirebaseRepository.submitOffScheduleAttendanceReview(
     require(reason.trim().length <= 500) { "Lý do không được quá 500 ký tự" }
     val date = LocalDate.parse(scheduleDate).toString()
     val id = UUID.randomUUID().toString()
-    db.collection("offScheduleReviews").document(id).set(mapOf(
+    val review = mapOf(
         "id" to id,
         "employeeId" to employeeId,
         "employeeName" to employeeName,
@@ -203,7 +209,19 @@ suspend fun FirebaseRepository.submitOffScheduleAttendanceReview(
         "reviewerId" to currentUserId,
         "reviewerName" to currentUserName,
         "createdAt" to FieldValue.serverTimestamp()
-    )).await()
+    )
+    val audit = AuditLog(
+        actorId = currentUserId, actorName = currentUserName,
+        action = AuditAction.OFF_SCHEDULE_REVIEW.name,
+        targetType = "offScheduleReview", targetId = id,
+        reason = reason.trim(),
+        details = "$decision $employeeId $date ${shift.id}"
+    )
+    validateAuditLog(audit)
+    db.runBatch { batch ->
+        batch.set(db.collection("offScheduleReviews").document(id), review)
+        batch.set(db.collection("audit_logs").document(id), audit.toFirestoreData())
+    }.await()
 }
 
 internal fun AttendanceAdjustment.toFirestoreData(): Map<String, Any?> = mapOf(

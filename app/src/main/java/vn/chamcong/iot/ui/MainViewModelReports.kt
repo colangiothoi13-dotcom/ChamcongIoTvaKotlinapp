@@ -42,7 +42,7 @@ internal class MainReportQueries(
             employeeId = employee.id,
             month = month,
             attendance = _state.value.employeeAttendanceForSummaries,
-            schedules = _state.value.employeeSchedules,
+            schedules = _state.value.effectiveEmployeeSchedules,
             shifts = _state.value.shifts,
             approvedLeaveDates = approvedLeaveDates,
             approvedLeaveShiftsByDate = approvedLeaveShifts,
@@ -71,8 +71,8 @@ internal class MainReportQueries(
         return buildEmployeeMonthSummaries(
             employeeId = employeeId,
             month = month.atDay(1),
-            attendance = current.attendanceForSummaries,
-            schedules = current.schedules,
+            attendance = current.historicalAttendanceForSummaries,
+            schedules = current.effectiveSchedules,
             shifts = current.shifts,
             approvedLeaveDates = leaveDates,
             approvedLeaveShiftsByDate = approvedLeaveShifts,
@@ -84,9 +84,9 @@ internal class MainReportQueries(
 
     fun reportAttendanceRows(filter: ReportFilter): List<AttendanceReportRow> = vn.chamcong.iot.domain.attendanceReportRows(
         filter = filter,
-        employees = _state.value.operationalEmployees,
-        attendance = _state.value.attendanceForSummaries,
-        schedules = _state.value.schedules,
+        employees = _state.value.historicalEmployees(YearMonth.from(filter.startDate)),
+        attendance = _state.value.historicalAttendanceForSummaries,
+        schedules = _state.value.effectiveSchedules,
         shifts = _state.value.shifts,
         approvedRequests = _state.value.leaveRequests,
         zoneId = zoneId,
@@ -96,10 +96,10 @@ internal class MainReportQueries(
     fun kpiBonusBreakdowns(month: YearMonth): Map<String, KpiBonusBreakdown> {
         val current = _state.value
         return calculateMonthlyKpiBonuses(
-            employees = current.operationalEmployees,
+            employees = current.historicalEmployees(month),
             month = month,
-            attendance = current.attendanceForSummaries,
-            schedules = current.schedules,
+            attendance = current.historicalAttendanceForSummaries,
+            schedules = current.effectiveSchedules,
             shifts = current.shifts,
             overtimeRequests = current.overtimeRequests,
             adjustments = current.attendanceAdjustments,

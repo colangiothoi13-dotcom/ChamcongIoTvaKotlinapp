@@ -261,7 +261,7 @@ private fun WeeklyScheduleGrid(
             Row {
                 Text("${employee.code}\n${employee.fullName}", Modifier.width(150.dp).padding(AppSpacing.small), style = MaterialTheme.typography.bodySmall)
                 dates.forEach { date ->
-                    val schedule = state.schedules.firstOrNull { it.employeeId == employee.id && it.date == date.toString() }
+                    val schedule = state.effectiveSchedules.firstOrNull { it.employeeId == employee.id && it.date == date.toString() }
                     Card(
                         onClick = { onCell(employee, date) },
                         modifier = Modifier
@@ -333,7 +333,7 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
                             androidx.compose.foundation.layout.Spacer(Modifier.size(AppTouchTarget.minimum))
                         } else {
                             val canAssign = date.dayOfWeek != DayOfWeek.SUNDAY
-                            val count = state.schedules.count { it.date == date.toString() && it.employeeId in operationalIds }
+                            val count = state.effectiveSchedules.count { it.date == date.toString() && it.employeeId in operationalIds }
                             Card(
                                 onClick = { if (canAssign) onDay(date) },
                                 enabled = canAssign,

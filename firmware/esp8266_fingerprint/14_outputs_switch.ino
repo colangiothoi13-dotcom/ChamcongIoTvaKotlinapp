@@ -8,6 +8,11 @@ void initializeOutputsAndSwitch() {
   pinMode(BUZZER_PIN, OUTPUT);
   // D0/GPIO16 dung dien tro keo xuong noi bo; nut noi D0 voi 3V3 khi nhan.
   pinMode(DOOR_SWITCH_PIN, INPUT_PULLDOWN_16);
+  lastDoorSwitchReading = digitalRead(DOOR_SWITCH_PIN);
+  stableDoorSwitchState = lastDoorSwitchReading;
+  doorSwitchChangedAt = millis();
+  Serial.printf("NUT CUA D0: luc khoi dong %s (tha nut phai LOW)\n",
+                lastDoorSwitchReading == HIGH ? "HIGH" : "LOW");
 }
 
 void playBuzzerTone(uint16_t frequency, uint16_t durationMs) {
@@ -47,6 +52,7 @@ void handleDoorSwitch() {
   // Chi mo cua khi phat hien canh nhan LOW -> HIGH, khong toggle khi dang mo.
   int reading = digitalRead(DOOR_SWITCH_PIN);
   if (reading != lastDoorSwitchReading) {
+    Serial.printf("NUT CUA D0: tin hieu %s\n", reading == HIGH ? "HIGH" : "LOW");
     doorSwitchChangedAt = millis();
     lastDoorSwitchReading = reading;
   }
@@ -56,6 +62,9 @@ void handleDoorSwitch() {
 
   stableDoorSwitchState = reading;
   if (stableDoorSwitchState == HIGH) {
+    Serial.println("NUT CUA: da nhan, dang mo cua");
+    showLcd("DA NHAN NUT CUA", "DANG MO CUA");
     openDoor();
+    showReadyScreen();
   }
 }

@@ -12,6 +12,7 @@ import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.model.AttendanceResolutionStatus
 import vn.chamcong.iot.model.AttendanceType
 import vn.chamcong.iot.model.OffScheduleAttendanceReview
+import vn.chamcong.iot.model.OvertimeRequest
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WorkSchedule
 import java.time.Instant
@@ -267,6 +268,66 @@ class AttendanceResolutionRulesTest {
 
         assertEquals("EARLY_LEAVE", resolved.last().status)
         assertEquals("SCAN", rawRows.last().type)
+    }
+
+    @Test
+    fun sparkApprovedOvertimeHasItsOwnAcceptedSession() {
+        val regular = WorkShift(id = "evening", name = "Ca chiều", category = "EVENING",
+            startTime = "13:00", endTime = "17:00")
+        val schedule = WorkSchedule(employeeId = "e1", date = scheduleDate.toString(), shiftId = regular.id)
+        val request = OvertimeRequest(id = "ot-1", employeeId = "e1", employeeName = "An",
+            workDate = scheduleDate.toString(), startTime = "18:00", endTime = "22:00", status = "APPROVED")
+        val rows = listOf(rawScan("2026-09-14T10:00:00Z", "regular-out"),
+            rawScan("2026-09-14T11:00:00Z", "overtime-in"),
+            rawScan("2026-09-14T15:00:00Z", "overtime-out"))
+
+        val resolved = resolveSparkPendingAttendance(rows, listOf(schedule), listOf(regular), zone,
+            overtimeRequests = listOf(request))
+
+        assertEquals(listOf("CHECK_OUT", "CHECK_IN", "CHECK_OUT"), resolved.map { it.type })
+        assertEquals(listOf("evening", SUPPLEMENTARY_SHIFT_ID, SUPPLEMENTARY_SHIFT_ID), resolved.map { it.shiftId })
+        assertTrue(resolved.all(::isAcceptedAttendance))
+        assertEquals(listOf("ot-1", "ot-1"), resolved.takeLast(2).map { it.overtimeRequestId })
+    }
+
+    @Test
+    fun sparkApprovedOffScheduleReviewTurnsUnscheduledScansIntoAttendance() {
+        val shift = WorkShift(id = "morning", name = "Ca sáng", category = "MORNING",
+            startTime = "08:00", endTime = "12:00")
+        val review = OffScheduleAttendanceReview(employeeId = "e1", employeeName = "An",
+            scheduleDate = scheduleDate.toString(), shiftId = shift.id, shiftName = shift.name,
+            decision = "APPROVE", status = "PENDING", reviewerId = "admin", reviewerName = "Admin")
+        val rows = listOf("2026-09-14T01:00:00Z", "2026-09-14T05:00:00Z").mapIndexed { index, time ->
+            rawScan(time, "off-$index").copy(type = "UNSCHEDULED", status = "ABNORMAL",
+                resolutionStatus = AttendanceResolutionStatus.UNSCHEDULED.name)
+        }
+
+        val resolved = resolveSparkPendingAttendance(rows, emptyList(), listOf(shift), zone, reviews = listOf(review))
+
+        assertEquals(listOf("CHECK_IN", "CHECK_OUT"), resolved.map { it.type })
+        assertTrue(resolved.all(::isAcceptedAttendance))
+        assertTrue(resolved.all { it.offScheduleReviewStatus == "APPROVED" })
+        assertEquals("UNSCHEDULED", rows.first().type)
+        assertEquals(shift.id, applyApprovedOffScheduleReviewsToSchedules(emptyList(), listOf(review), listOf(shift)).single().shiftId)
+    }
+
+    @Test
+    fun sparkApprovedOffScheduleReviewAlsoResolvesRawPendingScans() {
+        val shift = WorkShift(id = "morning", name = "Ca sáng", category = "MORNING",
+            startTime = "08:00", endTime = "12:00")
+        val review = OffScheduleAttendanceReview(employeeId = "e1", employeeName = "An",
+            scheduleDate = scheduleDate.toString(), shiftId = shift.id, shiftName = shift.name,
+            decision = "APPROVE", status = "PENDING", reviewerId = "admin", reviewerName = "Admin")
+        val rows = listOf(rawScan("2026-09-14T01:00:00Z", "raw-in"),
+            rawScan("2026-09-14T05:00:00Z", "raw-out"))
+
+        val resolved = resolveSparkPendingAttendance(rows, emptyList(), listOf(shift), zone,
+            reviews = listOf(review))
+
+        assertEquals(listOf("CHECK_IN", "CHECK_OUT"), resolved.map { it.type })
+        assertTrue(resolved.all(::isAcceptedAttendance))
+        assertTrue(resolved.all { it.offScheduleReviewStatus == "APPROVED" })
+        assertTrue(rows.all { it.type == "SCAN" })
     }
 
     private fun attendance(type: String, instant: String, resolutionStatus: String = AttendanceResolutionStatus.ACCEPTED.name) = Attendance(

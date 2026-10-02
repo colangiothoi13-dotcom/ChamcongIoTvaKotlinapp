@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import vn.chamcong.iot.domain.employeeAccountProfile
 import vn.chamcong.iot.domain.validateEmployeeAccountInput
+import vn.chamcong.iot.domain.validateAuditLog
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
 import java.time.ZoneId
@@ -65,15 +66,19 @@ private suspend fun FirebaseRepository.createEmployeeAccount(employeeId: String,
             ?: error("Firebase không trả về tài khoản mới")
         createdUid = user.uid
         val profile = employeeAccountProfile(user.uid, employeeId, input)
-        db.collection("users").document(user.uid).set(profile).await()
-        runCatching { writeAuditLog(AuditLog(
+        val audit = AuditLog(
             actorId = currentUserId,
             actorName = currentUserName,
             action = AuditAction.ACCOUNT_CREATE.name,
             targetType = "user",
             targetId = user.uid,
             details = "Tạo tài khoản EMPLOYEE cho nhân viên $employeeId"
-        )) }
+        )
+        validateAuditLog(audit)
+        db.runBatch { batch ->
+            batch.set(db.collection("users").document(user.uid), profile)
+            batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+        }.await()
     } catch (error: Exception) {
         if (createdUid != null) runCatching { accountAuth.currentUser?.delete()?.await() }
         throw error
@@ -122,6 +127,7 @@ private suspend fun FirebaseRepository.saveEmployeeInternal(input: Employee, dev
     // Bao gom ca nhan vien da nghi va ma nhap thu cong cua ban cu.
     val codes = if (input.id.isBlank()) db.collection("employees").get(Source.SERVER).await().documents.mapNotNull { it.getString("code") } else emptyList()
     val requestId = UUID.randomUUID().toString()
+    val auditRef = db.collection("audit_logs").document()
     val code = db.runTransaction { tx ->
         val old = tx.get(ref).toObject(Employee::class.java)
         require(input.id.isBlank() || old != null) { "Không tìm thấy nhân viên" }
@@ -164,16 +170,16 @@ private suspend fun FirebaseRepository.saveEmployeeInternal(input: Employee, dev
                 "employeeId" to ref.id, "employeeName" to employee.fullName, "templateId" to slot,
                 "status" to "REQUESTED", "createdAt" to FieldValue.serverTimestamp(), "applied" to false))
         }
+        val audit = AuditLog(
+            actorId = currentUserId, actorName = currentUserName,
+            action = if (input.id.isBlank()) AuditAction.EMPLOYEE_CREATE.name else AuditAction.EMPLOYEE_UPDATE.name,
+            targetType = "employee", targetId = ref.id,
+            details = "Lưu hồ sơ ${input.fullName}${if (deviceId != null) " và yêu cầu đăng ký vân tay" else ""}"
+        )
+        validateAuditLog(audit)
+        tx.set(auditRef, audit.toFirestoreData())
         employee.code
     }.await()
-    writeAuditLog(AuditLog(
-        actorId = currentUserId,
-        actorName = currentUserName,
-        action = if (input.id.isBlank()) AuditAction.EMPLOYEE_CREATE.name else AuditAction.EMPLOYEE_UPDATE.name,
-        targetType = "employee",
-        targetId = ref.id,
-        details = "Lưu hồ sơ ${input.fullName}${if (deviceId != null) " và yêu cầu đăng ký vân tay" else ""}"
-    ))
     return EmployeeSaveResult(ref.id, code)
 }
 
@@ -181,6 +187,7 @@ suspend fun FirebaseRepository.removeEmployeeOrFingerprint(employeeId: String, r
     val employeeRef = db.collection("employees").document(employeeId)
     val requestId = UUID.randomUUID().toString()
     val retirementDateToday = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).toString()
+    val auditRef = db.collection("audit_logs").document()
     // Older app versions did not always copy the slot back to employees.
     // Look up the mapping as a fallback so retiring that employee also
     // disables the still-enrolled sensor slot.
@@ -205,7 +212,12 @@ suspend fun FirebaseRepository.removeEmployeeOrFingerprint(employeeId: String, r
         // Ban cu co the chua luu pendingTemplateId; tim mau cua lenh that bai.
         val legacySlot = if (command.getString("employeeId") == employeeId && command.getString("type") == "ENROLL_FINGERPRINT" && command.getString("status") != "COMPLETED") command.getLong("templateId")?.toInt() else null
         val template = slot ?: legacySlot
+        val mappingRef = template?.let { db.collection("fingerprintMappings").document(it.toString()) }
+        val mapping = mappingRef?.let(tx::get)
         if (template != null || command.getString("employeeId") == employeeId) requireFreeCommand(command)
+        require(mapping == null || !mapping.exists() || mapping.getString("employeeId") in listOf(null, employeeId)) {
+            "Mẫu vân tay đang liên kết với nhân viên khác"
+        }
         if (retire) {
             accountProfiles.forEach { profile -> tx.get(profile.reference) }
             val retirementDate = e.terminationDate
@@ -214,8 +226,10 @@ suspend fun FirebaseRepository.removeEmployeeOrFingerprint(employeeId: String, r
             tx.update(employeeRef, mapOf("active" to false, "terminationDate" to retirementDate))
         }
         if (template != null) {
-            val mappingRef = db.collection("fingerprintMappings").document(template.toString())
-            tx.set(mappingRef, mapOf("enabled" to false), SetOptions.merge())
+            tx.set(requireNotNull(mappingRef), mapOf(
+                "employeeId" to employeeId, "employeeName" to e.fullName,
+                "templateId" to template, "enabled" to false
+            ), SetOptions.merge())
             tx.update(employeeRef, "pendingTemplateId", template)
             tx.set(commandRef, mapOf("requestId" to requestId, "type" to "DELETE_FINGERPRINT",
                 "deviceId" to commandRef.id, "employeeId" to employeeId, "employeeName" to e.fullName,
@@ -230,16 +244,16 @@ suspend fun FirebaseRepository.removeEmployeeOrFingerprint(employeeId: String, r
                 ))
             }
         }
+        val audit = AuditLog(
+            actorId = currentUserId, actorName = currentUserName,
+            action = if (retire) AuditAction.EMPLOYEE_UPDATE.name else AuditAction.FINGERPRINT_DELETE.name,
+            targetType = "employee", targetId = employeeId,
+            reason = if (retire) "Chuyển nhân viên sang đã nghỉ" else "Xóa mẫu vân tay trên thiết bị",
+            details = "Yêu cầu xử lý qua deviceCommands"
+        )
+        validateAuditLog(audit)
+        tx.set(auditRef, audit.toFirestoreData())
     }.await()
-    writeAuditLog(AuditLog(
-        actorId = currentUserId,
-        actorName = currentUserName,
-        action = if (retire) AuditAction.EMPLOYEE_UPDATE.name else AuditAction.FINGERPRINT_DELETE.name,
-        targetType = "employee",
-        targetId = employeeId,
-        reason = if (retire) "Chuyển nhân viên sang đã nghỉ" else "Xóa mẫu vân tay trên thiết bị",
-        details = "Yêu cầu xử lý qua deviceCommands"
-    ))
 }
 
 fun FirebaseRepository.observeEnrollmentCommands(): Flow<List<Map<String, Any>>> = callbackFlow {
@@ -248,30 +262,4 @@ fun FirebaseRepository.observeEnrollmentCommands(): Flow<List<Map<String, Any>>>
         else trySend(value?.documents.orEmpty().map { it.data.orEmpty() + ("commandId" to it.id) })
     }
     awaitClose { listener.remove() }
-}
-suspend fun FirebaseRepository.applyCompletedEnrollment(command: Map<String, Any>) {
-    val commandId = command["commandId"] as? String ?: return
-    val ref = db.collection("deviceCommands").document(commandId)
-    db.runTransaction { tx ->
-        val current = tx.get(ref)
-        if (current.getString("status") != "COMPLETED" || current.getBoolean("applied") == true) return@runTransaction
-        val id = current.getString("employeeId") ?: error("Lệnh thiếu nhân viên")
-        val template = current.getLong("templateId") ?: error("Lệnh thiếu mẫu vân tay")
-        val employeeRef = db.collection("employees").document(id)
-        val employee = tx.get(employeeRef).toObject(Employee::class.java)
-        val mappingRef = db.collection("fingerprintMappings").document(template.toString())
-        when (current.getString("type")) {
-            "DELETE_FINGERPRINT" -> {
-                tx.delete(mappingRef)
-                if (employee != null) tx.update(employeeRef, mapOf("fingerprintTemplateId" to null, "pendingTemplateId" to null))
-            }
-            "ENROLL_FINGERPRINT" -> {
-                require(employee != null && employee.active) { "Nhân viên không còn hoạt động" }
-                tx.update(employeeRef, mapOf("fingerprintTemplateId" to template, "pendingTemplateId" to null, "fingerprintDeviceId" to commandId))
-                tx.set(mappingRef, mapOf("employeeId" to id, "employeeName" to employee.fullName, "templateId" to template, "enabled" to true))
-            }
-            else -> error("Loại lệnh không được hỗ trợ")
-        }
-        tx.update(ref, "applied", true)
-    }.await()
 }

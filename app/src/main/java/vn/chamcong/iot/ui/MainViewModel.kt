@@ -113,24 +113,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.submitOffScheduleAttendanceReview(
             employeeId, employeeName, scheduleDate, shift, decision, reason
         )
-        if (decision == "REJECT") {
-            // The attendance document is immutable on Spark. Mark matching
-            // rows locally so the admin sees the rejection immediately; the
-            // review listener also restores this view after a refresh.
-            _state.update { current ->
-                current.copy(
-                    attendance = current.attendance.map { row ->
-                        val rowDate = row.scheduleDate ?: row.timestamp.toDate().toInstant()
-                            .atZone(zoneId).toLocalDate().toString()
-                        if (row.employeeId == employeeId && rowDate == scheduleDate &&
-                            (row.type == "UNSCHEDULED" || row.resolutionStatus == "UNSCHEDULED")) {
-                            row.copy(offScheduleReviewStatus = "REJECTED")
-                        } else row
-                    }
-                )
-            }
-        }
-        if (decision == "APPROVE") "Đã gửi duyệt lượt chấm ngoài lịch; chờ hệ thống cập nhật"
+        if (decision == "APPROVE") "Đã duyệt lượt chấm ngoài lịch"
         else "Đã gửi từ chối lượt chấm ngoài lịch"
     }
     fun saveEmployee(employee: Employee, account: EmployeeAccountInput? = null, done: () -> Unit) = perform(done) {
