@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.reports
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -78,4 +80,10 @@ fun WorkSummaryScreen(state: MainUiState, vm: MainViewModel) {
 @Composable
 private fun SummaryMetric(label: String, value: String, modifier: Modifier) {
     Card(modifier) { Column(Modifier.padding(AppSpacing.medium)) { Text(value, style = MaterialTheme.typography.titleLarge); Text(label, style = MaterialTheme.typography.bodySmall) } }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun WorkSummaryScreenPreview() {
+    PreviewStateScreen { state, vm -> WorkSummaryScreen(state, vm) }
 }

@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.presence
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -97,4 +99,10 @@ private fun statusColor(status: PresenceStatus) = when (status) {
     PresenceStatus.LEFT -> MaterialTheme.colorScheme.onSurfaceVariant
     PresenceStatus.MISSING_CHECK_OUT, PresenceStatus.ABNORMAL -> MaterialTheme.colorScheme.error
     PresenceStatus.NOT_CHECKED_IN -> MaterialTheme.colorScheme.outline
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun PresenceScreenPreview() {
+    PreviewStateScreen { state, vm -> PresenceScreen(state, vm) }
 }

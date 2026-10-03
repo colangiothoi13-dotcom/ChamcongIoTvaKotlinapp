@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.employee
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -392,3 +394,9 @@ internal fun EmployeeAttendanceStatus.toVietnamese(): String = when (this) {
 
 internal fun formatTime(value: java.time.Instant): String =
     DateTimeFormatter.ofPattern("HH:mm").withZone(zone).format(value)
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun EmployeeHomeScreenPreview() {
+    PreviewStateScreen { state, vm -> EmployeeHomeScreen(state, vm) }
+}

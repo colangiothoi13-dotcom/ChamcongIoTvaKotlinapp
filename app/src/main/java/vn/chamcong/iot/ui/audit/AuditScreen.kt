@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.audit
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,4 +52,10 @@ fun AuditScreen(state: MainUiState) {
             }
         }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun AuditScreenPreview() {
+    PreviewStateScreen { state, vm -> AuditScreen(state) }
 }

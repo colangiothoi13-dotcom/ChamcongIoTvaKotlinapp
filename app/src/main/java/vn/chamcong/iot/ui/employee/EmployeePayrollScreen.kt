@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.employee
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -186,3 +188,9 @@ private fun payrollMonthLabel(month: String): String = runCatching {
 }.getOrDefault(month.ifBlank { "Kỳ lương" })
 
 private fun Double.formatPayrollHours(): String = String.format(Locale.US, "%.2f", this)
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun EmployeePayrollScreenPreview() {
+    PreviewStateScreen { state, vm -> EmployeePayrollScreen(state) }
+}

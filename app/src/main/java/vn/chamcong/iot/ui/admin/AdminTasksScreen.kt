@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.admin
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -190,4 +192,10 @@ private fun taskColors(destination: AppDestination): Pair<Color, Color> = when (
 private object MaterialThemeFallbackColors {
     val primary = Color(0xFF05AA59)
     val container = Color(0xFFE4F7E9)
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun AdminTasksScreenPreview() {
+    PreviewStateScreen { state, vm -> AdminTasksScreen(onOpen = {}) }
 }

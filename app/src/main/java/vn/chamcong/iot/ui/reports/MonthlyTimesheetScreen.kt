@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.reports
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -272,4 +274,10 @@ private fun EmployeeAttendanceStatus.toVietnameseLabel(): String = when (this) {
     EmployeeAttendanceStatus.MISSING_CHECK_IN -> "Thiếu chấm vào"
     EmployeeAttendanceStatus.MISSING_CHECK_OUT -> "Thiếu chấm ra"
     EmployeeAttendanceStatus.LEAVE -> "Nghỉ phép"
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun MonthlyTimesheetScreenPreview() {
+    PreviewStateScreen { state, vm -> MonthlyTimesheetScreen(month = java.time.YearMonth.now(), employees = state.employees, summariesForEmployee = { listOf(vn.chamcong.iot.model.EmployeeDaySummary(date = java.time.LocalDate.now(), shiftName = "Ca sáng", workedHours = 4.0)) }, onPreviousMonth = {}, onNextMonth = {}) }
 }

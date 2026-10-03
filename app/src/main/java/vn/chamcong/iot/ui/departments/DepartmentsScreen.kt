@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.departments
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -239,4 +241,10 @@ private fun DepartmentNameDialog(
             TextButton(onClick = onDismiss, enabled = !saving) { Text("Hủy") }
         }
     )
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun DepartmentsScreenPreview() {
+    PreviewStateScreen { state, vm -> DepartmentsScreen(state.departments, mapOf("ky-thuat" to 1, "nhan-su" to 1), saving = false, onCreateDepartment = { _, _ -> }, onRenameDepartment = { _, _, _ -> }, onSetDepartmentActive = { _, _ -> }) }
 }

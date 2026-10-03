@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.schedule
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -127,4 +129,10 @@ private fun SelectionRow(label: String, checked: Boolean, enabled: Boolean, onCh
         Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
         Text(label, Modifier.padding(start = AppSpacing.small))
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun WeeklyAssignmentDialogPreview() {
+    PreviewStateScreen { state, vm -> WeeklyAssignmentDialog(state, vm, onDismiss = {}) }
 }

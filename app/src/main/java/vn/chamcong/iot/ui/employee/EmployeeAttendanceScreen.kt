@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.employee
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -98,4 +100,10 @@ private fun EmployeeDayCard(summary: EmployeeDaySummary) {
             }
         }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun EmployeeAttendanceScreenPreview() {
+    PreviewStateScreen { state, vm -> EmployeeAttendanceScreen(state, vm) }
 }

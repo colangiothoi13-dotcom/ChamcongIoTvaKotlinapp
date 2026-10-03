@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.devices
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -282,4 +284,10 @@ private fun commandTypeLabel(type: String?): String = when (type) {
     "DELETE_FINGERPRINT" -> "Xóa vân tay"
     "ENROLL_FINGERPRINT" -> "Đăng ký vân tay"
     else -> "Lệnh thiết bị"
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun DevicesScreenPreview() {
+    PreviewStateScreen { state, vm -> DevicesScreen(state, vm) }
 }

@@ -1,5 +1,8 @@
 package vn.chamcong.iot.ui.reports
 
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalInspectionMode
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.loadAttendanceRange
 import vn.chamcong.iot.ui.retryAttendanceRange
 
@@ -69,8 +72,9 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
             state.attendanceHistoryError == null &&
             !state.attendanceHistoryTruncated
         )
+    val inPreview = LocalInspectionMode.current
     LaunchedEffect(filter?.startDate, filter?.endDate, filter?.employeeId, type) {
-        if (type != ReportType.DEVICE_ACTIVITY) {
+        if (!inPreview && type != ReportType.DEVICE_ACTIVITY) {
             filter?.let { vm.loadAttendanceRange(it.startDate, it.endDate, it.employeeId) }
         }
     }
@@ -208,4 +212,10 @@ private fun shareCsv(context: Context, csv: String, name: String) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Chia sẻ báo cáo"))
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun ReportsScreenPreview() {
+    PreviewStateScreen { state, vm -> ReportsScreen(state, vm) }
 }

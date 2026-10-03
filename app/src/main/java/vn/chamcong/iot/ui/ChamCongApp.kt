@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -160,6 +161,32 @@ private fun LoginScreen(loading: Boolean, error: String?, message: String?, onLo
             }
         }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun LoginScreenPreview() {
+    ChamCongTheme {
+        LoginScreen(
+            loading = false,
+            error = null,
+            message = null,
+            onLogin = { _, _ -> },
+            onReset = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun AdminHomeScreenPreview() {
+    PreviewStateScreen { state, vm -> AdminHomeScreen(state, vm) }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun EmployeeHomeShellPreview() {
+    PreviewStateScreen { state, vm -> EmployeeHomeShell(state, vm) }
 }
 
 @Composable

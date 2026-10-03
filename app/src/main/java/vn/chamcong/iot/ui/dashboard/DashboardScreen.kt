@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.dashboard
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -298,4 +300,10 @@ private fun DashboardAttendanceRow(item: Attendance, onClick: () -> Unit) {
             }
         }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun DashboardScreenPreview() {
+    PreviewStateScreen { state, vm -> DashboardScreen(state, vm, onNavigate = {}) }
 }

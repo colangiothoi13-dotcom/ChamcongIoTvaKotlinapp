@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.attendance
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -91,4 +93,10 @@ fun AttendanceAdjustmentDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !state.saving) { Text("Hủy") } }
     )
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun AttendanceAdjustmentDialogPreview() {
+    PreviewStateScreen { state, vm -> AttendanceAdjustmentDialog(AttendanceAdjustmentTarget("nv-01", "Nguyễn Văn An", java.time.LocalDate.now().toString(), null, null, null), state, onDismiss = {}, onSubmit = {}) }
 }

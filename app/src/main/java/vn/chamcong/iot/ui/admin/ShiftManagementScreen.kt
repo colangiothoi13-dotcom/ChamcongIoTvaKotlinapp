@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.admin
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -51,4 +53,10 @@ fun ShiftManagementScreen(onOpen: (AppDestination) -> Unit) {
             }
         }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun ShiftManagementScreenPreview() {
+    PreviewStateScreen { state, vm -> ShiftManagementScreen(onOpen = {}) }
 }

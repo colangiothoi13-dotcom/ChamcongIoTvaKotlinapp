@@ -4,6 +4,7 @@
 // Neu cap backpack LCD bang 5V, phai dung level shifter I2C 3.3V cho SDA/SCL.
 const uint8_t LCD_ADDRESS = 0x27;  // Doi thanh 0x3F neu module dung dia chi nay
 LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
+bool fingerprintDoorNoticeActive = false;
 
 void initializeLcd() {
   Wire.begin(LCD_SDA_PIN, LCD_SCL_PIN);
@@ -95,6 +96,7 @@ void renderLcd(const String& firstLine, const String& secondLine) {
 }
 
 void showLcd(const String& firstLine, const String& secondLine) {
+  fingerprintDoorNoticeActive = false;
   lcdIdleMode = false;
   renderLcd(firstLine, secondLine);
 }
@@ -138,6 +140,7 @@ void showIdleScreen() {
 }
 
 void showReadyScreen() {
+  fingerprintDoorNoticeActive = false;
   if (sensorReady) showIdleScreen();
   else showSensorReconnectScreen();
 }

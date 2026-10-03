@@ -48,9 +48,11 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
-    internal val repository = FirebaseRepository(application)
-    internal val _state = MutableStateFlow(MainUiState(signedIn = repository.isSignedIn))
+class MainViewModel private constructor(application: Application, private val previewMode: Boolean) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, false)
+
+    internal val repository by lazy(LazyThreadSafetyMode.NONE) { FirebaseRepository(application) }
+    internal val _state = MutableStateFlow(MainUiState(signedIn = if (previewMode) false else repository.isSignedIn))
     val state: StateFlow<MainUiState> = _state.asStateFlow()
     internal val zoneId = ZoneId.of("Asia/Ho_Chi_Minh")
 
@@ -76,7 +78,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     internal var employeeAttendanceHistoryHasMore = false
     internal var employeeAttendanceHistoryEmployeeId: String? = null
 
-    init { if (repository.isSignedIn) subscribe() }
+    init { if (!previewMode && repository.isSignedIn) subscribe() }
+
+    companion object {
+        internal fun forPreview(state: MainUiState): MainViewModel = MainViewModel(Application(), true).apply {
+            _state.value = state
+        }
+    }
 
     private fun perform(onSuccess: () -> Unit, block: suspend () -> String) = viewModelScope.launch {
         if (_state.value.saving) return@launch

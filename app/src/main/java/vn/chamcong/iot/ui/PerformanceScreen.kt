@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui
 
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -80,4 +81,10 @@ private fun PerformanceCard(name: String, code: String, breakdown: KpiBonusBreak
             Text("Tổng thưởng tự động: ${money(breakdown.totalBonus)}", style = MaterialTheme.typography.titleMedium)
         }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun PerformanceScreenPreview() {
+    PreviewStateScreen { state, vm -> PerformanceScreen(state, vm) }
 }

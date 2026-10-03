@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.attendance
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -108,4 +110,10 @@ internal fun OffScheduleReviewDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Hủy") } }
     )
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun OffScheduleReviewDialogPreview() {
+    PreviewStateScreen { state, vm -> state.attendance.first().copy(type = "UNSCHEDULED").let { OffScheduleReviewDialog(it, listOf(it), state.shifts, busy = false, error = null, onDismiss = {}, onSubmit = { _, _, _ -> }) } }
 }

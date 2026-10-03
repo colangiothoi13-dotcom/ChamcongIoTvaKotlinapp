@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.attendance
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -271,4 +273,10 @@ internal fun attendanceAdjustmentTarget(row: Attendance, state: MainUiState): At
         currentCheckOut = summary.checkOut?.let { Timestamp(Date.from(it)) },
         currentWorkedHours = summary.workedHours
     )
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun AttendanceScreenPreview() {
+    PreviewStateScreen { state, vm -> AttendanceScreen(state, vm) }
 }

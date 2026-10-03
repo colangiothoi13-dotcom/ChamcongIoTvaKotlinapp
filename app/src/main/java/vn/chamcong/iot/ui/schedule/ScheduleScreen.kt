@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.schedule
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -456,4 +458,10 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !state.saving) { Text("Hủy") } }
     )
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun ScheduleScreenPreview() {
+    PreviewStateScreen { state, vm -> ScheduleScreen(state, vm) }
 }

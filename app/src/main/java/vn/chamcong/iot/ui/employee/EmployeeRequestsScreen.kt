@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.employee
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -322,4 +324,10 @@ private fun String.toVietnamese(): String = when (this) {
     RequestStatus.REJECTED.name -> "Từ chối"
     RequestStatus.CANCELLED.name -> "Đã hủy"
     else -> this
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun EmployeeRequestsScreenPreview() {
+    PreviewStateScreen { state, vm -> EmployeeRequestsScreen(state, vm) }
 }

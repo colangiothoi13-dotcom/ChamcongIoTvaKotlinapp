@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.employee
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.loadMoreEmployeeAttendance
 
 import androidx.compose.foundation.layout.Arrangement
@@ -339,3 +341,9 @@ private fun AttendanceActivityCard(attendance: Attendance) {
 private fun profileMoney(amount: Long): String = java.text.NumberFormat
     .getNumberInstance(Locale("vi", "VN"))
     .format(amount) + " đ"
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun EmployeeProfileScreenPreview() {
+    PreviewStateScreen { state, vm -> EmployeeProfileScreen(state, vm, onChangePassword = {}, onSaveContact = { _, _ -> }, onRequestFingerprintSupport = { _, _ -> }) }
+}

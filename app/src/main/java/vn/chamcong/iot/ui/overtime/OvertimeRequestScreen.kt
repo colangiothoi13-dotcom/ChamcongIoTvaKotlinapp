@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.overtime
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -221,4 +223,16 @@ private fun AdminOvertimeRequestCard(
             }
         }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun OvertimeRequestScreenPreview() {
+    PreviewStateScreen { state, vm -> EmployeeOvertimeRequestSection(state, vm) }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun AdminOvertimeRequestPreview() {
+    PreviewStateScreen { state, vm -> AdminOvertimeRequestSection(state, vm) }
 }

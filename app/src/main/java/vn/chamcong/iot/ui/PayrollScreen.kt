@@ -1,5 +1,6 @@
 package vn.chamcong.iot.ui
 
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -182,4 +183,10 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
             dismissButton = { TextButton({ selected = null }, enabled = !state.saving) { Text("Hủy") } }
         )
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun PayrollScreenPreview() {
+    PreviewStateScreen { state, vm -> PayrollScreen(state, vm) }
 }

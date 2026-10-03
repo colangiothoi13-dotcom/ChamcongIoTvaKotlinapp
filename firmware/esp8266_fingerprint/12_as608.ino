@@ -7,6 +7,8 @@ SoftwareSerial mySerial(FINGERPRINT_RX_PIN, FINGERPRINT_TX_PIN);
 #define mySerial Serial1
 #endif
 Adafruit_Fingerprint finger(&mySerial);
+const unsigned long FINGERPRINT_ACCEPTED_DISPLAY_MS = 1200;
+const unsigned long FINGERPRINT_OPENING_DISPLAY_MS = 600;
 
 void setSensorError(const String& message) {
   sensorReady = false;
@@ -128,7 +130,7 @@ bool handleFingerprintRemoval() {
   uint8_t imageStatus = finger.getImage();
   if (imageStatus == FINGERPRINT_NOFINGER) {
     waitingForFingerRemoval = false;
-    showReadyScreen();
+    if (!fingerprintDoorNoticeActive || !doorOpen) showReadyScreen();
   } else if (imageStatus != FINGERPRINT_OK) {
     setSensorError("AS608 loi khi kiem tra ngon tay");
     waitingForFingerRemoval = false;
@@ -181,11 +183,21 @@ void handleFingerprintScan() {
   bool success = uploadAttendance(finger.fingerID, finger.confidence,
                                   employeeName, attendanceTime, attendanceType);
   if (success) {
+    showLcd(employeeName, "DA NHAN");
+    Serial.printf("%s DA NHAN\n", employeeName.c_str());
+    delay(FINGERPRINT_ACCEPTED_DISPLAY_MS);
+
+    showLcd("DANG MO CUA", "VUI LONG DOI");
+    Serial.println("DANG MO CUA");
+    delay(FINGERPRINT_OPENING_DISPLAY_MS);
+
     openDoor();
     String scanStatus = attendancePendingSync
         ? String("CHO SYNC: ") + attendancePendingCount()
         : String("DA NHAN");
-    showLcd(employeeName, scanStatus);
+    showLcd("SE DONG SAU 5S", scanStatus);
+    fingerprintDoorNoticeActive = true;
+    Serial.println("SE DONG SAU 5S");
   } else {
     if (lastFingerprintAuthorizationUnavailable) {
       showLcd("KHONG XAC THUC", "KHONG MO CUA");

@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.employee
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -403,4 +405,10 @@ private fun ScheduleStatusPill(status: ScheduleShiftStatus) {
             style = MaterialTheme.typography.labelMedium
         )
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun EmployeeScheduleScreenPreview() {
+    PreviewStateScreen { state, vm -> EmployeeScheduleScreen(state, vm) }
 }

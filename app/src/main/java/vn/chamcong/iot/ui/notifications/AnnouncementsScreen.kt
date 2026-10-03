@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.notifications
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -209,4 +211,10 @@ private fun AnnouncementHistoryCard(announcement: Announcement) {
             Text("Thời gian gửi: $sentAt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun AnnouncementsScreenPreview() {
+    PreviewStateScreen { state, vm -> AnnouncementsScreen(state.announcements, state.departments, saving = false, onSend = { _, _, _, _ -> }) }
 }

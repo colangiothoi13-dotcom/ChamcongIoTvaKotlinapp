@@ -45,5 +45,8 @@ void openDoor() {
 }
 
 void maybeCloseDoor() {
-  if (doorOpen && millis() - doorOpenedAt >= DOOR_AUTO_CLOSE_DELAY_MS) closeDoor();
+  if (doorOpen && millis() - doorOpenedAt >= DOOR_AUTO_CLOSE_DELAY_MS) {
+    closeDoor();
+    if (fingerprintDoorNoticeActive) showReadyScreen();
+  }
 }

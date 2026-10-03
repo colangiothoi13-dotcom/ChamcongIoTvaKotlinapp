@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.attendance
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,4 +80,10 @@ internal fun AttendanceScanReviewDialog(
             TextButton(enabled = !busy, onClick = onDismiss) { Text("Hủy") }
         }
     )
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun AttendanceScanReviewDialogPreview() {
+    PreviewStateScreen { state, vm -> state.attendance.first().let { AttendanceScanReviewDialog(it, it, busy = false, error = null, onDismiss = {}, onSubmit = {}) } }
 }

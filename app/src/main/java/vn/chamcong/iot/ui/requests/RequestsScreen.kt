@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.requests
 
+import androidx.compose.ui.tooling.preview.Preview
+import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -104,3 +106,9 @@ private fun RequestCard(request: LeaveRequest, state: MainUiState, onApprove: ()
 }
 
 private fun formatTimestamp(value: Long): String = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("vi", "VN")).format(value)
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun RequestsScreenPreview() {
+    PreviewStateScreen { state, vm -> RequestsScreen(state, vm) }
+}
