@@ -64,8 +64,11 @@ bool refreshCommandVersion() {
 }
 
 bool updateDeviceCommandStatus(const char* status, const char* message) {
+  if (doorNeedsResponsiveLoop()) return false;
   if (WiFi.status() != WL_CONNECTED || !firebaseSignIn() || !refreshCommandVersion()) return false;
-  if (commandAlreadyApplied && strcmp(status, "COMPLETED") == 0) return true;
+  // Generic commands are created with applied=true because they have no
+  // fingerprint mapping to commit. That flag never confirms their status:
+  // still PATCH COMPLETED before acknowledging success on the device.
   if (!canStartHttpsRequest("cap nhat lenh")) return false;
 
   int code = -1;
@@ -77,7 +80,9 @@ bool updateDeviceCommandStatus(const char* status, const char* message) {
       JsonObject fields = doc.createNestedObject("fields");
       fields["status"]["stringValue"] = status;
       fields["message"]["stringValue"] = message;
-      fields["completedAt"]["timestampValue"] = utcTimestamp();
+      if (strcmp(status, "COMPLETED") == 0 || strcmp(status, "FAILED") == 0) {
+        fields["completedAt"]["timestampValue"] = utcTimestamp();
+      }
       body.reserve(measureJson(doc) + 1);
       serializeJson(doc, body);
     }
@@ -89,6 +94,7 @@ bool updateDeviceCommandStatus(const char* status, const char* message) {
     HTTPClient https;
     if (https.begin(client, url)) {
       began = true;
+      https.setTimeout(5000);
       https.addHeader("Content-Type", "application/json");
       https.addHeader("Authorization", "Bearer " + firebaseIdToken);
       code = https.sendRequest("PATCH", reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
@@ -316,13 +322,16 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
 }
 
 bool finishDeviceCommand() {
+  if (doorNeedsResponsiveLoop()) return false;
   String message;
   if (pendingCommandType == "DELETE_FINGERPRINT") {
     message = pendingCommandSuccess ? "Fingerprint deleted" : "Fingerprint deletion failed";
   } else if (pendingCommandType == "ENROLL_FINGERPRINT") {
     message = pendingCommandSuccess ? "Fingerprint stored" : "Enrollment failed, interrupted or timed out";
   } else if (pendingCommandType == "SYNC_ATTENDANCE") {
-    message = pendingCommandSuccess ? "Attendance synchronized" : "Attendance synchronization failed";
+    message = pendingCommandSuccess
+        ? (syncCommandHadRejections ? "Queue drained; rejected events were reported" : "Attendance synchronized")
+        : "Attendance synchronization timed out; unsent events retained";
   } else if (pendingCommandType == "RESTART_DEVICE") {
     message = pendingCommandSuccess ? "Restarting device" : "Device restart failed";
   } else if (pendingCommandType == "OPEN_DOOR") {
@@ -337,7 +346,15 @@ bool finishDeviceCommand() {
   const bool statusSaved = updateDeviceCommandStatus(pendingCommandSuccess ? "COMPLETED" : "FAILED", message.c_str());
   if (!statusSaved || (fingerprintSuccess && !commitFingerprintCompletion())) {
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
-    showLcd("CHO DONG BO", "KIEM TRA MANG");
+    if (pendingCommandType == "SYNC_ATTENDANCE") {
+      // Attendance may already be fully drained. The failed command report
+      // must not leave a false attendance-pending message on the idle LCD.
+      Serial.println("CHO GUI KET QUA LENH: SYNC_ATTENDANCE");
+      if (foregroundAttendanceHandled && !waitingForFingerRemoval &&
+          !fingerprintResultHoldActive()) showReadyScreen();
+    } else {
+      showLcd("CHO DONG BO", "KIEM TRA MANG");
+    }
     return false;
   }
   pendingCommandResult = false;
@@ -345,7 +362,6 @@ bool finishDeviceCommand() {
   if (pendingCommandRestart) {
     showLcd(pendingCommandSuccess ? "DANG KHOI DONG" : "KHOI DONG LOI", "VUI LONG DOI");
     if (pendingCommandSuccess) signalResult(true);
-    delay(300);
     if (pendingCommandSuccess) ESP.restart();
     return true;
   }
@@ -367,7 +383,6 @@ bool finishDeviceCommand() {
             pendingCommandType);
   }
   if (!isTestCommand || !pendingCommandSuccess) signalResult(pendingCommandSuccess);
-  delay(1500);
   if (pendingCommandType == "DELETE_FINGERPRINT" || pendingCommandType == "ENROLL_FINGERPRINT") {
     if (sensorReady) startWaitingForFingerRemoval();
     else showSensorReconnectScreen();
@@ -385,7 +400,32 @@ bool isSupportedDeviceCommand(const String& type) {
          type == "CLOSE_DOOR";
 }
 
+void serviceDeviceCommandExecution() {
+  if (!pendingCommandExecution) return;
+  if (pendingCommandType == "ENROLL_FINGERPRINT") return;
+  bool finished = false;
+  bool success = true;
+  if (pendingCommandType == "SYNC_ATTENDANCE") {
+    finished = syncCommandCanComplete(attendanceOutboxIsEmpty());
+    if (!finished && elapsedAtLeast(millis(), pendingCommandStartedAt, SYNC_COMMAND_TIMEOUT_MS)) {
+      finished = true;
+      success = false;
+      setLatestError("Dong bo het han; giu su kien chua gui trong LittleFS");
+    }
+  } else if (pendingCommandType == "OPEN_DOOR") {
+    finished = doorOpen && !doorMoving;
+  } else if (pendingCommandType == "CLOSE_DOOR") {
+    finished = !doorOpen && !doorMoving;
+  }
+  if (!finished) return;
+  pendingCommandExecution = false;
+  pendingCommandSuccess = success;
+  pendingCommandResult = true;
+  lastCommandCheck = millis() - COMMAND_ACTIVE_POLL_INTERVAL_MS;
+}
+
 bool checkDeviceCommand() {
+  if (doorNeedsResponsiveLoop() || pendingCommandExecution) return true;
   // Neu PATCH mat mang, chi gui lai ket qua, khong thuc hien lai dang ky.
   if (pendingCommandResult) {
     finishDeviceCommand();
@@ -397,8 +437,6 @@ bool checkDeviceCommand() {
   bool wasProcessing = false;
   bool wasCompleted = false;
   if (!readDeviceCommand(templateId, type, employeeId, wasProcessing, wasCompleted)) return false;
-  delay(50);
-  yield();
   if (!hasValidClock()) {
     Serial.println("LENH: chua dong bo NTP, tam hoan cap nhat");
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
@@ -421,7 +459,7 @@ bool checkDeviceCommand() {
 
   // A PROCESSING command found after a reset may have been interrupted while
   // touching the sensor. Never rerun it; report a deterministic failure.
-  if (wasProcessing) {
+  if (wasProcessing && type != "SYNC_ATTENDANCE") {
     Serial.printf("LENH %s dang PROCESSING sau khi khoi dong, danh bai\n", type.c_str());
     pendingCommandSuccess = false;
     pendingCommandResult = true;
@@ -438,14 +476,23 @@ bool checkDeviceCommand() {
 
   bool deleting = type == "DELETE_FINGERPRINT";
   bool enrolling = type == "ENROLL_FINGERPRINT";
+  // Drain scans before changing template ownership. Otherwise an old raw
+  // offline scan could be resolved to a new employee reusing the same slot.
+  if ((deleting || enrolling) && !attendanceOutboxIsEmpty()) {
+    attendanceSyncIntervalMs = ATTENDANCE_NEXT_RECORD_INTERVAL_MS;
+    lastAttendanceSync = millis() - attendanceSyncIntervalMs;
+    commandPollIntervalMs = COMMAND_ACTIVE_POLL_INTERVAL_MS;
+    return false;
+  }
   const char* processingMessage = deleting ? "Deleting fingerprint" :
       enrolling ? "Waiting for finger" : "Processing device command";
-  if (!updateDeviceCommandStatus("PROCESSING", processingMessage)) {
+  if (!wasProcessing && !updateDeviceCommandStatus("PROCESSING", processingMessage)) {
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
     showLcd("LOI MAY CHU", "KIEM TRA MANG");
     return true;
   }
   bool success = false;
+  pendingCommandStartedAt = millis();
 
   if (deleting || enrolling) {
     if (!sensorReady) {
@@ -454,7 +501,10 @@ bool checkDeviceCommand() {
       showLcd("DANG XOA", "VAN TAY...");
       success = finger.deleteModel(templateId) == FINGERPRINT_OK;
     } else if (templateId > 0 && templateId <= 127 && enrolling) {
-      success = enrollFingerprint(templateId);
+      if (startEnrollment(templateId)) {
+        pendingCommandExecution = true;
+        return true;
+      }
     }
   } else if (type == "TEST_LED_GREEN") {
     showLcd("TEST LED XANH", "DANG THUC HIEN");
@@ -470,19 +520,27 @@ bool checkDeviceCommand() {
     success = true;
   } else if (type == "SYNC_ATTENDANCE") {
     showLcd("DANG DONG BO", "CHAM CONG...");
-    success = WiFi.status() == WL_CONNECTED && flushAttendanceOutbox() && attendancePendingCount() == 0;
-    if (!success) setLatestError("Hang doi cham cong chua dong bo het");
+    syncCommandHadRejections = false;
+    pendingCommandExecution = true;
+    attendanceSyncIntervalMs = ATTENDANCE_NEXT_RECORD_INTERVAL_MS;
+    lastAttendanceSync = millis() - attendanceSyncIntervalMs;
+    // Each loop sends at most one head. Keep PROCESSING until all heads are
+    // drained or the deadline expires; a retry never erases an unsent event.
+    serviceDeviceCommandExecution();
+    return true;
   } else if (type == "RESTART_DEVICE") {
     showLcd("DANG KHOI DONG", "VUI LONG DOI");
     success = true;
   } else if (type == "OPEN_DOOR") {
     showLcd("DANG MO CUA", "VUI LONG DOI");
     openDoor();
-    success = true;
+    pendingCommandExecution = true;
+    return true;
   } else if (type == "CLOSE_DOOR") {
     showLcd("DANG DONG CUA", "VUI LONG DOI");
     closeDoor();
-    success = true;
+    pendingCommandExecution = true;
+    return true;
   }
 
   pendingCommandResult = true;

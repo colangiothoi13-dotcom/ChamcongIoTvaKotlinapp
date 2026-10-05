@@ -11,7 +11,7 @@ void setup() {
   Serial.printf("LittleFS: %s\n", littleFsReady ? "READY" : "ERROR");
   if (littleFsReady && LittleFS.exists(FINGERPRINT_CACHE_PATH)) {
     LittleFS.remove(FINGERPRINT_CACHE_PATH);
-    Serial.println("Da xoa cache van tay cu; mo cua can xac thuc online");
+    Serial.println("Da xoa cache nhan vien cu; mau van tay van nam trong AS608");
   }
   recoverAttendanceOutbox();
   Serial.printf("OUTBOX dang cho: %d su kien\n", attendancePendingCount());
@@ -30,6 +30,7 @@ void setup() {
     Serial.print('.');
   }
   if (WiFi.status() == WL_CONNECTED) {
+    wifiWasConnected = true;
     showLcd("DONG BO GIO...", "VUI LONG DOI");
     uint32_t timeSyncStarted = millis();
     while (time(nullptr) < MIN_VALID_UNIX_TIME && millis() - timeSyncStarted < 10000) {
@@ -45,7 +46,7 @@ void setup() {
     publishDeviceSnapshot();
   } else {
     Serial.println("WIFI offline luc khoi dong; se thu lai trong loop");
-    showLcd("OFFLINE", String("CHO SYNC: ") + attendancePendingCount());
+    showLcd("OFFLINE", String("CHO DONG BO: ") + attendancePendingCount());
   }
   Serial.println("\nSan sang cham cong");
   if (sensorReady) showReadyScreen();
@@ -53,36 +54,95 @@ void setup() {
 }
 
 void loop() {
-  maintainWifiConnection();
+  // Always service the physical controls and deadlines before network/sensor I/O.
   handleDoorSwitch();
-  maybeCloseDoor();
+  serviceDoor();
+  serviceOutputEffects();
+  // Keep failed scan feedback readable while physical controls remain active.
+  if (fingerprintResultHoldActive()) {
+    delay(5);
+    return;
+  }
+  serviceFingerprintResultNotice();
+  expireForegroundAttendance();
+  serviceEnrollment();
+  serviceDeviceCommandExecution();
+  if (doorNeedsResponsiveLoop()) {
+    delay(5);
+    return;
+  }
+  maintainWifiConnection();
   maybeRecoverSensor();
-  maybePublishDeviceSnapshot();
   maybeUpdateIdleClock();
-  if (attendanceOutboxBytes() > 0 &&
+  // Enrollment runs one sensor operation per tick and needs no HTTPS until it
+  // finishes. Its waits cannot hold up a manual door opening.
+  if (enrollmentStage != EnrollmentStage::IDLE) {
+    delay(5);
+    return;
+  }
+  if (attendanceOutboxBytes() > 0 && WiFi.status() == WL_CONNECTED &&
+      !httpsRetryCooldownActive() &&
       millis() - lastAttendanceSync >= attendanceSyncIntervalMs) {
-    lastAttendanceSync = millis();
-    const bool synced = flushAttendanceOutbox();
-    attendanceSyncIntervalMs = synced
-        ? ATTENDANCE_SYNC_INTERVAL_MS
-        : ATTENDANCE_RETRY_INTERVAL_MS;
-    if (!synced && attendanceOutboxBytes() > 0) {
+    const AttendanceSyncResult result = flushAttendanceOutbox();
+    attendancePendingSync = attendanceOutboxBytes() > 0;
+    // Deferral did not attempt delivery. Preserve the due head so a cooldown
+    // cannot add another retry interval or keep moving its deadline forward.
+    if (result != AttendanceSyncResult::DEFERRED) {
+      lastAttendanceSync = millis();
+      attendanceSyncIntervalMs = attendanceSyncMadeProgress(result)
+          ? ATTENDANCE_NEXT_RECORD_INTERVAL_MS : ATTENDANCE_RETRY_INTERVAL_MS;
+    }
+    if (pendingCommandExecution && pendingCommandType == "SYNC_ATTENDANCE" && result == AttendanceSyncResult::REJECTED) {
+      syncCommandHadRejections = true;
+    }
+    if (result == AttendanceSyncResult::RETRY || result == AttendanceSyncResult::DEFERRED) {
       Serial.println("OUTBOX dang cho mang de dong bo");
     }
+    // Current delivery may have opened the door or started a rejection notice.
+    if (doorNeedsResponsiveLoop() || fingerprintResultHoldActive()) return;
+  }
+  // A new scan can enter the queue while an empty SYNC awaits its completion
+  // report. Drain that new head before reporting success, using the same deadline.
+  if (pendingCommandResult && pendingCommandType == "SYNC_ATTENDANCE" &&
+      pendingCommandSuccess && !attendanceOutboxIsEmpty()) {
+    pendingCommandResult = false;
+    pendingCommandExecution = true;
+  }
+  serviceDeviceCommandExecution();
+  // SYNC is background work: waiting for the queue must not reserve the sensor.
+  // Commands that own the sensor/door retain their existing exclusive flow.
+  if (pendingCommandExecution && pendingCommandType != "SYNC_ATTENDANCE") {
+    delay(5);
+    return;
   }
   if (pendingCommandResult) {
-    if (millis() - lastCommandCheck >= commandPollIntervalMs) {
+    const bool backgroundSyncResult = pendingCommandType == "SYNC_ATTENDANCE";
+    // A retrying status PATCH can change the LCD. Preserve the current scan,
+    // its finger-removal step and its result while SYNC reports in background.
+    const bool mayReportSyncResult = foregroundAttendanceHandled &&
+        !waitingForFingerRemoval && !fingerprintResultHoldActive();
+    if ((!backgroundSyncResult || mayReportSyncResult) &&
+        millis() - lastCommandCheck >= commandPollIntervalMs) {
       lastCommandCheck = millis();
       checkDeviceCommand();
     }
-    delay(80);
-    return;
+    if (!backgroundSyncResult) {
+      delay(5);
+      return;
+    }
   }
   if (handleFingerprintRemoval()) return;
 
-  if (millis() - lastCommandCheck >= commandPollIntervalMs) {
+  // Never replace the active command's request/version while its background
+  // execution or completion report still needs retrying.
+  // Drain saved scans before a new command GET can consume TLS time or start
+  // another transport cooldown. Physical controls and scanning stay active.
+  if (!pendingCommandExecution && !pendingCommandResult && attendanceOutboxIsEmpty() &&
+      millis() - lastCommandCheck >= commandPollIntervalMs) {
     lastCommandCheck = millis();
     if (checkDeviceCommand()) return;
   }
+  maybePublishDeviceSnapshot();
   handleFingerprintScan();
+  delay(5);
 }

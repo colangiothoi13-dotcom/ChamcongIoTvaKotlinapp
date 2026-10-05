@@ -10,6 +10,7 @@ import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.DailyDashboardSummary
 import vn.chamcong.iot.model.EmployeeAttendanceStatus
 import vn.chamcong.iot.model.LeaveRequest
+import vn.chamcong.iot.model.OvertimeRequest
 import java.time.LocalDate
 import java.time.Instant
 import java.time.ZoneId
@@ -21,7 +22,8 @@ fun summarizeDashboard(
     zoneId: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
     schedules: List<WorkSchedule> = emptyList(),
     shifts: List<WorkShift> = emptyList(),
-    adjustments: List<AttendanceAdjustment> = emptyList()
+    adjustments: List<AttendanceAdjustment> = emptyList(),
+    requests: List<LeaveRequest> = emptyList()
 ): DashboardSummary {
     val monday = mondayOfWeek(weekStart)
     // The dashboard is a calendar view and keeps Sunday visible even though
@@ -44,7 +46,15 @@ fun summarizeDashboard(
         for (date in dates) {
             val rows = rowsByKey[employeeId to date].orEmpty()
             val schedule = schedulesByKey[employeeId to date.toString()]
+            val leaveShiftIds = approvedLeaveShiftIdsForDate(employeeId, date, schedule, shifts, requests)
             val selectedShifts = schedule?.let { scheduledShifts(it, shiftsById) }.orEmpty()
+            val legacyLeave = requests.any { request ->
+                request.employeeId == employeeId && request.status == "APPROVED" && request.type == "LEAVE" &&
+                    request.leaveShiftsByDate == null && runCatching {
+                    date in LocalDate.parse(request.startDate)..LocalDate.parse(request.endDate)
+                }.getOrDefault(false)
+            }
+            if (legacyLeave || (selectedShifts.isNotEmpty() && selectedShifts.all { it.id in leaveShiftIds })) continue
             if (selectedShifts.size > 1) {
                 val adjustment = latestAdjustment(adjustments, employeeId, date)
                 val adjustmentInstant = adjustment?.checkInAt ?: adjustment?.checkOutAt
@@ -60,7 +70,7 @@ fun summarizeDashboard(
                 val pairs = selectedShifts.map { shift ->
                     val shiftAdjustments = if (shift.id == adjustmentShiftId) listOfNotNull(adjustment) else emptyList()
                     shift to resolveAttendancePair(rows, date, shift, shiftAdjustments, zoneId)
-                }
+                }.filterNot { (shift, _) -> shift.id in leaveShiftIds }
                 val observedPairs = pairs.filter { (_, pair) -> pair.checkIn != null || pair.checkOut != null }
                 if (rows.isEmpty() && observedPairs.isEmpty()) continue
                 checkedIds += employeeId
@@ -116,7 +126,8 @@ fun summarizeDailyDashboard(
     adjustments: List<AttendanceAdjustment>,
     date: LocalDate,
     zoneId: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
-    now: Instant = Instant.now()
+    now: Instant = Instant.now(),
+    overtimeRequests: List<OvertimeRequest> = emptyList()
 ): DailyDashboardSummary {
     val activeEmployees = employees.filter { it.active && it.id.isNotBlank() }
     val assignedAttendance = assignAttendanceScheduleDates(
@@ -139,7 +150,7 @@ fun summarizeDailyDashboard(
         val leaveShiftIds = schedule?.let {
             approvedLeaveShiftIdsForDate(employee.id, date, it, shifts, requests)
         }.orEmpty()
-        val daily = employeeDaySummaryForSchedule(
+        val daily = employeeDaySummaryWithRequests(
             employeeId = employee.id,
             date = date,
             attendance = assignedAttendance,
@@ -149,7 +160,8 @@ fun summarizeDailyDashboard(
             zoneId = zoneId,
             adjustments = adjustments,
             now = now,
-            approvedLeaveShiftIds = leaveShiftIds
+            approvedLeaveShiftIds = leaveShiftIds,
+            overtimeRequests = overtimeRequests
         )
         val shiftSummaries = daily.shiftSummaries
         val hasCheckIn = daily.checkIn != null

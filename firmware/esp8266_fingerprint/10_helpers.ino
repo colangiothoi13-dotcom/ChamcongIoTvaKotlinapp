@@ -14,13 +14,16 @@ void maintainWifiConnection() {
     if (!wifiWasConnected) {
       wifiWasConnected = true;
       Serial.println("WIFI da ket noi");
+      // A new Wi-Fi connection gets one immediate retry. A live connection
+      // with no working internet keeps the normal HTTPS cooldown.
+      hasHttpsTransportFailure = false;
       if (time(nullptr) < MIN_VALID_UNIX_TIME) {
         configTime(0, 0, "pool.ntp.org", "time.google.com");
         Serial.println("WIFI: dang dong bo lai gio NTP");
       }
       if (attendanceOutboxBytes() > 0) {
-        attendanceSyncIntervalMs = ATTENDANCE_SYNC_INTERVAL_MS;
-        lastAttendanceSync = millis() - ATTENDANCE_SYNC_INTERVAL_MS;
+        attendanceSyncIntervalMs = ATTENDANCE_NEXT_RECORD_INTERVAL_MS;
+        lastAttendanceSync = millis() - attendanceSyncIntervalMs;
       }
     }
     return;
@@ -45,11 +48,20 @@ void deferHttpsRequests(const char* operation) {
                 operation, HTTPS_RETRY_COOLDOWN_MS / 1000);
 }
 
+bool httpsRetryCooldownActive() {
+  return hasHttpsTransportFailure &&
+      !elapsedAtLeast(millis(), lastHttpsTransportFailure, HTTPS_RETRY_COOLDOWN_MS);
+}
+
 bool canStartHttpsRequest(const char* operation) {
+  // Door deferral is normal pending work, never a transport error/cooldown.
+  if (doorNeedsResponsiveLoop()) {
+    firebaseSyncStatus = "PENDING";
+    return false;
+  }
   if (WiFi.status() != WL_CONNECTED) return false;
 
-  if (hasHttpsTransportFailure &&
-      millis() - lastHttpsTransportFailure < HTTPS_RETRY_COOLDOWN_MS) {
+  if (httpsRetryCooldownActive()) {
     Serial.printf("HTTPS bo qua %s: dang cho mang on dinh\n", operation);
     return false;
   }
@@ -68,8 +80,8 @@ bool canStartHttpsRequest(const char* operation) {
 
 void recordHttpsResult(const char* operation, int code) {
   if (code < 0) {
-    Serial.printf("HTTPS %s loi %d, heap=%u, block=%u, frag=%u%%\n",
-                  operation, code, ESP.getFreeHeap(), ESP.getMaxFreeBlockSize(),
+    Serial.printf("HTTPS %s loi %d (%s), heap=%u, block=%u, frag=%u%%\n",
+                  operation, code, HTTPClient::errorToString(code).c_str(), ESP.getFreeHeap(), ESP.getMaxFreeBlockSize(),
                   ESP.getHeapFragmentation());
     deferHttpsRequests(operation);
   } else {

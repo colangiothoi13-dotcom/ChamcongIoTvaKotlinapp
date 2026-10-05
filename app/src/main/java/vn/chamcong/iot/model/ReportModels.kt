@@ -27,7 +27,10 @@ data class AttendanceReportRow(
     val checkOut: String = "",
     val status: String = "",
     val workedHours: Double = 0.0,
-    val overtimeHours: Double = 0.0
+    val overtimeHours: Double = 0.0,
+    val lateMinutes: Int = 0,
+    val earlyLeaveMinutes: Int = 0,
+    val approvedLeaveShiftCount: Int = 0
 )
 
 data class DeviceActivityRow(

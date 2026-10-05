@@ -29,6 +29,7 @@ bool firebaseSignIn() {
     https.useHTTP10(true);
     if (https.begin(client, url)) {
       began = true;
+      https.setTimeout(5000);
       https.addHeader("Content-Type", "application/json");
       static const uint8_t authPayload[] = "{\"returnSecureToken\":true}";
       code = https.POST(authPayload, sizeof(authPayload) - 1);

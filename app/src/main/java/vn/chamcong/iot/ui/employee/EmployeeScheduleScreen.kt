@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +46,7 @@ import vn.chamcong.iot.model.WeeklyScheduleRequest
 import vn.chamcong.iot.model.WeeklyScheduleRequestStatus
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.loadAttendanceRange
 import vn.chamcong.iot.ui.AppSpacing
 import java.time.LocalDate
 import java.time.Instant
@@ -75,11 +77,19 @@ fun EmployeeScheduleScreen(
     modifier: Modifier = Modifier
 ) {
     val schedules = state.effectiveEmployeeSchedules
-    val shifts = state.shifts
+    val shifts = state.calculationShifts
     val attendance = state.employeeAttendanceForSummaries
     var now by remember { mutableStateOf(Instant.now()) }
     var view by remember { mutableStateOf(EmployeeScheduleView.WEEK) }
     var anchorDate by remember { mutableStateOf(LocalDate.now(employeeScheduleZone)) }
+    val inPreview = LocalInspectionMode.current
+    LaunchedEffect(anchorDate, state.currentEmployee?.id) {
+        vm.selectEmployeeScheduleMonth(YearMonth.from(anchorDate))
+        if (!inPreview) state.currentEmployee?.id?.let { employeeId ->
+            val month = YearMonth.from(anchorDate)
+            vm.loadAttendanceRange(month.atDay(1), month.atEndOfMonth(), employeeId, force = true)
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {

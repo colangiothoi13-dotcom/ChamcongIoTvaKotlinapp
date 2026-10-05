@@ -1,6 +1,7 @@
 // Heartbeat, fingerprint mapping, and attendance upload.
 
 bool publishDeviceSnapshot() {
+  if (doorNeedsResponsiveLoop()) { firebaseSyncStatus = "PENDING"; return false; }
   if (WiFi.status() != WL_CONNECTED) {
     Serial.printf("HEARTBEAT bo qua: WiFi status=%d\n", WiFi.status());
     firebaseSyncStatus = "PENDING";
@@ -133,6 +134,7 @@ bool publishDeviceSnapshot() {
 }
 
 void maybePublishDeviceSnapshot() {
+  if (doorNeedsResponsiveLoop() || pendingCommandExecution) return;
   // Give an unsynchronized attendance event priority over periodic telemetry.
   if (attendanceOutboxBytes() > 0) return;
   if (lastHeartbeat == 0 || millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
@@ -230,17 +232,22 @@ bool buildAttendanceEvent(uint16_t templateId, uint16_t confidence,
   employeeName = "";
   attendanceTime = "--:--:--";
   attendanceType = "SCAN";
+  lastAttendanceCreatedOffline = false;
+  lastAttendanceMissingClock = false;
+  // Capture scan time before any network wait so a failed GET cannot move
+  // the attendance timestamp to the later retry/connection-failure time.
+  time_t now = time(nullptr);
   String employeeId;
-  if (!getFingerprintMapping(templateId, employeeId, employeeName)) {
-    Serial.println("Khong tim thay nhan vien cua template");
+  const bool mapped = getFingerprintMapping(templateId, employeeId, employeeName);
+  if (!mapped && (!OFFLINE_AS608_ACCESS_ENABLED || !lastFingerprintAuthorizationUnavailable)) return false;
+  if (!mapped) lastFingerprintAuthorizationUnavailable = false;
+  if (now < MIN_VALID_UNIX_TIME) {
+    lastAttendanceMissingClock = true;
+    Serial.println("Chua dong bo duoc thoi gian NTP");
+    setLatestError("Chua co gio hop le de luu luot quet");
     return false;
   }
   if (!reserveAttendanceEventId(eventId)) return false;
-  time_t now = time(nullptr);
-  if (now < MIN_VALID_UNIX_TIME) {
-    Serial.println("Chua dong bo duoc thoi gian NTP");
-    return false;
-  }
   String timestamp = utcTimestamp(now);
   time_t localNow = now + 7 * 3600;
   struct tm localTime;
@@ -250,6 +257,19 @@ bool buildAttendanceEvent(uint16_t templateId, uint16_t confidence,
   attendanceTime = String(timeValue);
 
   DynamicJsonDocument doc(1536);
+  if (!mapped) {
+    // Only this scan is persisted. The AS608 owns the templates; the ESP owns
+    // no employee roster. Resolve identity online later, before posting.
+    doc["offlineScan"] = true;
+    doc["deviceId"] = DEVICE_ID;
+    doc["templateId"] = templateId;
+    doc["confidence"] = confidence;
+    doc["timestamp"] = timestamp;
+    serializeJson(doc, payload);
+    employeeName = String("VAN TAY #") + templateId;
+    lastAttendanceCreatedOffline = true;
+    return true;
+  }
   JsonObject fields = doc.createNestedObject("fields");
   fields["employeeId"]["stringValue"] = employeeId;
   fields["employeeName"]["stringValue"] = employeeName;
@@ -267,28 +287,116 @@ bool buildAttendanceEvent(uint16_t templateId, uint16_t confidence,
   return true;
 }
 
-bool uploadAttendance(uint16_t templateId, uint16_t confidence,
+int resolveOfflineAttendancePayload(const String& payload, String& resolvedPayload) {
+  uint16_t templateId = 0;
+  uint16_t confidence = 0;
+  String timestamp;
+  {
+    DynamicJsonDocument scan(2048);
+    if (deserializeJson(scan, payload)) return 400;
+    if (!scan["offlineScan"].as<bool>()) {
+      resolvedPayload = payload;
+      return 200;
+    }
+    const int rawTemplateId = scan["templateId"].as<int>();
+    const int rawConfidence = scan["confidence"].as<int>();
+    timestamp = scan["timestamp"].as<String>();
+    const String sourceDevice = scan["deviceId"].as<String>();
+    if (rawTemplateId < 1 || rawTemplateId > 127 || rawConfidence < 0 ||
+        rawConfidence > 65535 || sourceDevice != DEVICE_ID || timestamp.length() < 20) return 400;
+    templateId = rawTemplateId;
+    confidence = rawConfidence;
+  }
+  String employeeId;
+  String employeeName;
+  if (!getFingerprintMapping(templateId, employeeId, employeeName)) {
+    // Explicitly disabled/deleted mappings are rejected. A failed connection
+    // retains the original raw scan for the next attempt.
+    return lastFingerprintAuthorizationDenied ? 403 : -1;
+  }
+  DynamicJsonDocument doc(1536);
+  JsonObject fields = doc.createNestedObject("fields");
+  fields["employeeId"]["stringValue"] = employeeId;
+  fields["employeeName"]["stringValue"] = employeeName;
+  fields["deviceId"]["stringValue"] = DEVICE_ID;
+  fields["templateId"]["integerValue"] = templateId;
+  fields["confidence"]["integerValue"] = confidence;
+  fields["type"]["stringValue"] = "SCAN";
+  fields["resolutionStatus"]["stringValue"] = "PENDING";
+  fields["status"]["stringValue"] = "PENDING";
+  fields["syncStatus"]["stringValue"] = "PENDING_SYNC";
+  fields["timestamp"]["timestampValue"] = timestamp;
+  fields["verified"]["booleanValue"] = true;
+  resolvedPayload.reserve(measureJson(doc) + 1);
+  serializeJson(doc, resolvedPayload);
+  return 200;
+}
+
+void invalidateForegroundAttendanceAccess() {
+  foregroundAttendanceHandled = true;
+  foregroundAttendanceEventId = "";
+  foregroundAttendanceEmployeeName = "";
+  foregroundAttendanceDelivery = AttendanceDelivery::NOT_STORED;
+}
+
+AttendanceDelivery uploadAttendance(uint16_t templateId, uint16_t confidence,
                       String& employeeName, String& attendanceTime,
                       String& attendanceType) {
+  // Every new attempt supersedes only the old in-RAM door authorization.
+  // Old durable records remain queued even if this attempt cannot be saved.
+  invalidateForegroundAttendanceAccess();
   String eventId;
   String payload;
-  lastRejectedAttendanceEventId = "";
-  lastAcknowledgedAttendanceEventId = "";
-  if (!buildAttendanceEvent(templateId, confidence, eventId, payload, employeeName, attendanceTime, attendanceType)) return false;
-  if (!enqueueAttendanceEvent(eventId, payload)) return false;
-  flushAttendanceOutbox();
-  attendancePendingSync = attendancePendingCount() > 0;
-  if (lastRejectedAttendanceEventId == eventId) {
-    // Firestore Rules are the authoritative check for enabled mappings and
-    // active employees, so a rejected event must never open the door.
+  if (!buildAttendanceEvent(templateId, confidence, eventId, payload, employeeName, attendanceTime, attendanceType)) {
+    if (lastAttendanceMissingClock && OFFLINE_AS608_ACCESS_ENABLED) {
+      foregroundAttendanceDelivery = AttendanceDelivery::ACCESS_ONLY;
+      return AttendanceDelivery::ACCESS_ONLY;
+    }
+    return lastFingerprintAuthorizationDenied ? AttendanceDelivery::REJECTED : AttendanceDelivery::NOT_STORED;
+  }
+  if (!enqueueAttendanceEvent(eventId, payload)) return AttendanceDelivery::NOT_STORED;
+  foregroundAttendanceEventId = eventId;
+  foregroundAttendanceEmployeeName = employeeName;
+  foregroundAttendanceCreatedAt = millis();
+  foregroundAttendanceHandled = false;
+  foregroundAttendanceDelivery = AttendanceDelivery::QUEUED;
+  attendancePendingSync = true;
+  attendanceSyncIntervalMs = ATTENDANCE_NEXT_RECORD_INTERVAL_MS;
+  lastAttendanceSync = millis() - attendanceSyncIntervalMs;
+  return AttendanceDelivery::QUEUED;
+}
+
+void handleAttendanceDelivery(const String& eventId, AttendanceDelivery delivery) {
+  const bool matchesCurrent = foregroundAttendanceEventId.length() > 0 && eventId == foregroundAttendanceEventId;
+  const bool mayOpen = foregroundConfirmationCanOpen(matchesCurrent, foregroundAttendanceHandled,
+      millis(), foregroundAttendanceCreatedAt, FOREGROUND_ATTENDANCE_VALIDITY_MS);
+  if (!matchesCurrent || foregroundAttendanceHandled) return;
+  foregroundAttendanceHandled = true;
+  foregroundAttendanceDelivery = delivery;
+  const bool localAccess = delivery == AttendanceDelivery::LOCAL_ACCEPTED && OFFLINE_AS608_ACCESS_ENABLED;
+  if ((delivery == AttendanceDelivery::CONFIRMED || localAccess) && mayOpen) {
+    showLcd(foregroundAttendanceEmployeeName, "DANG MO CUA");
+    signalResult(true);
+    openDoor();
+    fingerprintDoorNoticeActive = true;
+    fingerprintDoorNoticeOffline = localAccess;
+    fingerprintDoorNoticeAttendanceSaved = true;
+    if (localAccess) Serial.printf("OUTBOX %s: mo cua theo mau AS608; du lieu van cho dong bo\n", eventId.c_str());
+  } else if (delivery == AttendanceDelivery::REJECTED) {
     lastFingerprintAuthorizationDenied = true;
-    return false;
+    showFingerprintResultNotice("LUOT BI TU CHOI", "XIN LIEN HE ADMIN");
+    signalResult(false);
+  } else {
+    Serial.printf("OUTBOX %s: xac nhan muon, chi dong bo du lieu\n", eventId.c_str());
   }
-  if (lastAcknowledgedAttendanceEventId != eventId) {
-    // Keep the event for audit/synchronization, but only grant access after
-    // Firestore has accepted the scan while it is being processed.
-    lastFingerprintAuthorizationUnavailable = true;
-    return false;
+}
+
+void expireForegroundAttendance() {
+  if (foregroundAttendanceHandled ||
+      !elapsedAtLeast(millis(), foregroundAttendanceCreatedAt, FOREGROUND_ATTENDANCE_VALIDITY_MS)) return;
+  foregroundAttendanceHandled = true;
+  Serial.printf("OUTBOX %s: het han mo cua; ban ghi van cho dong bo\n", foregroundAttendanceEventId.c_str());
+  if (!doorNeedsResponsiveLoop() && !pendingCommandExecution && !pendingCommandResult) {
+    showLcd("DA LUU CHO GUI", "CHUA MO CUA");
   }
-  return true;
 }

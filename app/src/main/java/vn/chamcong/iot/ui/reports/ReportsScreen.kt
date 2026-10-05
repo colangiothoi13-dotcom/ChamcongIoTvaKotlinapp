@@ -36,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.ReportFilter
+import vn.chamcong.iot.domain.filterAttendanceReportRows
+import vn.chamcong.iot.domain.validateReportFilter
 import vn.chamcong.iot.model.ReportType
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
@@ -59,34 +61,20 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
                 endDate = LocalDate.parse(endText),
                 employeeId = employeeId.trim().takeIf(String::isNotBlank),
                 department = department.trim().takeIf(String::isNotBlank)
-            )
+            ).also(::validateReportFilter)
         }.getOrNull()
     }
-    val attendanceHistoryKey = filter?.let {
-        "${it.startDate}|${it.endDate}|${it.employeeId.orEmpty()}"
-    }
     val attendanceHistoryReady = type == ReportType.DEVICE_ACTIVITY || (
-        filter != null &&
-            !state.attendanceHistoryLoading &&
-            state.attendanceHistoryQueryKey == attendanceHistoryKey &&
-            state.attendanceHistoryError == null &&
-            !state.attendanceHistoryTruncated
+        filter != null && state.hasCompleteCalculationRange(filter.startDate, filter.endDate, filter.employeeId)
         )
     val inPreview = LocalInspectionMode.current
-    LaunchedEffect(filter?.startDate, filter?.endDate, filter?.employeeId, type) {
+    LaunchedEffect(filter?.startDate, filter?.endDate, filter?.employeeId, type == ReportType.DEVICE_ACTIVITY) {
         if (!inPreview && type != ReportType.DEVICE_ACTIVITY) {
-            filter?.let { vm.loadAttendanceRange(it.startDate, it.endDate, it.employeeId) }
+            filter?.let { vm.loadAttendanceRange(it.startDate, it.endDate, it.employeeId, force = true) }
         }
     }
     val attendanceRows = if (attendanceHistoryReady) filter?.let(vm::reportAttendanceRows).orEmpty() else emptyList()
-    val filteredAttendanceRows = attendanceRows.filter { row ->
-        when (type) {
-            ReportType.LATE_EARLY -> row.status == "LATE" || row.status == "EARLY_LEAVE"
-            ReportType.LEAVE -> row.status == "LEAVE"
-            ReportType.OVERTIME -> row.overtimeHours > 0
-            else -> true
-        }
-    }
+    val filteredAttendanceRows = filterAttendanceReportRows(attendanceRows, type)
     val deviceRows = if (type == ReportType.DEVICE_ACTIVITY) vm.reportDeviceRows() else emptyList()
 
     LazyColumn(
@@ -186,6 +174,9 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
                         Text("${row.department.ifBlank { "Chưa có phòng ban" }} • ${attendanceStatusLabel(row.status)}")
                         Text("Vào ${row.checkIn.ifBlank { "--:--" }} • Ra ${row.checkOut.ifBlank { "--:--" }}")
                         Text("Giờ làm ${row.workedHours}h • Tăng ca ${row.overtimeHours}h")
+                        if (row.lateMinutes > 0 || row.earlyLeaveMinutes > 0) {
+                            Text("Đi trễ ${row.lateMinutes} phút • Về sớm ${row.earlyLeaveMinutes} phút")
+                        }
                     }
                 }
             }

@@ -109,7 +109,7 @@ Vào **Phân ca** hoặc **Tác vụ → Lịch/Ca làm**. Ca sáng và ca chi�
 | `Xử lý đơn` → nhập phản hồi → `Yêu cầu sửa` | Gửi lý do cho nhân viên để họ chỉnh sửa và gửi lại. |
 | `Đóng` / `Hủy` | Rời hộp thoại không áp dụng thao tác đang nhập. |
 
-Khi tuần mục tiêu đổi, app cập nhật listener đăng ký lịch; không cần đăng nhập lại để nhìn thấy đơn của tuần mới.
+Khi tuần mục tiêu đổi, app cập nhật listener đăng ký lịch; không cần đăng nhập lại để nhìn thấy đơn của tuần mới. Phân cho phòng ban cho phép chọn cả sáng và chiều. Mỗi lịch ngày được đọc và gộp trong transaction: phân thêm chiều giữ ca sáng; phân lại cùng loại thay ca đó, không tạo trùng. Giờ công điều chỉnh và ghi chú cũ được giữ, kể cả khi hai Admin phân hai loại ca đồng thời.
 
 | Nút/thao tác ở **Ca làm** | Kết quả |
 | --- | --- |
@@ -257,12 +257,27 @@ Thông tin chức vụ, mã nhân viên, phòng ban và trạng thái vân tay l
 
 ## Cách hệ thống tính công trên Spark
 
-1. **Thiết bị nhận diện:** cảm biến so mẫu tại chỗ. Nếu mạng gián đoạn, firmware dùng hàng đợi trong LittleFS rồi đồng bộ lại khi có kết nối.
+1. **Thiết bị nhận diện:** AS608 so mẫu đã đăng ký tại chỗ; cảm biến không tự tải mẫu từ Firebase. Khi Wi-Fi hoặc kết nối Firebase không khả dụng, firmware có thể **lưu lượt quét và mở cửa theo mẫu đang có trong AS608**, nếu đã có giờ NTP hợp lệ và lưu LittleFS thành công. Bản hiện tại `spark-anonymous-v14-command-status` giữ hành vi v12: chỉ mở cửa khi đúng mẫu lúc bật nguồn chưa có Wi-Fi; LCD báo `CHUA LUU CONG` và không tạo lượt chấm vì chưa có giờ. ESP8266 không lưu danh sách hay cache nhân viên; liên kết danh tính của lượt offline được tra khi kết nối trở lại. Lượt được lưu sẽ được gửi lại từng bản.
 2. **Lưu lượt gốc:** ESP8266 dùng Firebase Anonymous Auth, ghi `attendance/{eventId}` dạng `SCAN/PENDING`. Thiết bị không tự quyết định đây là vào hay ra theo mốc 12 giờ.
 3. **Android phân giải:** app ghép lượt quét với `workSchedules`, `shifts`, các điều chỉnh và quyết định duyệt. Nó chống quét trùng, xác định lượt vào/ra, phát hiện thiếu lượt ra và tính công theo ca.
 4. **Ngoài lịch:** Admin tạo quyết định duyệt/từ chối. Trên Spark, quyết định có thể được lưu ban đầu ở trạng thái `PENDING`; Android đọc nó và áp dụng vào bản công hiệu lực. Duyệt sẽ bổ sung ca được chọn cho ngày đó để ghép các lượt quét; từ chối giữ ngoại lệ.
 5. **Tăng ca:** đơn 18:00–22:00 được duyệt trở thành phiên tăng ca riêng trong Android. Chỉ cặp vào/ra hợp lệ mới tạo giờ tăng ca và đi vào bảng công, KPI, lương.
 6. **Lịch sử:** báo cáo và bảng công dùng **tháng được chọn** để quyết định có hiển thị nhân viên đã nghỉ. Audit lưu người thao tác và lý do; các thao tác phù hợp ghi cùng giao dịch với thay đổi nghiệp vụ.
+
+**Nghỉ phép và giờ công:** ca chính được duyệt nghỉ có 0 giờ làm thực tế, không tính đi trễ hoặc về sớm. Nghỉ sáng rồi làm chiều chỉ tính giờ và trễ/sớm của chiều. Ca tăng ca riêng vẫn tính khi được duyệt và có cặp vào/ra hợp lệ, kể cả ngày không có ca chính hoặc ngày nghỉ ca chính. Bảng công, báo cáo, lương và KPI dùng chung quy tắc; báo cáo và CSV lọc trễ/sớm bằng số phút nên giữ cả người vừa trễ vừa về sớm.
+
+**Tải dữ liệu:** Dashboard giữ các cửa sổ lịch nhỏ theo tuần/tháng thay vì lắng nghe lịch mọi năm. Phiếu lương được đọc theo tháng. Khi xem kỳ cũ, app tải lượt quét theo trang và tải lịch, ca, nghỉ phép, tăng ca, điều chỉnh, phân loại và duyệt ngoài lịch của kỳ đó từ server. Có thêm ngày biên để ghép ca qua đêm; điều chỉnh được tìm theo ngày công, không theo ngày tạo. CSV và lưu lương chỉ được bật khi tải đủ đúng kỳ và phạm vi nhân viên; lỗi mạng hoặc vượt giới hạn 5.000 lượt quét sẽ yêu cầu tải lại hoặc thu hẹp kỳ.
+
+**Phản hồi thiết bị:** “Đã lưu, chờ đồng bộ” khác với “đã xác nhận”, “bị từ chối” và “không lưu được”. Khi online, xác nhận của lượt đang xử lý trong thời hạn cho phép mở cửa. Khi kết nối không khả dụng và có giờ hợp lệ, chính sách AS608 cho phép lượt đang xử lý đã lưu bền vững mở cửa một lần; LCD báo `OFFLINE: DA LUU`, chưa phải xác nhận công từ server. Trường hợp chưa có giờ chỉ mở cửa và báo `CHUA LUU CONG`. Hàng đợi gửi từng bản và retry khi lỗi tạm thời. Lượt mới thay thế quyền mở cửa trong RAM của lượt cũ, kể cả khi lượt mới bị từ chối hoặc không lưu được; bản cũ vẫn nằm trong hàng đợi. Xác nhận muộn, sau khởi động lại hoặc của lượt đã mở offline chỉ đồng bộ dữ liệu, không mở cửa thêm. `SYNC_ATTENDANCE` giữ `PROCESSING` cho đến khi hàng đợi rỗng; timeout không xóa các bản đã lưu. Wi-Fi vừa kết nối lại cho hàng đợi một lần retry ngay khi cửa đã đóng; hàng đợi được ưu tiên trước đọc lệnh mới và heartbeat. Hoãn HTTPS không đẩy lùi hạn retry thêm 30 giây. Lỗi gửi kết quả lệnh khi hàng đợi đã rỗng không làm LCD báo nhầm còn công chờ gửi.
+
+**Điều kiện và giới hạn offline:**
+
+- Lượt chưa tra được liên kết chỉ lưu `{offlineScan, deviceId, templateId, confidence, timestamp}`, kèm mã sự kiện bền vững. Không lưu tên hay mã nhân viên trong lượt raw. Khi mạng trở lại, firmware tra liên kết đang được phép, chuyển thành `SCAN/PENDING` và giữ nguyên mã sự kiện, thời điểm quét, mã mẫu. Nếu server trả về liên kết bị vô hiệu hóa, đã xóa hoặc không hợp lệ, firmware từ chối lượt đó, không dùng offline để vượt qua quyết định từ chối.
+- **Ghi công cần giờ NTP hợp lệ.** Sau mỗi lần bật nguồn hoặc reset, ESP cần kết nối Wi-Fi có Internet để lấy giờ trước khi lưu các lượt chấm mới. Khi đã đồng bộ giờ rồi mất mạng, giờ phần mềm tiếp tục chạy nếu ESP vẫn còn nguồn và không reset; lượt có thể lưu để gửi lại. Nếu bật nguồn chưa có Wi-Fi và chưa đồng bộ giờ, đúng mẫu chỉ mở cửa và báo `CHUA LUU CONG`; lượt đó không được lưu và không tạo công bằng giờ kết nối lại. Thời điểm quét được lấy trước lần tra liên kết mạng để mạng chậm không đẩy giờ công về sau.
+- Hàng đợi LittleFS giới hạn **12 KB**, đọc từng bản đầu và sao chép phần còn lại theo khối, không nạp cả hàng đợi hay danh sách nhân viên vào RAM. Hết dung lượng, lỗi ghi hoặc không cấp được mã sự kiện trả `NOT_STORED`; lượt đó không mở cửa. Lỗi mạng giữ nguyên bản đã lưu để retry.
+- **Nhân viên đã cho nghỉ vẫn có thể mở offline nếu mẫu chưa được xóa khỏi AS608.** Thao tác cho nghỉ trong app cập nhật `active: false`, vô hiệu hóa liên kết và tạo lệnh `DELETE_FINGERPRINT` cùng transaction. Thiết bị xóa mẫu khi có mạng và xử lý lệnh thành công; các lượt raw đồng bộ sau khi liên kết bị vô hiệu hóa sẽ bị từ chối, không tính công. Chỉ sửa trạng thái bằng Firebase Console không tạo lệnh xóa mẫu. Lệnh `FAILED` cần gửi lại; đăng ký/xóa mẫu chờ hàng đợi rỗng để tránh gán lại mã mẫu khi còn lượt cũ. Luồng hiện tại gửi lệnh tới thiết bị được liên kết trên nhân viên, không tự xóa các bản sao mẫu trên thiết bị khác.
+
+**Cửa và đăng ký vân tay:** servo hoạt động theo từng bước trong `loop()`. Bộ đếm giữ cửa mở 5 giây bắt đầu khi servo đã đến vị trí mở hoàn toàn; thời gian servo quay về đóng được ghi riêng. Đăng ký vân tay và hiệu ứng không dùng các vòng chờ dài; HTTPS được hoãn khi cửa mở hoặc đang chuyển động. Hoãn là trạng thái chờ, không phải lỗi.
 
 **Giới hạn cần biết:** kết quả phân giải trên Spark là bản hiệu lực trong Android, không được ghi ngược lên lượt `SCAN/PENDING` gốc. Ứng dụng hoặc hệ thống khác chỉ đọc raw Firestore sẽ không tự thấy cùng kết quả nếu không dùng cùng quy tắc phân giải. Thư mục `firebase/functions/` là đường backend tùy chọn cho Blaze, **không phải bước triển khai của Spark**.
 
@@ -306,6 +321,15 @@ APK debug nằm tại `app/build/outputs/apk/debug/app-debug.apk`. Bản app m�
 
 Cấp nguồn đúng cho cảm biến/servo và nối chung GND. Servo nên có nguồn 5 V riêng đủ dòng; kiểm tra sơ đồ điện thực tế trước khi nạp và vận hành.
 
+### Đồng bộ giờ trước khi chấm công ngoại tuyến
+
+1. Nạp cả sketch v14, kiểm tra Serial 9600 baud hiện `FW: spark-anonymous-v14-command-status`. Giữ LittleFS khi nạp nếu còn lượt chờ gửi. Với lệnh đồng bộ, kiểm tra `Cap nhat lenh: HTTP 200` và trạng thái `COMPLETED` trên app; còi/đèn xanh chỉ báo thành công sau khi ghi được kết quả lệnh. Cờ `applied=true` của lệnh thông thường không thay thế trạng thái hoàn tất.
+2. Cho thiết bị kết nối Wi-Fi **có Internet** để lấy giờ NTP, rồi đối chiếu ngày/giờ trên LCD với giờ Việt Nam. Chỉ thấy Wi-Fi hoặc Firebase đăng nhập thành công chưa đủ để kết luận đã có giờ hợp lệ.
+3. Giữ nguồn ESP, ngắt Wi-Fi và quét mẫu đã đăng ký: lượt được lưu trước khi mở cửa; LCD báo `OFFLINE: DA LUU`.
+4. Cho có mạng trở lại: hàng đợi gửi từng bản, giữ thời điểm quét ban đầu và không mở cửa thêm khi xác nhận muộn.
+
+Nếu tắt nguồn/reset rồi bật lại khi chưa có Wi-Fi, ESP chưa biết giờ: đúng mẫu chỉ mở cửa, giữ 5 giây và báo `CHUA LUU CONG`. Lượt này không có bản để gửi lại; cần NTP thành công trước các lượt chấm tiếp theo. Các lượt đã lưu trước đó trong LittleFS vẫn được giữ và đồng bộ khi có mạng.
+
 ## Cấu trúc mã nguồn
 
 | Đường dẫn | Vai trò |
@@ -320,8 +344,42 @@ Cấp nguồn đúng cho cảm biến/servo và nối chung GND. Servo nên có 
 
 ## Lưu ý khi vận hành
 
-- **Không thấy công sau khi quét:** kiểm tra đúng ngón tay đã đăng ký, thiết bị online, hàng đợi chưa đầy, lịch/ca đã được duyệt và đã có đủ lượt vào/ra. Mở **Thiết bị** và **Chấm công** để xem trạng thái cụ thể.
+- **Không thấy công sau khi quét:** lượt báo `DA LUU` / `CHO DONG BO` cần có mạng trở lại để tra danh tính và đồng bộ, chưa hiện công ngay. Nếu LCD báo `CHUA LUU CONG`, ESP chưa có giờ hợp lệ nên lượt đó chỉ mở cửa, không được lưu hoặc gửi lại; cần đồng bộ giờ trước các lượt chấm tiếp theo. Kiểm tra đúng ngón tay đã đăng ký, hàng đợi chưa đầy, lịch/ca đã được duyệt và đã có đủ lượt vào/ra. Mở **Thiết bị** và **Chấm công** để xem trạng thái cụ thể.
 - **Duyệt ngoài lịch hoặc tăng ca nhưng giờ vẫn bằng 0:** kiểm tra ca/ngày đã chọn và cặp quét vào/ra hợp lệ. Đơn chờ duyệt chưa tính thành giờ tăng ca.
 - **Không thấy đơn lịch tuần:** kiểm tra tuần đang chọn, tuần mục tiêu của nhân viên, hạn nộp và trạng thái đơn. Listener tự theo tuần mới khi ngày đổi.
 - **Không thấy nhân viên đã nghỉ:** bật công tắc ở **Nhân viên**; với báo cáo và bảng công, chọn đúng tháng lịch sử. Không tạo ca mới hoặc phiếu lương cho các tháng sau tháng nghỉ.
 - **Báo cáo CSV thiếu dòng:** nếu màn hình cảnh báo đã chạm giới hạn tải lịch sử, thu hẹp khoảng ngày rồi xuất lại.
+
+## Kiểm thử hồi quy
+
+Chạy build và kiểm thử Android:
+
+```powershell
+.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest
+```
+
+Các bài kiểm thử bao phủ gộp ca không trùng và bảo toàn điều chỉnh, ca chính 4 giờ + tăng ca 4 giờ, ngày chỉ tăng ca, nghỉ sáng/làm chiều, vừa trễ/về sớm, ca qua đêm ở cuối tháng, điều chỉnh tạo muộn và điều kiện tải đủ trước khi xuất/lưu. Kiểm thử transaction hai Admin trong `firebase/test/departmentScheduleTransactions.test.js` cần Firestore emulator với rules của dự án; chỉ dùng project demo, không chạy trên Firebase thật.
+
+Chạy kiểm thử firmware trên máy phát triển (cần Node.js):
+
+```powershell
+node --test firmware/test/*.test.cjs
+```
+
+Kiểm thử thực thi các hàm của sketch/header qua adapter kiểu dữ liệu/API: đóng cửa sau 5 giây, đăng ký từng bước và phản hồi LCD. Lượt có giờ phải lưu trước mở cửa; khởi động chưa có giờ chỉ mở cửa và không tạo công; không cache danh tính; hàng đợi đầy, từ chối liên kết, giữ thời điểm quét khi mạng chậm, retry khi kết nối lại, đồng bộ từng bản, LCD theo đúng hàng đợi, không mở lại sau khởi động và chờ hàng đợi trước khi đổi mẫu. Kiểm thử lệnh xác nhận PATCH trạng thái cuối, giữ kết quả để retry khi lỗi và không báo thành công chỉ vì `applied=true`.
+
+Sau khi biên dịch firmware, cần nạp và đo trực tiếp trên ESP8266:
+
+| Bài thử trên thiết bị | Điều kiện đạt |
+| --- | --- |
+| Mở cửa, đồng thời gửi lệnh đăng ký rồi không đặt ngón tay | Bắt đầu đóng khoảng 5 giây sau khi mở hoàn toàn; ghi riêng thời gian quay về đóng. |
+| Mở cửa trong lúc mạng chậm | Cửa vẫn đóng đúng thời hạn; HTTPS chỉ chạy khi cửa đã đóng. |
+| Tạo nhiều sự kiện, gây lỗi mạng rồi kết nối lại | Hàng đợi không mất bản đã lưu; gửi lần lượt; `SYNC_ATTENDANCE` chỉ hoàn tất khi rỗng. |
+| Xác nhận lượt cũ, xác nhận muộn hoặc khởi động lại khi còn hàng đợi | Dữ liệu đồng bộ nhưng cửa không mở do các xác nhận đó. |
+| Lỗi ghi LittleFS và phản hồi từ chối của server | Hiển thị đúng từng trạng thái; không báo nhầm đã xác nhận. |
+| Đồng bộ giờ rồi ngắt Wi-Fi, quét vào/ra và kết nối lại | Mở cửa sau khi lưu; LCD `OFFLINE: DA LUU`; dữ liệu lên đúng mã mẫu và thời điểm ban đầu, không mở cửa lần nữa. |
+| Bật nguồn/reset khi chưa có Wi-Fi và chưa đồng bộ NTP | Đúng mẫu chỉ mở cửa và giữ 5 giây; LCD `CHUA LUU CONG`; không tạo công hoặc gửi công giả khi có mạng lại. |
+| Có giờ hợp lệ nhưng hàng đợi đầy/lỗi ghi | Lượt không lưu được không mở cửa; các bản đã lưu trước đó vẫn còn. |
+| Cho nhân viên nghỉ khi thiết bị offline, rồi kết nối lại | Trước khi nhận lệnh xóa, mẫu AS608 còn có thể mở offline; sau khi xử lý xóa thành công, mẫu không còn khớp. Lượt đồng bộ với liên kết đã vô hiệu hóa bị từ chối. |
+
+Kiểm thử mô phỏng kiểm tra logic trạng thái và thời hạn; kết quả đó không thay thế phép đo servo, nguồn cấp, cảm biến và mạng trên thiết bị thật.

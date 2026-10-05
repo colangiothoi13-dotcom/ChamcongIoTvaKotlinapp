@@ -42,17 +42,20 @@ fun workedHoursForMonth(
     zoneId: ZoneId,
     schedules: List<WorkSchedule> = emptyList(),
     shifts: List<WorkShift> = emptyList(),
-    adjustments: List<AttendanceAdjustment> = emptyList()
+    adjustments: List<AttendanceAdjustment> = emptyList(),
+    leaveRequests: List<LeaveRequest> = emptyList()
 ): Double {
     val hours = employeeMonthSummaries(
-        employeeId, month.atDay(1), attendance, schedules, shifts, emptySet(), zoneId, adjustments
-    ).sumOf { it.workedHours }
+        employeeId, month.atDay(1), attendance, schedules, shifts, emptySet(), zoneId, adjustments,
+        leaveRequests = leaveRequests
+    ).sumOf { it.workedHours + it.overtimeHours }
     return (hours * 100).roundToLong() / 100.0
 }
 
 /**
  * Payroll-aware overload. The legacy overload above intentionally remains the
- * regular-hours calculation used by reports and older callers.
+ * main attendance calculation for older callers; both overloads sum disjoint
+ * regular and overtime portions, and this overload has no overtime requests.
  */
 fun workedHoursForMonth(
     attendance: List<Attendance>,
@@ -62,7 +65,8 @@ fun workedHoursForMonth(
     schedules: List<WorkSchedule>,
     shifts: List<WorkShift>,
     adjustments: List<AttendanceAdjustment>,
-    overtimeRequests: List<OvertimeRequest>
+    overtimeRequests: List<OvertimeRequest>,
+    leaveRequests: List<LeaveRequest> = emptyList()
 ): Double = payrollHoursForMonth(
     employeeId = employeeId,
     month = month,
@@ -71,7 +75,8 @@ fun workedHoursForMonth(
     shifts = shifts,
     overtimeRequests = overtimeRequests,
     adjustments = adjustments,
-    zoneId = zoneId
+    zoneId = zoneId,
+    leaveRequests = leaveRequests
 )
 
 fun payrollCandidates(

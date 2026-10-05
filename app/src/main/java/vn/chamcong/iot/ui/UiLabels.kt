@@ -1,5 +1,8 @@
 package vn.chamcong.iot.ui
 
+import vn.chamcong.iot.data.isFirestoreIndexBuilding
+import vn.chamcong.iot.data.isFirestoreIndexRequired
+
 internal fun attendanceStatusLabel(status: String): String = when (status) {
     "NORMAL" -> "Bình thường"
     "PRESENT" -> "Có mặt"
@@ -99,6 +102,10 @@ internal fun userFacingErrorMessage(error: Throwable): String {
         || raw.contains("Missing or insufficient permissions", ignoreCase = true)
     ) {
         "Tài khoản chưa có quyền đọc dữ liệu. Hãy kiểm tra vai trò ADMIN, trạng thái active và Firestore Rules."
+    } else if (error.isFirestoreIndexBuilding()) {
+        "Firestore đang tạo chỉ mục dữ liệu. Hãy đợi vài phút rồi chọn Tải lại dữ liệu."
+    } else if (error.isFirestoreIndexRequired()) {
+        "Truy vấn cần chỉ mục Firestore. Hãy triển khai chỉ mục rồi chọn Tải lại dữ liệu."
     } else {
         raw.ifBlank { "Đã xảy ra lỗi, vui lòng thử lại." }
     }

@@ -7,9 +7,9 @@ private const val BOM = "\uFEFF"
 
 fun attendanceRowsToCsv(rows: List<AttendanceReportRow>): String = buildString {
     append(BOM)
-    appendLine("date,employeeId,employeeName,department,checkIn,checkOut,status,workedHours,overtimeHours")
+    appendLine("date,employeeId,employeeName,department,checkIn,checkOut,status,workedHours,overtimeHours,lateMinutes,earlyLeaveMinutes,approvedLeaveShiftCount")
     rows.forEach { row ->
-        appendLine(listOf(row.date, row.employeeId, row.employeeName, row.department, row.checkIn, row.checkOut, row.status, row.workedHours, row.overtimeHours).joinToString(",", transform = ::escapeCsv))
+        appendLine(listOf(row.date, row.employeeId, row.employeeName, row.department, row.checkIn, row.checkOut, row.status, row.workedHours, row.overtimeHours, row.lateMinutes, row.earlyLeaveMinutes, row.approvedLeaveShiftCount).joinToString(",", transform = ::escapeCsv))
     }
 }
 

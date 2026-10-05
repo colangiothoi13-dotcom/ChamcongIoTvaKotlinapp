@@ -12,7 +12,7 @@ const token = `${encode({ alg: "none", typ: "JWT" })}.${encode({
 })}.`;
 const fields = {
   name: { stringValue: "Test shift" }, category: { stringValue: "MORNING" },
-  startTime: { stringValue: "08:00" }, endTime: { stringValue: "17:00" },
+  startTime: { stringValue: "08:00" }, endTime: { stringValue: "12:00" },
   allowEarlyMinutes: { integerValue: "15" }, lateGraceMinutes: { integerValue: "5" },
   earlyLeaveAllowedMinutes: { integerValue: "0" }, countsOvertime: { booleanValue: true },
   effectiveFrom: { stringValue: "2026-09-17" }, active: { booleanValue: true }

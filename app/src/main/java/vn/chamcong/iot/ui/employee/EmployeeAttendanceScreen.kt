@@ -20,6 +20,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.EmployeeDaySummary
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.CalculationLoadingNotice
+import vn.chamcong.iot.ui.loadAttendanceRange
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -43,7 +47,14 @@ fun EmployeeAttendanceScreen(
     onOpenPayroll: () -> Unit = {}
 ) {
     var month by remember { mutableStateOf(LocalDate.now(zone).withDayOfMonth(1)) }
-    val summaries = vm.employeeMonthSummaries(month).filter { summary ->
+    val employeeId = state.currentEmployee?.id
+    val inPreview = LocalInspectionMode.current
+    val end = month.withDayOfMonth(month.lengthOfMonth())
+    LaunchedEffect(month, employeeId) {
+        if (!inPreview) employeeId?.let { vm.loadAttendanceRange(month, end, it, force = true) }
+    }
+    val complete = inPreview || (employeeId != null && state.hasCompleteCalculationRange(month, end, employeeId))
+    val summaries = (if (complete) vm.employeeMonthSummaries(month) else emptyList()).filter { summary ->
         summary.workedHours > 0.0 || summary.overtimeHours > 0.0 || summary.checkIn != null || summary.checkOut != null ||
             summary.shiftName.isNotBlank() || summary.status.name in listOf("LEAVE", "ABNORMAL")
     }
@@ -55,8 +66,9 @@ fun EmployeeAttendanceScreen(
         }
         Button(onClick = onOpenRequests, modifier = Modifier.fillMaxWidth()) { Text("Gửi yêu cầu điều chỉnh") }
         Button(onClick = onOpenPayroll, modifier = Modifier.fillMaxWidth()) { Text("Xem phiếu lương") }
+        CalculationLoadingNotice(state, vm)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-            if (summaries.isEmpty()) item { Text("Chưa có lịch hoặc lượt chấm công trong tháng này") }
+            if (complete && summaries.isEmpty()) item { Text("Chưa có lịch hoặc lượt chấm công trong tháng này") }
             items(summaries, key = { it.date.toString() }) { summary -> EmployeeDayCard(summary) }
         }
     }

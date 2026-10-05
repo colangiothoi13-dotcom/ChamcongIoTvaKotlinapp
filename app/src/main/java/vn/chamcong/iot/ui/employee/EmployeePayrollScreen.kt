@@ -16,6 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.Payroll
 import vn.chamcong.iot.ui.AppSpacing
 import vn.chamcong.iot.ui.MainUiState
+import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.money
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -41,7 +46,7 @@ import java.util.Locale
 private val payrollMonthFormatter = DateTimeFormatter.ofPattern("'Tháng' MM/yyyy")
 
 @Composable
-fun EmployeePayrollScreen(state: MainUiState) {
+fun EmployeePayrollScreen(state: MainUiState, vm: MainViewModel) {
     var selectedPayroll by remember { mutableStateOf<Payroll?>(null) }
     val payrollRows = remember(state.employeePayroll) {
         state.employeePayroll.sortedByDescending { it.month }
@@ -58,6 +63,16 @@ fun EmployeePayrollScreen(state: MainUiState) {
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(bottom = AppSpacing.small)
             )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { vm.selectPayrollMonth(state.selectedPayrollMonth.minusMonths(1)) }) {
+                    Icon(Icons.Default.ChevronLeft, "Phiếu lương tháng trước")
+                }
+                Text(state.selectedPayrollMonth.format(payrollMonthFormatter))
+                IconButton(onClick = { vm.selectPayrollMonth(state.selectedPayrollMonth.plusMonths(1)) }) {
+                    Icon(Icons.Default.ChevronRight, "Phiếu lương tháng sau")
+                }
+            }
         }
         if (payrollRows.isEmpty()) {
             item {
@@ -192,5 +207,5 @@ private fun Double.formatPayrollHours(): String = String.format(Locale.US, "%.2f
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 private fun EmployeePayrollScreenPreview() {
-    PreviewStateScreen { state, vm -> EmployeePayrollScreen(state) }
+    PreviewStateScreen { state, vm -> EmployeePayrollScreen(state, vm) }
 }

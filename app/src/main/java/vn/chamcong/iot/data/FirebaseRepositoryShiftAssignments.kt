@@ -13,6 +13,7 @@ import vn.chamcong.iot.domain.validateScheduleShift
 import vn.chamcong.iot.domain.validateWorkedHoursOverride
 import vn.chamcong.iot.domain.defaultShiftTemplates
 import vn.chamcong.iot.domain.mergeWeeklyAssignment
+import vn.chamcong.iot.domain.mergeScheduleAssignment
 import vn.chamcong.iot.domain.scheduledShiftIds
 import vn.chamcong.iot.domain.weeklyAssignmentShift
 import vn.chamcong.iot.model.*
@@ -41,7 +42,9 @@ suspend fun FirebaseRepository.saveShift(shift: WorkShift): String {
 private suspend fun FirebaseRepository.ensureDefaultShiftStored(shiftId: String) {
     val standard = defaultShiftTemplates().map { it.resolve() }.firstOrNull { it.id == shiftId } ?: return
     val ref = db.collection("shifts").document(shiftId)
-    if (!ref.get(Source.SERVER).await().exists()) ref.set(standard.copy(id = "")).await()
+    db.runTransaction { transaction ->
+        if (!transaction.get(ref).exists()) transaction.set(ref, standard.copy(id = ""))
+    }.await()
 }
 
 suspend fun FirebaseRepository.saveSchedule(schedule: WorkSchedule) {
@@ -147,39 +150,53 @@ suspend fun FirebaseRepository.assignShiftToDepartment(
     shift: WorkShift,
     overtimeHours: Int,
     assignedBy: String
+) = assignShiftToDepartment(department, dates, listOf(shift), overtimeHours, assignedBy)
+
+suspend fun FirebaseRepository.assignShiftToDepartment(
+    department: String,
+    dates: List<String>,
+    shifts: List<WorkShift>,
+    overtimeHours: Int,
+    assignedBy: String
 ) {
     require(department.isNotBlank()) { "Chưa chọn phòng ban" }
     require(dates.isNotEmpty()) { "Chưa chọn ngày phân ca" }
-    validateScheduleShift(shift)
-    ensureDefaultShiftStored(shift.id)
-    requireActiveAssignableShift(shift.id)
+    require(shifts.size in 1..2 && shifts.map { it.id }.distinct().size == shifts.size &&
+        shifts.map { it.category }.distinct().size == shifts.size) {
+        "Mỗi ngày chỉ được có một ca sáng và một ca chiều"
+    }
+    shifts.forEach { validateScheduleShift(it); ensureDefaultShiftStored(it.id) }
+    val selectedShifts = shifts.map { requireActiveAssignableShift(it.id) }.sortedBy { it.startTime }
+    require(selectedShifts.map { it.category }.distinct().size == selectedShifts.size) {
+        "Loại ca đã thay đổi; vui lòng chọn lại"
+    }
     validateOvertimeHours(overtimeHours)
+    val normalizedDates = dates.map { LocalDate.parse(it) }.distinct().sorted()
+    require(normalizedDates.all { it.dayOfWeek.value in 1..6 }) { "Không thể phân ca vào Chủ nhật" }
     val employees = db.collection("employees")
         .whereEqualTo("active", true)
         .whereEqualTo("department", department)
         .get(Source.SERVER)
         .await()
         .documents
-    val writes = dates.flatMap { rawDate ->
-        val date = LocalDate.parse(rawDate).toString()
-        require(LocalDate.parse(date).dayOfWeek.value in 1..6) { "Không thể phân ca vào Chủ nhật" }
+    val schedules = normalizedDates.flatMap { selectedDate ->
+        val date = selectedDate.toString()
         employees.mapNotNull { document ->
             document.toObject(Employee::class.java)?.let { employee ->
                 val id = scheduleDocumentId(document.id, date)
-                val schedule = WorkSchedule(
+                WorkSchedule(
                     id = id,
                     employeeId = document.id,
                     employeeName = employee.fullName,
                     department = employee.department,
-                    shiftId = shift.id,
-                    shiftIds = listOf(shift.id),
-                    shiftName = shift.name,
+                    shiftId = selectedShifts.first().id,
+                    shiftIds = selectedShifts.map { it.id },
+                    shiftName = selectedShifts.joinToString(" + ") { it.name },
                     date = date,
                     overtimeHours = overtimeHours,
                     assignedBy = assignedBy,
                     source = "DEPARTMENT"
                 )
-                db.collection("workSchedules").document(id) to schedule.copy(id = "")
             }
         }
     }
@@ -192,12 +209,54 @@ suspend fun FirebaseRepository.assignShiftToDepartment(
         details = "Phân lịch cho phòng ban $department, ngày $dates"
     )
     validateAuditLog(audit)
-    val chunks = writes.chunked(400)
-    chunks.forEachIndexed { index, chunk ->
-        db.runBatch { batch ->
-            chunk.forEach { (reference, schedule) -> batch.set(reference, schedule) }
-            if (index == chunks.lastIndex) batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
-        }.await()
+    val chunks = schedules.chunked(400)
+    var saved = 0
+    try {
+        chunks.forEach { chunk ->
+            val auditRef = db.collection("audit_logs").document()
+            db.runTransaction { transaction ->
+                val currentShifts = selectedShifts.associate { selected ->
+                    val snapshot = transaction.get(db.collection("shifts").document(selected.id))
+                    val stored = snapshot.toObject(WorkShift::class.java)?.copy(id = selected.id)
+                        ?: error("Ca ${selected.name} không còn tồn tại")
+                    selected.id to weeklyAssignmentShift(selected, stored)
+                }
+                val scheduleRefs = chunk.associateWith { schedule ->
+                    db.collection("workSchedules").document(schedule.id)
+                }
+                // All reads happen before writes. Firestore retries with the newest schedules
+                // if another admin changes any employee/day while this transaction is running.
+                val previousSchedules = scheduleRefs.mapValues { (_, ref) ->
+                    val snapshot = transaction.get(ref)
+                    if (snapshot.exists()) snapshot.toObject(WorkSchedule::class.java)
+                        ?: error("Không thể đọc lịch đã phân") else null
+                }
+                val previousShiftIds = previousSchedules.values.filterNotNull()
+                    .flatMap(::scheduledShiftIds).distinct().filterNot { it in currentShifts }
+                val shiftsById = previousShiftIds.associateWith { id ->
+                    transaction.get(db.collection("shifts").document(id))
+                        .toObject(WorkShift::class.java)?.copy(id = id)
+                        ?: error("Ca đã phân trước đó không còn tồn tại: $id")
+                } + currentShifts
+                chunk.forEach { schedule ->
+                    val merged = mergeScheduleAssignment(schedule, previousSchedules[schedule],
+                        selectedShifts.map { currentShifts.getValue(it.id) }, shiftsById)
+                    transaction.set(scheduleRefs.getValue(schedule),
+                        mapOf("id" to "", "employeeId" to merged.employeeId, "employeeName" to merged.employeeName,
+                            "department" to merged.department, "date" to merged.date, "shiftId" to merged.shiftId,
+                            "shiftIds" to merged.shiftIds, "shiftName" to merged.shiftName,
+                            "overtimeHours" to merged.overtimeHours, "assignedBy" to assignedBy,
+                            "source" to "DEPARTMENT"), SetOptions.merge())
+                }
+                transaction.set(auditRef, audit.copy(
+                    details = "${audit.details}; ${chunk.size} lịch, ca ${selectedShifts.joinToString { it.name }}"
+                ).toFirestoreData())
+            }.await()
+            saved += chunk.size
+        }
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+    catch (e: Exception) {
+        throw IllegalStateException("Đã lưu $saved/${schedules.size} lịch. Có thể thử lại an toàn. ${e.localizedMessage}", e)
     }
     if (chunks.isEmpty()) writeAuditLog(audit)
 }

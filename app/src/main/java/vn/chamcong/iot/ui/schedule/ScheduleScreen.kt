@@ -40,6 +40,8 @@ import vn.chamcong.iot.domain.weekDates
 import vn.chamcong.iot.ui.AppTouchTarget
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.loadAttendanceRange
+import vn.chamcong.iot.ui.retryAttendanceRange
 import kotlinx.coroutines.delay
 import vn.chamcong.iot.model.Attendance
 import java.time.DayOfWeek
@@ -59,6 +61,12 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
     val dates = weekDates(state.selectedWeekStart)
     val activeEmployees = state.operationalEmployees.filter { it.active }
     val attendance = state.attendanceForSummaries
+    LaunchedEffect(state.selectedWeekStart, monthMode) {
+        val month = YearMonth.from(state.selectedWeekStart)
+        val start = if (monthMode) month.atDay(1) else dates.first()
+        val end = if (monthMode) month.atEndOfMonth() else dates.last()
+        vm.loadAttendanceRange(start, end, force = true)
+    }
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -91,6 +99,14 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             FilterChip(selected = !monthMode, onClick = { monthMode = false }, label = { Text("Tuần") })
             FilterChip(selected = monthMode, onClick = { monthMode = true }, label = { Text("Tháng") })
+        }
+        if (state.attendanceHistoryLoading) Text("Đang tải lịch và lượt chấm trong khoảng đang xem…")
+        state.attendanceHistoryError?.let { error ->
+            Text(error, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { vm.retryAttendanceRange() }) { Text("Tải lại dữ liệu") }
+        }
+        if (state.attendanceHistoryTruncated) {
+            Text("Chưa tải đủ lượt chấm trong khoảng đang xem.", color = MaterialTheme.colorScheme.error)
         }
         if (monthMode) {
             MonthScheduleGrid(state, YearMonth.from(state.selectedWeekStart)) { date ->
@@ -273,11 +289,11 @@ private fun WeeklyScheduleGrid(
                     ) {
                         Column(Modifier.padding(AppSpacing.small)) {
                             val assignedShifts = schedule?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
-                                .mapNotNull { shiftId -> state.shifts.firstOrNull { it.id == shiftId } }
+                                .mapNotNull { shiftId -> state.calculationShifts.firstOrNull { it.id == shiftId } }
                             val assignedNames = schedule?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
-                                .mapNotNull { shiftId -> state.shifts.firstOrNull { it.id == shiftId }?.name?.takeIf(String::isNotBlank) }
+                                .mapNotNull { shiftId -> state.calculationShifts.firstOrNull { it.id == shiftId }?.name?.takeIf(String::isNotBlank) }
                             Text(assignedNames.joinToString(" + ").ifBlank { schedule?.shiftName ?: "Chưa phân" }, style = MaterialTheme.typography.labelSmall)
-                            assignedShifts.forEach { shift ->
+                            if (!state.attendanceHistoryLoading && state.attendanceHistoryError == null && !state.attendanceHistoryTruncated) assignedShifts.forEach { shift ->
                                 val status = scheduleShiftStatus(
                                     employeeId = employee.id,
                                     date = date,
@@ -359,8 +375,8 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
 
 @Composable
 private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarget, vm: MainViewModel, onDismiss: () -> Unit) {
-    val existing = state.schedules.firstOrNull { it.employeeId == target.employee?.id && it.date == target.date.toString() }
-    val assignableShifts = assignableScheduleShifts(state.shifts + vn.chamcong.iot.domain.defaultShiftTemplates().map { it.resolve() })
+    val existing = state.calculationSchedules.firstOrNull { it.employeeId == target.employee?.id && it.date == target.date.toString() }
+    val assignableShifts = assignableScheduleShifts(state.calculationShifts + vn.chamcong.iot.domain.defaultShiftTemplates().map { it.resolve() })
     var selectedShiftIds by remember(target.date, target.employee?.id, assignableShifts, existing?.shiftIds) {
         val existingIds = existing?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
             .filter { id -> assignableShifts.any { it.id == id } }
@@ -392,6 +408,10 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                     }
                 }
                 Text("Ca (chọn tối đa một ca sáng và một ca chiều)")
+                if (target.departmentMode) {
+                    Text("Ca đã phân thuộc loại khác, điều chỉnh giờ và ghi chú sẽ được giữ lại.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 if (assignableShifts.isEmpty()) {
                     Text("Chưa có ca chính để phân")
                 } else {
@@ -403,7 +423,7 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                             FilterChip(
                                 selected = shift.id in selectedShiftIds,
                                 onClick = {
-                                    selectedShiftIds = if (target.departmentMode) listOf(shift.id) else if (shift.id in selectedShiftIds) {
+                                    selectedShiftIds = if (shift.id in selectedShiftIds) {
                                         selectedShiftIds - shift.id
                                     } else {
                                         selectedShiftIds.filterNot { id -> assignableShifts.firstOrNull { it.id == id }?.category == shift.category } + shift.id
@@ -450,7 +470,7 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                     .sortedBy(WorkShift::startTime)
                 val shift = selectedShifts.firstOrNull() ?: return@Button
                 if (target.departmentMode) {
-                    vm.assignShiftToDepartment(selectedDepartment, listOf(target.date.toString()), shift, 0) { onDismiss() }
+                    vm.assignShiftToDepartment(selectedDepartment, listOf(target.date.toString()), selectedShifts, 0) { onDismiss() }
                 } else if (selectedEmployee != null) {
                     vm.assignShift(WorkSchedule(employeeId = selectedEmployee!!.id, employeeName = selectedEmployee!!.fullName, department = selectedEmployee!!.department, shiftId = shift.id, shiftIds = selectedShifts.map { it.id }, shiftName = selectedShifts.joinToString(" + ") { it.name }, date = target.date.toString(), overtimeHours = 0, workedHoursOverride = overrideHours.replace(',', '.').toDoubleOrNull(), adjustmentNote = adjustmentNote.trim())) { onDismiss() }
                 }

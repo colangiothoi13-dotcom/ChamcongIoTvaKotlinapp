@@ -104,7 +104,7 @@ class ReportRulesTest {
 
         assertEquals(1, rows.size)
         assertEquals("e1", rows.single().employeeId)
-        assertEquals(9.0, rows.single().workedHours, 0.01)
+        assertEquals(8.0, rows.single().workedHours, 0.01)
         assertEquals(1.0, rows.single().overtimeHours, 0.01)
         assertTrue(rows.single().checkIn.isNotBlank())
         assertTrue(rows.single().checkOut.isNotBlank())

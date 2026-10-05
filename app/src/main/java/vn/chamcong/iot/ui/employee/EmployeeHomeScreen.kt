@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +61,8 @@ import vn.chamcong.iot.ui.AppColorTokens
 import vn.chamcong.iot.ui.AppSpacing
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.CalculationLoadingNotice
+import vn.chamcong.iot.ui.loadAttendanceRange
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -94,7 +97,14 @@ fun EmployeeHomeScreen(
     }
 
     val today = LocalDate.now(zone)
-    val summaries = vm.employeeMonthSummaries(today)
+    val monthStart = today.withDayOfMonth(1)
+    val monthEnd = today.withDayOfMonth(today.lengthOfMonth())
+    val inPreview = LocalInspectionMode.current
+    LaunchedEffect(monthStart, employee.id) {
+        if (!inPreview) vm.loadAttendanceRange(monthStart, monthEnd, employee.id, force = true)
+    }
+    val calculationReady = inPreview || state.hasCompleteCalculationRange(monthStart, monthEnd, employee.id)
+    val summaries = if (calculationReady) vm.employeeMonthSummaries(today) else emptyList()
     val todaySummary = summaries.firstOrNull { it.date == today }
     val workedDays = summaries.count { it.workedHours > 0.0 || it.overtimeHours > 0.0 }
     val totalHours = summaries.sumOf {
@@ -103,13 +113,14 @@ fun EmployeeHomeScreen(
     val totalOvertimeHours = summaries.sumOf {
         if (it.overtimeSeconds > 0L) it.overtimeSeconds / 3600.0 else it.overtimeHours
     }
-    val lateCount = summaries.count { it.status == EmployeeAttendanceStatus.LATE || it.status == EmployeeAttendanceStatus.ABNORMAL }
+    val lateCount = summaries.count { it.lateMinutes > 0 }
     val pendingRequests = state.employeeRequests.count { it.status == "PENDING" }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.large)
     ) {
+        item { CalculationLoadingNotice(state, vm) }
         item {
             Column(
                 modifier = Modifier
@@ -162,7 +173,9 @@ fun EmployeeHomeScreen(
 
                 HomeJobRow(
                     title = "Ca làm việc",
-                    time = if (todaySummary?.shiftName?.isNullOrBlank() == false) {
+                    time = if (!calculationReady) {
+                        "Đang chờ dữ liệu lịch làm"
+                    } else if (todaySummary?.shiftName?.isNullOrBlank() == false) {
                         "${todaySummary.shiftName}  ·  ${todaySummary.shiftStartTime} – ${todaySummary.shiftEndTime}"
                     } else {
                         "Chưa được phân ca"
@@ -172,7 +185,8 @@ fun EmployeeHomeScreen(
                 )
                 HomeJobRow(
                     title = "Trạng thái chấm công",
-                    time = "${todaySummary?.checkIn?.let(::formatTime) ?: "Chưa chấm vào"}  ·  ${todaySummary?.checkOut?.let(::formatTime) ?: "Chưa chấm ra"}",
+                    time = if (!calculationReady) "Đang chờ dữ liệu chấm công" else
+                        "${todaySummary?.checkIn?.let(::formatTime) ?: "Chưa chấm vào"}  ·  ${todaySummary?.checkOut?.let(::formatTime) ?: "Chưa chấm ra"}",
                     icon = Icons.Default.Fingerprint,
                     onClick = onOpenAttendance
                 )
@@ -229,14 +243,14 @@ fun EmployeeHomeScreen(
                     Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
                         StatusLine(
                             label = "Hôm nay",
-                            value = todaySummary?.status?.toVietnamese() ?: "Chưa có dữ liệu",
+                            value = if (!calculationReady) "Đang chờ dữ liệu" else todaySummary?.status?.toVietnamese() ?: "Chưa có dữ liệu",
                             tint = if (todaySummary?.status == EmployeeAttendanceStatus.ON_TIME || todaySummary?.status == EmployeeAttendanceStatus.PRESENT) AppColorTokens.green else AppColorTokens.orange
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                            SummaryStat("Giờ làm", "%.1f".format(totalHours), Modifier.weight(1f))
-                            SummaryStat("Tăng ca", "%.1f".format(totalOvertimeHours), Modifier.weight(1f))
-                            SummaryStat("Đi trễ", lateCount.toString(), Modifier.weight(1f))
-                            SummaryStat("Ngày công", workedDays.toString(), Modifier.weight(1f))
+                            SummaryStat("Giờ làm", if (calculationReady) "%.1f".format(totalHours) else "—", Modifier.weight(1f))
+                            SummaryStat("Tăng ca", if (calculationReady) "%.1f".format(totalOvertimeHours) else "—", Modifier.weight(1f))
+                            SummaryStat("Đi trễ", if (calculationReady) lateCount.toString() else "—", Modifier.weight(1f))
+                            SummaryStat("Ngày công", if (calculationReady) workedDays.toString() else "—", Modifier.weight(1f))
                         }
                     }
                 }

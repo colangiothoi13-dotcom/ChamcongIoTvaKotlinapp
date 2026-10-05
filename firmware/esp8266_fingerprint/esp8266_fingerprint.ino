@@ -9,6 +9,7 @@
 #include <Servo.h>
 #include <LittleFS.h>
 #include <time.h>
+#include "RuntimePolicy.h"
 
 #include "secrets.h"
 
@@ -34,10 +35,16 @@ const char* WIFI_PASSWORD = DEVICE_WIFI_PASSWORD;
 const char* FIREBASE_API_KEY = FIREBASE_WEB_API_KEY;
 const char* FIRESTORE_URL = FIRESTORE_BASE_URL;
 const char* DEVICE_ID = "GATE-01";
-const char* FIRMWARE_VERSION = "spark-anonymous-v8-fingerprint-commit";
+const char* FIRMWARE_VERSION = "spark-anonymous-v14-command-status";
+// User-selected policy: AS608 matches can grant access when the server cannot
+// be reached. No employee roster/mapping cache is stored on the ESP8266.
+const bool OFFLINE_AS608_ACCESS_ENABLED = true;
 const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 const unsigned long ATTENDANCE_SYNC_INTERVAL_MS = 5000;
 const unsigned long ATTENDANCE_RETRY_INTERVAL_MS = 30000;
+const unsigned long ATTENDANCE_NEXT_RECORD_INTERVAL_MS = 250;
+const unsigned long FOREGROUND_ATTENDANCE_VALIDITY_MS = 15000;
+const unsigned long SYNC_COMMAND_TIMEOUT_MS = 180000;
 const unsigned long COMMAND_ACTIVE_POLL_INTERVAL_MS = 3000;
 const unsigned long COMMAND_IDLE_POLL_INTERVAL_MS = 15000;
 const unsigned long COMMAND_RETRY_INTERVAL_MS = 10000;
@@ -81,17 +88,23 @@ String pendingCommandType;
 bool pendingCommandResult = false;
 bool pendingCommandSuccess = false;
 bool pendingCommandRestart = false;
+bool pendingCommandExecution = false;
+unsigned long pendingCommandStartedAt = 0;
+bool syncCommandHadRejections = false;
 uint16_t pendingCommandTemplateId = 0;
 bool attendancePendingSync = false;
 bool hasHttpsTransportFailure = false;
 bool lastFingerprintAuthorizationUnavailable = false;
 bool lastFingerprintAuthorizationDenied = false;
+bool lastAttendanceCreatedOffline = false;
+bool lastAttendanceMissingClock = false;
 bool capabilitiesNeedSync = true;
 bool littleFsReady = false;
 unsigned long fingerRemovalStarted = 0;
 bool sensorReady = false;
 bool lcdIdleMode = false;
 bool doorOpen = false;
+bool doorMoving = false;
 unsigned long doorOpenedAt = 0;
 String doorStatus = "CLOSED";
 int lastDoorSwitchReading = LOW;
@@ -103,6 +116,11 @@ String lastError = "";
 String firebaseSyncStatus = "PENDING";
 String lastRejectedAttendanceEventId = "";
 String lastAcknowledgedAttendanceEventId = "";
+String foregroundAttendanceEventId;
+String foregroundAttendanceEmployeeName;
+unsigned long foregroundAttendanceCreatedAt = 0;
+bool foregroundAttendanceHandled = true;
+AttendanceDelivery foregroundAttendanceDelivery = AttendanceDelivery::NOT_STORED;
 uint32_t failedScanTimes[32] = {};
 uint8_t failedScanSampleCount = 0;
 
@@ -110,5 +128,16 @@ int attendancePendingCount();
 size_t attendanceOutboxBytes();
 bool attendanceOutboxIsFull();
 const char* attendanceOutboxStatus();
+bool doorNeedsResponsiveLoop();
+void serviceDoor();
+void serviceOutputEffects();
+void serviceEnrollment();
+void handleAttendanceDelivery(const String& eventId, AttendanceDelivery delivery);
+void invalidateForegroundAttendanceAccess();
+int resolveOfflineAttendancePayload(const String& payload, String& resolvedPayload);
+AttendanceSyncResult flushAttendanceOutbox();
+AttendanceDelivery uploadAttendance(uint16_t templateId, uint16_t confidence,
+                                    String& employeeName, String& attendanceTime,
+                                    String& attendanceType);
 
 // Implementation is split into the .ino tabs in this folder.

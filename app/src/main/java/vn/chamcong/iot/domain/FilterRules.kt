@@ -5,6 +5,7 @@ import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
+import vn.chamcong.iot.model.LeaveRequest
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
@@ -31,7 +32,8 @@ fun filterAttendance(
     schedules: List<WorkSchedule> = emptyList(),
     shifts: List<WorkShift> = emptyList(),
     adjustments: List<AttendanceAdjustment> = emptyList(),
-    zoneId: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh")
+    zoneId: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+    leaveRequests: List<LeaveRequest> = emptyList()
 ): List<Attendance> {
     val normalizedStatus = status?.trim()?.takeIf(String::isNotEmpty)?.lowercase(Locale.ROOT)
     val normalizedType = type?.trim()?.takeIf(String::isNotEmpty)?.lowercase(Locale.ROOT)
@@ -45,6 +47,7 @@ fun filterAttendance(
         val schedule = schedulesByKey[key]
         val selectedShifts = schedule?.let { scheduledShifts(it, shiftsById) }.orEmpty()
         if (date == null || selectedShifts.isEmpty()) return@forEach
+        val leaveShiftIds = approvedLeaveShiftIdsForDate(key.first, date, schedule, shifts, leaveRequests)
         val adjustment = latestAdjustment(adjustments, key.first, date)
         val adjustmentInstant = adjustment?.checkInAt ?: adjustment?.checkOutAt
         val adjustmentShiftId = adjustmentInstant?.let { instant ->
@@ -59,8 +62,8 @@ fun filterAttendance(
         selectedShifts.forEach { shift ->
             val shiftAdjustments = if (shift.id == adjustmentShiftId) listOfNotNull(adjustment) else emptyList()
             val pair = resolveAttendancePair(rows, date, shift, shiftAdjustments, zoneId)
-            val late = attendanceLateMinutes(pair.checkIn, date, shift, zoneId) > 0
-            val early = attendanceEarlyLeaveMinutes(pair.checkOut, date, shift, zoneId) > 0
+            val late = shift.id !in leaveShiftIds && attendanceLateMinutes(pair.checkIn, date, shift, zoneId) > 0
+            val early = shift.id !in leaveShiftIds && attendanceEarlyLeaveMinutes(pair.checkOut, date, shift, zoneId) > 0
             effectiveStatusByKey[Triple(key.first, key.second, shift.id)] =
                 (if (late) "LATE" else "ON_TIME") to (if (early) "EARLY_LEAVE" else "NORMAL")
         }

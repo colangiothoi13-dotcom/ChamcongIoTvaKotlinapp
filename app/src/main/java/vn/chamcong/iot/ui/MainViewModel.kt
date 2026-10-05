@@ -98,6 +98,7 @@ class MainViewModel private constructor(application: Application, private val pr
     }
     fun adjustAttendance(adjustment: AttendanceAdjustment, done: () -> Unit) = perform(done) {
         repository.saveAttendanceAdjustment(adjustment)
+        retryAttendanceRange()
         "Đã lưu điều chỉnh chấm công"
     }
     fun correctAttendanceClassification(
@@ -105,6 +106,7 @@ class MainViewModel private constructor(application: Application, private val pr
         done: () -> Unit
     ) = perform(done) {
         repository.saveAttendanceClassificationOverride(correction)
+        retryAttendanceRange()
         "Đã lưu phân loại lượt chấm; dữ liệu gốc được giữ nguyên"
     }
     fun reviewOffScheduleAttendance(
@@ -121,6 +123,7 @@ class MainViewModel private constructor(application: Application, private val pr
         repository.submitOffScheduleAttendanceReview(
             employeeId, employeeName, scheduleDate, shift, decision, reason
         )
+        retryAttendanceRange()
         if (decision == "APPROVE") "Đã duyệt lượt chấm ngoài lịch"
         else "Đã gửi từ chối lượt chấm ngoài lịch"
     }
@@ -143,6 +146,10 @@ class MainViewModel private constructor(application: Application, private val pr
         "Đã lưu mức lương"
     }
     fun savePayroll(employeeId: String, month: String, hoursWorked: Double, bonus: Long, deduction: Long, done: () -> Unit) = perform(done) {
+        val period = YearMonth.parse(month)
+        require(_state.value.hasCompleteCalculationRange(period.atDay(1), period.atEndOfMonth())) {
+            "Cần tải đầy đủ dữ liệu tháng trước khi lưu phiếu lương"
+        }
         repository.savePayroll(employeeId, month, hoursWorked, bonus, deduction)
         "Đã lưu phiếu lương tháng $month"
     }
@@ -166,9 +173,12 @@ class MainViewModel private constructor(application: Application, private val pr
         repository.saveWeeklySchedules(shift, schedules)
         "Đã lưu ${schedules.size} lịch phân ca"
     }
-    fun assignShiftToDepartment(department: String, dates: List<String>, shift: WorkShift, overtimeHours: Int, done: () -> Unit) = perform(done) {
-        repository.assignShiftToDepartment(department, dates, shift, overtimeHours, repository.currentUserId)
-        "Đã phân ca ${shift.name} cho phòng ban $department"
+    fun assignShiftToDepartment(department: String, dates: List<String>, shift: WorkShift, overtimeHours: Int, done: () -> Unit) =
+        assignShiftToDepartment(department, dates, listOf(shift), overtimeHours, done)
+
+    fun assignShiftToDepartment(department: String, dates: List<String>, shifts: List<WorkShift>, overtimeHours: Int, done: () -> Unit) = perform(done) {
+        repository.assignShiftToDepartment(department, dates, shifts, overtimeHours, repository.currentUserId)
+        "Đã phân ca ${shifts.joinToString(" + ") { it.name }} cho phòng ban $department"
     }
     fun copyPreviousWeek(done: () -> Unit) = perform(done) {
         val target = _state.value.selectedWeekStart
@@ -343,6 +353,8 @@ class MainViewModel private constructor(application: Application, private val pr
         _state.update { it.copy(selectedWeekStart = monday) }
     }
     fun moveWeek(delta: Long) = selectWeek(_state.value.selectedWeekStart.plusWeeks(delta))
+    fun selectPayrollMonth(month: YearMonth) = _state.update { it.copy(selectedPayrollMonth = month) }
+    fun selectEmployeeScheduleMonth(month: YearMonth) = _state.update { it.copy(selectedEmployeeScheduleMonth = month) }
     fun selectPresenceDate(value: LocalDate) = _state.update { it.copy(selectedPresenceDate = value) }
     fun setRequestFilter(value: String?) = _state.update { it.copy(selectedRequestFilter = value?.takeIf(String::isNotBlank)) }
     fun signOut() {

@@ -7,8 +7,20 @@ SoftwareSerial mySerial(FINGERPRINT_RX_PIN, FINGERPRINT_TX_PIN);
 #define mySerial Serial1
 #endif
 Adafruit_Fingerprint finger(&mySerial);
-const unsigned long FINGERPRINT_ACCEPTED_DISPLAY_MS = 1200;
-const unsigned long FINGERPRINT_OPENING_DISPLAY_MS = 600;
+EnrollmentStage enrollmentStage = EnrollmentStage::IDLE;
+uint16_t enrollmentTemplateId = 0;
+unsigned long enrollmentStageStartedAt = 0;
+unsigned long enrollmentLastServiceAt = 0;
+unsigned long enrollmentLastPollAt = 0;
+const unsigned long FINGERPRINT_POLL_INTERVAL_MS = 80;
+unsigned long lastFingerprintPollAt = 0;
+
+bool fingerprintPollDue() {
+  const unsigned long now = millis();
+  if (!elapsedAtLeast(now, lastFingerprintPollAt, FINGERPRINT_POLL_INTERVAL_MS)) return false;
+  lastFingerprintPollAt = now;
+  return true;
+}
 
 void setSensorError(const String& message) {
   sensorReady = false;
@@ -24,6 +36,7 @@ void markSensorReady() {
   sensorReady = true;
   sensorStatus = "OK";
   sensorError = "";
+  lastFingerprintPollAt = millis() - FINGERPRINT_POLL_INTERVAL_MS;
   if (lcdIdleMode || (!waitingForFingerRemoval && !pendingCommandResult)) showReadyScreen();
 }
 
@@ -49,55 +62,92 @@ void initializeAs608() {
   }
 }
 
-bool waitForFinger(uint32_t timeoutMs) {
+bool startEnrollment(uint16_t templateId) {
   if (!sensorReady) return false;
-  uint32_t started = millis();
-  while (millis() - started < timeoutMs) {
-    uint8_t status = finger.getImage();
-    if (status == FINGERPRINT_OK) return true;
-    if (status != FINGERPRINT_NOFINGER) {
-      setSensorError("AS608 loi khi doc van tay");
-      return false;
-    }
-    delay(80);
-    yield();
-  }
-  return false;
-}
-
-bool waitForFingerRemoval(uint32_t timeoutMs) {
-  if (!sensorReady) return false;
-  uint32_t started = millis();
-  while (millis() - started < timeoutMs) {
-    uint8_t status = finger.getImage();
-    if (status == FINGERPRINT_NOFINGER) return true;
-    if (status != FINGERPRINT_OK) {
-      setSensorError("AS608 loi khi kiem tra ngon tay");
-      return false;
-    }
-    delay(80);
-    yield();
-  }
-  return false;
-}
-
-bool enrollFingerprint(uint16_t templateId) {
-  if (!sensorReady) return false;
+  enrollmentTemplateId = templateId;
+  enrollmentStage = EnrollmentStage::FIRST_IMAGE;
+  enrollmentStageStartedAt = enrollmentLastServiceAt = millis();
+  enrollmentLastPollAt = millis() - 80;
   Serial.printf("DANG KY: dat ngon tay lan 1 (template %d)\n", templateId);
   showLcd("DANG KY VAN TAY", "DAT NGON TAY 1");
   playBuzzerTone(1200, 120);
-  if (!waitForFinger(30000) || finger.image2Tz(1) != FINGERPRINT_OK) return false;
-  Serial.println("DANG KY: nhac ngon tay ra");
-  showLcd("DANG KY VAN TAY", "NHAC NGON TAY RA");
-  playBuzzerTone(1500, 100);
-  if (!waitForFingerRemoval(10000)) return false;
-  delay(600);
-  Serial.println("DANG KY: dat cung ngon tay lan 2");
-  showLcd("DANG KY VAN TAY", "DAT NGON TAY 2");
-  playBuzzerTone(1200, 120);
-  if (!waitForFinger(30000) || finger.image2Tz(2) != FINGERPRINT_OK) return false;
-  if (finger.createModel() != FINGERPRINT_OK) return false;
-  return finger.storeModel(templateId) == FINGERPRINT_OK;
+  return true;
+}
+
+void finishEnrollment(bool success) {
+  enrollmentStage = EnrollmentStage::IDLE;
+  pendingCommandExecution = false;
+  pendingCommandSuccess = success;
+  pendingCommandResult = true;
+  lastCommandCheck = millis() - COMMAND_ACTIVE_POLL_INTERVAL_MS;
+}
+
+void serviceEnrollment() {
+  if (enrollmentStage == EnrollmentStage::IDLE) return;
+  const unsigned long now = millis();
+  if (doorNeedsResponsiveLoop()) {
+    // A manual door opening pauses sensor I/O and the enrollment timeout.
+    enrollmentStageStartedAt += now - enrollmentLastServiceAt;
+    enrollmentLastServiceAt = now;
+    return;
+  }
+  enrollmentLastServiceAt = now;
+  if (!sensorReady) { finishEnrollment(false); return; }
+  if (!elapsedAtLeast(now, enrollmentLastPollAt, 80)) return;
+  enrollmentLastPollAt = now;
+  const unsigned long timeoutMs = enrollmentStage == EnrollmentStage::REMOVE_FINGER ? 10000 : 30000;
+  if (elapsedAtLeast(now, enrollmentStageStartedAt, timeoutMs)) {
+    finishEnrollment(false);
+    return;
+  }
+  uint8_t result = FINGERPRINT_OK;
+  switch (enrollmentStage) {
+    case EnrollmentStage::FIRST_IMAGE:
+    case EnrollmentStage::SECOND_IMAGE:
+      result = finger.getImage();
+      if (result == FINGERPRINT_NOFINGER) return;
+      if (result == FINGERPRINT_OK) {
+        enrollmentStage = enrollmentStage == EnrollmentStage::FIRST_IMAGE
+            ? EnrollmentStage::FIRST_CONVERSION : EnrollmentStage::SECOND_CONVERSION;
+      }
+      break;
+    case EnrollmentStage::FIRST_CONVERSION:
+      result = finger.image2Tz(1);
+      if (result == FINGERPRINT_OK) {
+        showLcd("DANG KY VAN TAY", "NHAC NGON TAY RA");
+        playBuzzerTone(1500, 100);
+        enrollmentStage = EnrollmentStage::REMOVE_FINGER;
+      }
+      break;
+    case EnrollmentStage::REMOVE_FINGER:
+      result = finger.getImage();
+      if (result == FINGERPRINT_OK) return;
+      if (result == FINGERPRINT_NOFINGER) {
+        result = FINGERPRINT_OK;
+        enrollmentStage = EnrollmentStage::SECOND_GAP;
+      }
+      break;
+    case EnrollmentStage::SECOND_GAP:
+      if (!elapsedAtLeast(now, enrollmentStageStartedAt, 600)) return;
+      showLcd("DANG KY VAN TAY", "DAT NGON TAY 2");
+      playBuzzerTone(1200, 120);
+      enrollmentStage = EnrollmentStage::SECOND_IMAGE;
+      break;
+    case EnrollmentStage::SECOND_CONVERSION:
+      result = finger.image2Tz(2);
+      enrollmentStage = EnrollmentStage::CREATE_MODEL;
+      break;
+    case EnrollmentStage::CREATE_MODEL:
+      result = finger.createModel();
+      enrollmentStage = EnrollmentStage::STORE_MODEL;
+      break;
+    case EnrollmentStage::STORE_MODEL:
+      finishEnrollment(finger.storeModel(enrollmentTemplateId) == FINGERPRINT_OK);
+      return;
+    default: return;
+  }
+  if (result != FINGERPRINT_OK) { finishEnrollment(false); return; }
+  enrollmentStageStartedAt = now;
 }
 
 void startWaitingForFingerRemoval() {
@@ -106,6 +156,7 @@ void startWaitingForFingerRemoval() {
 }
 
 void maybeRecoverSensor() {
+  if (doorNeedsResponsiveLoop()) return;
   if (sensorReady || millis() - lastSensorRetry < SENSOR_RETRY_INTERVAL_MS) return;
   lastSensorRetry = millis();
   Serial.println("AS608: thu ket noi lai cam bien");
@@ -118,45 +169,55 @@ void maybeRecoverSensor() {
 }
 
 bool handleFingerprintRemoval() {
+  if (fingerprintResultHoldActive()) return true;
+  if (doorNeedsResponsiveLoop()) return waitingForFingerRemoval;
   if (!waitingForFingerRemoval) return false;
 
   if (!sensorReady) {
     waitingForFingerRemoval = false;
     showSensorReconnectScreen();
-    delay(200);
     return true;
   }
+  if (!fingerprintPollDue()) return true;
 
   uint8_t imageStatus = finger.getImage();
   if (imageStatus == FINGERPRINT_NOFINGER) {
     waitingForFingerRemoval = false;
     if (!fingerprintDoorNoticeActive || !doorOpen) showReadyScreen();
-  } else if (imageStatus != FINGERPRINT_OK) {
+  } else if (imageStatus != FINGERPRINT_OK && imageStatus != FINGERPRINT_IMAGEFAIL) {
+    Serial.printf("AS608 getImage (nhac ngon): ma=%u\n", imageStatus);
     setSensorError("AS608 loi khi kiem tra ngon tay");
     waitingForFingerRemoval = false;
   } else if (millis() - fingerRemovalStarted >= 10000) {
     showLcd("NHAC NGON TAY", "RA KHOI CAM BIEN");
     fingerRemovalStarted = millis();
   }
-  delay(80);
   return true;
 }
 
 void handleFingerprintScan() {
+  if (fingerprintResultHoldActive()) return;
+  if (doorNeedsResponsiveLoop()) return;
   if (!sensorReady) {
-    delay(200);
     return;
   }
+  if (!fingerprintPollDue()) return;
 
   uint8_t imageStatus = finger.getImage();
   if (imageStatus != FINGERPRINT_OK) {
-    if (imageStatus != FINGERPRINT_NOFINGER) {
+    if (imageStatus == FINGERPRINT_IMAGEFAIL) {
+      invalidateForegroundAttendanceAccess();
+      showFingerprintResultNotice("KHONG DOC DUOC", "DAT LAI NGON TAY");
+      signalResult(false);
+      startWaitingForFingerRemoval();
+    } else if (imageStatus != FINGERPRINT_NOFINGER) {
+      Serial.printf("AS608 getImage (quet): ma=%u\n", imageStatus);
       setSensorError("AS608 loi khi doc van tay");
     }
-    delay(80);
     return;
   }
 
+  invalidateForegroundAttendanceAccess();
   showLcd("DANG XU LY...", "VUI LONG DOI");
   uint8_t imageToTemplateStatus = finger.image2Tz();
   uint8_t searchStatus = imageToTemplateStatus == FINGERPRINT_OK
@@ -164,14 +225,17 @@ void handleFingerprintScan() {
       : imageToTemplateStatus;
   if (imageToTemplateStatus != FINGERPRINT_OK || searchStatus != FINGERPRINT_OK) {
     Serial.println("Van tay khong hop le");
-    showLcd("VAN TAY SAI", "XIN THU LAI");
-    if (searchStatus == FINGERPRINT_NOTFOUND || imageToTemplateStatus == FINGERPRINT_IMAGEMESS) {
+    if (searchStatus == FINGERPRINT_NOTFOUND || searchStatus == FINGERPRINT_NOMATCH ||
+        imageToTemplateStatus == FINGERPRINT_IMAGEMESS ||
+        imageToTemplateStatus == FINGERPRINT_FEATUREFAIL ||
+        imageToTemplateStatus == FINGERPRINT_INVALIDIMAGE) {
       recordFailedScan("Van tay khong hop le");
     } else {
+      Serial.printf("AS608 xu ly: image2Tz=%u, search=%u\n", imageToTemplateStatus, searchStatus);
       setSensorError("AS608 loi khi xu ly van tay");
     }
+    showFingerprintResultNotice("VAN TAY SAI", "XIN THU LAI");
     signalResult(false);
-    delay(500);
     startWaitingForFingerRemoval();
     return;
   }
@@ -180,36 +244,42 @@ void handleFingerprintScan() {
   String employeeName;
   String attendanceTime;
   String attendanceType;
-  bool success = uploadAttendance(finger.fingerID, finger.confidence,
-                                  employeeName, attendanceTime, attendanceType);
-  if (success) {
-    showLcd(employeeName, "DA NHAN");
-    Serial.printf("%s DA NHAN\n", employeeName.c_str());
-    delay(FINGERPRINT_ACCEPTED_DISPLAY_MS);
-
-    showLcd("DANG MO CUA", "VUI LONG DOI");
-    Serial.println("DANG MO CUA");
-    delay(FINGERPRINT_OPENING_DISPLAY_MS);
-
-    openDoor();
-    String scanStatus = attendancePendingSync
-        ? String("CHO SYNC: ") + attendancePendingCount()
-        : String("DA NHAN");
-    showLcd("SE DONG SAU 5S", scanStatus);
-    fingerprintDoorNoticeActive = true;
-    Serial.println("SE DONG SAU 5S");
-  } else {
-    if (lastFingerprintAuthorizationUnavailable) {
-      showLcd("KHONG XAC THUC", "KHONG MO CUA");
-    } else if (lastFingerprintAuthorizationDenied) {
-      showLcd("KHONG DUOC PHEP", "XIN LIEN HE ADMIN");
-    } else if (attendanceOutboxIsFull()) {
-      showLcd("HANG DOI DAY", "KHONG LUU DUOC");
+  const AttendanceDelivery delivery = uploadAttendance(finger.fingerID, finger.confidence,
+                                                        employeeName, attendanceTime, attendanceType);
+  if (delivery == AttendanceDelivery::QUEUED) {
+    if (lastAttendanceCreatedOffline) {
+      handleAttendanceDelivery(foregroundAttendanceEventId, AttendanceDelivery::LOCAL_ACCEPTED);
     } else {
-      showLcd("CHAM CONG LOI", "XIN THU LAI");
+      showLcd(employeeName, "DANG XU LY");
+      playBuzzerTone(1000, 120);
+      Serial.printf("%s DA LUU CHO SYNC (chua mo cua)\n", employeeName.c_str());
     }
+  } else if (delivery == AttendanceDelivery::CONFIRMED) {
+    handleAttendanceDelivery(foregroundAttendanceEventId, delivery);
+  } else if (delivery == AttendanceDelivery::ACCESS_ONLY && OFFLINE_AS608_ACCESS_ENABLED) {
+    // AS608 identity matching is independent of Wi-Fi/NTP. Do not invent an
+    // attendance timestamp or a pending record when no valid clock exists.
+    showLcd("DANG MO CUA", "CHUA LUU CONG");
+    signalResult(true);
+    openDoor();
+    fingerprintDoorNoticeActive = true;
+    fingerprintDoorNoticeOffline = true;
+    fingerprintDoorNoticeAttendanceSaved = false;
+    setLatestError("Mo cua theo AS608; CHUA LUU CONG vi chua co gio hop le");
+    Serial.printf("Template %u: chi mo cua, khong tao luot cham cong chua co gio\n", finger.fingerID);
+  } else {
+    if (lastFingerprintAuthorizationDenied) {
+      showFingerprintResultNotice("KHONG DUOC PHEP", "XIN LIEN HE ADMIN");
+    } else if (!hasValidClock()) {
+      showFingerprintResultNotice("CHUA CO GIO", "KET NOI WIFI");
+    } else if (lastFingerprintAuthorizationUnavailable) {
+      showFingerprintResultNotice("KHONG XAC THUC", "KHONG MO CUA");
+    } else if (attendanceOutboxIsFull()) {
+      showFingerprintResultNotice("HANG DOI DAY", "KHONG LUU DUOC");
+    } else {
+      showFingerprintResultNotice("KHONG LUU DUOC", "XIN THU LAI");
+    }
+    signalResult(false);
   }
-  signalResult(success);
-  delay(success ? 1800 : 500);
   startWaitingForFingerRemoval();
 }

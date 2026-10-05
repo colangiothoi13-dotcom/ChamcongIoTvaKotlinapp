@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import vn.chamcong.iot.data.*
 import vn.chamcong.iot.model.Attendance
 import java.time.LocalDate
@@ -45,6 +47,7 @@ fun MainViewModel.loadAttendanceRange(
     _state.update {
         it.copy(
             historicalAttendance = emptyList(),
+            historicalCalculationData = null,
             attendanceHistoryLoading = true,
             attendanceHistoryQueryKey = null,
             attendanceHistoryError = null,
@@ -54,6 +57,8 @@ fun MainViewModel.loadAttendanceRange(
     }
     attendanceHistoryJob = viewModelScope.launch {
         try {
+            val (result, context, truncated) = coroutineScope {
+            val contextLoad = async { repository.fetchCalculationData(startDate, endDate, cleanEmployeeId) }
             val loaded = mutableListOf<Attendance>()
             var cursor: DocumentSnapshot? = null
             var truncated = false
@@ -61,8 +66,8 @@ fun MainViewModel.loadAttendanceRange(
                 val remaining = MAX_REPORT_ATTENDANCE_ROWS - loaded.size
                 val pageSize = minOf(ATTENDANCE_PAGE_SIZE, remaining.toLong())
                 val page = repository.fetchAttendancePage(
-                    startDate = startDate,
-                    endDate = endDate,
+                    startDate = startDate.minusDays(1),
+                    endDate = endDate.plusDays(1),
                     employeeId = cleanEmployeeId,
                     pageSize = pageSize,
                     after = cursor
@@ -77,20 +82,22 @@ fun MainViewModel.loadAttendanceRange(
             // check one row after the final cursor before marking truncated.
             if (loaded.size == MAX_REPORT_ATTENDANCE_ROWS && cursor != null) {
                 val overflowPage = repository.fetchAttendancePage(
-                    startDate = startDate,
-                    endDate = endDate,
+                    startDate = startDate.minusDays(1),
+                    endDate = endDate.plusDays(1),
                     employeeId = cleanEmployeeId,
                     pageSize = 1,
                     after = cursor
                 )
                 truncated = overflowPage.rows.isNotEmpty()
             }
+            Triple(loaded.take(MAX_REPORT_ATTENDANCE_ROWS), contextLoad.await(), truncated)
+            }
             if (attendanceHistoryRequestedKey != key) return@launch
-            val result = loaded.take(MAX_REPORT_ATTENDANCE_ROWS)
             attendanceHistoryRequestedKey = null
             _state.update {
                 it.copy(
                     historicalAttendance = result,
+                    historicalCalculationData = context,
                     attendanceHistoryLoading = false,
                     attendanceHistoryQueryKey = key,
                     attendanceHistoryError = null,
@@ -106,6 +113,7 @@ fun MainViewModel.loadAttendanceRange(
             _state.update {
                 it.copy(
                     historicalAttendance = emptyList(),
+                    historicalCalculationData = null,
                     attendanceHistoryLoading = false,
                     attendanceHistoryQueryKey = null,
                     attendanceHistoryError = userFacingErrorMessage(error),

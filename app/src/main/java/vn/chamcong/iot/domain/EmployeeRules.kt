@@ -275,51 +275,120 @@ fun employeeMonthSummaries(
     adjustments: List<AttendanceAdjustment> = emptyList(),
     overtimeRequests: List<OvertimeRequest> = emptyList(),
     now: Instant = Instant.now(),
-    approvedLeaveShiftsByDate: Map<LocalDate, Set<String>> = emptyMap()
+    approvedLeaveShiftsByDate: Map<LocalDate, Set<String>> = emptyMap(),
+    leaveRequests: List<LeaveRequest> = emptyList()
 ): List<EmployeeDaySummary> {
     val firstDay = month.withDayOfMonth(1)
     val assignedAttendance = assignAttendanceScheduleDates(attendance, schedules, shifts, zoneId)
     val scheduleByDate = schedules.filter { it.employeeId == employeeId }.associateBy { it.date }
+    val requestedLeaveShifts = employeeApprovedLeaveShifts(employeeId, schedules, shifts, leaveRequests)
+    val legacyLeavePeriods = leaveRequests.mapNotNull { request ->
+        if (request.employeeId != employeeId || request.type != RequestType.LEAVE.name ||
+            request.status != RequestStatus.APPROVED.name || request.leaveShiftsByDate != null
+        ) return@mapNotNull null
+        runCatching { LocalDate.parse(request.startDate)..LocalDate.parse(request.endDate) }.getOrNull()
+    }
     return (0 until firstDay.lengthOfMonth()).map { offset ->
         val date = firstDay.plusDays(offset.toLong())
         val schedule = scheduleByDate[date.toString()]
-        val daily = employeeDaySummaryForSchedule(
+        employeeDaySummaryWithRequests(
             employeeId = employeeId,
             date = date,
             attendance = assignedAttendance,
             schedule = schedule,
             shifts = shifts,
-            approvedLeave = date in approvedLeaveDates && schedule?.let { scheduledShifts(it, shifts.associateBy(WorkShift::id)).isNotEmpty() } == true,
+            approvedLeave = legacyLeavePeriods.any { date in it } || (date in approvedLeaveDates &&
+                schedule?.let { scheduledShifts(it, shifts.associateBy(WorkShift::id)).isNotEmpty() } == true),
             zoneId = zoneId,
             adjustments = adjustments,
             now = now,
-            approvedLeaveShiftIds = approvedLeaveShiftsByDate[date].orEmpty()
-        )
-        val overtimeShiftSummaries = overtimeRequests.mapNotNull { request ->
-            val overtime = approvedOvertimeSummary(employeeId, date, assignedAttendance, request, zoneId)
-                ?: return@mapNotNull null
-            EmployeeShiftSummary(
-                shiftId = SUPPLEMENTARY_SHIFT_ID,
-                shiftName = "Tăng ca",
-                shiftStartTime = request.startTime,
-                shiftEndTime = request.endTime,
-                rawCheckInAt = overtime.rawCheckInAt,
-                rawCheckOutAt = overtime.rawCheckOutAt,
-                paidCheckInAt = overtime.paidCheckInAt,
-                paidCheckOutAt = overtime.paidCheckOutAt,
-                workedSeconds = overtime.workedSeconds,
-                overtimeSeconds = overtime.overtimeSeconds,
-                workedHours = overtime.workedHours,
-                overtimeHours = overtime.overtimeHours,
-                status = EmployeeAttendanceStatus.PRESENT
-            )
-        }
-        daily.copy(
-            overtimeHours = daily.overtimeHours + overtimeShiftSummaries.sumOf(EmployeeShiftSummary::overtimeHours),
-            overtimeSeconds = daily.overtimeSeconds + overtimeShiftSummaries.sumOf(EmployeeShiftSummary::overtimeSeconds),
-            shiftSummaries = daily.shiftSummaries + overtimeShiftSummaries
+            approvedLeaveShiftIds = approvedLeaveShiftsByDate[date].orEmpty() + requestedLeaveShifts[date].orEmpty(),
+            overtimeRequests = overtimeRequests
         )
     }
+}
+
+/** Shared timesheet/report/payroll path: leave affects main shifts, not an independent approved overtime pair. */
+fun employeeDaySummaryWithRequests(
+    employeeId: String,
+    date: LocalDate,
+    attendance: List<Attendance>,
+    schedule: WorkSchedule?,
+    shifts: List<WorkShift>,
+    approvedLeave: Boolean,
+    zoneId: ZoneId,
+    adjustments: List<AttendanceAdjustment> = emptyList(),
+    now: Instant = Instant.now(),
+    approvedLeaveShiftIds: Set<String> = emptySet(),
+    overtimeRequests: List<OvertimeRequest> = emptyList()
+): EmployeeDaySummary {
+    val mainShiftIds = schedule?.let(::scheduledShiftIds).orEmpty().filter { it != SUPPLEMENTARY_SHIFT_ID }
+    val mainSchedule = schedule?.takeIf { mainShiftIds.isNotEmpty() }?.copy(
+        shiftId = mainShiftIds.first(), shiftIds = mainShiftIds
+    )
+    // Supplementary punches must never become an unscheduled regular pair or
+    // borrow a missing main checkout, even if no approved request is present.
+    val main = employeeDaySummaryForSchedule(
+        employeeId, date, attendance.filter { it.shiftId != SUPPLEMENTARY_SHIFT_ID },
+        mainSchedule, shifts, approvedLeave, zoneId, adjustments, now, approvedLeaveShiftIds
+    )
+    val hasWorkedHoursOverride = latestAdjustment(adjustments, employeeId, date)?.workedHoursOverride != null ||
+        mainSchedule?.workedHoursOverride != null
+    val shiftsById = shifts.associateBy(WorkShift::id)
+    val normalizedMainShifts = main.shiftSummaries.map { summary ->
+        val shift = shiftsById[summary.shiftId]
+        val standardSplitShift = shift?.let {
+            (it.category == "MORNING" && it.startTime == "08:00" && it.endTime == "12:00") ||
+                (it.category == "EVENING" && it.startTime == "13:00" && it.endTime == "17:00")
+        } == true
+        // calculateWorkTime keeps the legacy continuous custom-shift result.
+        // Shared consumer summaries expose two disjoint portions instead.
+        val overlap = if (!hasWorkedHoursOverride && shift?.countsOvertime == true && !standardSplitShift) {
+            summary.overtimeSeconds.coerceAtMost(summary.workedSeconds)
+        } else 0L
+        summary.copy(
+            workedSeconds = summary.workedSeconds - overlap,
+            workedHours = if (overlap > 0L) roundHours(summary.workedSeconds - overlap) else summary.workedHours
+        )
+    }
+    val overlappingSeconds = main.shiftSummaries.sumOf(EmployeeShiftSummary::workedSeconds) -
+        normalizedMainShifts.sumOf(EmployeeShiftSummary::workedSeconds)
+    val daily = main.copy(
+        workedSeconds = (main.workedSeconds - overlappingSeconds).coerceAtLeast(0L),
+        workedHours = if (overlappingSeconds > 0L) roundHours((main.workedSeconds - overlappingSeconds).coerceAtLeast(0L)) else main.workedHours,
+        shiftSummaries = normalizedMainShifts
+    )
+    val overtimeShiftSummaries = overtimeRequests.mapNotNull { request ->
+        val overtime = approvedOvertimeSummary(employeeId, date, attendance, request, zoneId)
+            ?.takeIf { it.overtimeSeconds > 0L } ?: return@mapNotNull null
+        EmployeeShiftSummary(
+            shiftId = SUPPLEMENTARY_SHIFT_ID,
+            shiftName = "Tăng ca",
+            shiftStartTime = request.startTime,
+            shiftEndTime = request.endTime,
+            rawCheckInAt = overtime.rawCheckInAt,
+            rawCheckOutAt = overtime.rawCheckOutAt,
+            paidCheckInAt = overtime.paidCheckInAt,
+            paidCheckOutAt = overtime.paidCheckOutAt,
+            // The supplementary interval is exposed only as overtime, so
+            // consumers can add regular and overtime without counting twice.
+            overtimeSeconds = overtime.overtimeSeconds,
+            overtimeHours = overtime.overtimeHours,
+            status = EmployeeAttendanceStatus.ON_TIME
+        )
+    }.distinctBy { it.shiftId }
+    val overtimeOnly = mainSchedule == null && daily.checkIn == null && overtimeShiftSummaries.isNotEmpty()
+    return daily.copy(
+        shiftName = if (overtimeOnly) overtimeShiftSummaries.joinToString(" / ") { it.shiftName } else daily.shiftName,
+        shiftStartTime = if (overtimeOnly) overtimeShiftSummaries.first().shiftStartTime else daily.shiftStartTime,
+        shiftEndTime = if (overtimeOnly) overtimeShiftSummaries.last().shiftEndTime else daily.shiftEndTime,
+        checkIn = if (overtimeOnly) overtimeShiftSummaries.first().rawCheckInAt else daily.checkIn,
+        checkOut = if (overtimeOnly) overtimeShiftSummaries.last().rawCheckOutAt else daily.checkOut,
+        status = if (overtimeOnly && !approvedLeave) EmployeeAttendanceStatus.ON_TIME else daily.status,
+        overtimeHours = daily.overtimeHours + overtimeShiftSummaries.sumOf(EmployeeShiftSummary::overtimeHours),
+        overtimeSeconds = daily.overtimeSeconds + overtimeShiftSummaries.sumOf(EmployeeShiftSummary::overtimeSeconds),
+        shiftSummaries = daily.shiftSummaries + overtimeShiftSummaries
+    )
 }
 
 fun employeeRequestDraft(

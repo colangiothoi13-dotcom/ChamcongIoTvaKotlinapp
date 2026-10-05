@@ -7,6 +7,8 @@ import vn.chamcong.iot.model.DeviceActivityRow
 import vn.chamcong.iot.model.DeviceSnapshot
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.LeaveRequest
+import vn.chamcong.iot.model.OvertimeRequest
+import vn.chamcong.iot.model.ReportType
 import vn.chamcong.iot.model.ReportFilter
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
@@ -42,12 +44,12 @@ fun attendanceReportRows(
     approvedRequests: List<LeaveRequest>,
     zoneId: ZoneId,
     adjustments: List<AttendanceAdjustment> = emptyList(),
-    now: Instant = Instant.now()
+    now: Instant = Instant.now(),
+    overtimeRequests: List<OvertimeRequest> = emptyList()
 ): List<AttendanceReportRow> {
     validateReportFilter(filter)
     val selectedEmployees = filterEmployees(employees, filter)
     val employeeIds = selectedEmployees.map { it.id }.toSet()
-    val shiftsById = shifts.associateBy { it.id }
     val schedulesByKey = schedules.associateBy { "${it.employeeId}_${it.date}" }
     val attendanceByKey = assignAttendanceScheduleDates(attendance, schedules, shifts, zoneId)
         .filter { it.employeeId in employeeIds }
@@ -60,26 +62,19 @@ fun attendanceReportRows(
             .map { date ->
                 val key = "${employee.id}_$date"
                 val schedule = schedulesByKey[key]
-                val selectedShifts = schedule?.let { scheduledShifts(it, shiftsById) }.orEmpty()
                 val leaveRequestsForDay = approvedRequests.filter { request ->
                     request.employeeId == employee.id && request.status == "APPROVED" && request.type == "LEAVE" &&
                         runCatching { date in LocalDate.parse(request.startDate)..LocalDate.parse(request.endDate) }
                             .getOrDefault(false)
                 }
                 val legacyLeave = leaveRequestsForDay.any { it.leaveShiftsByDate == null }
-                val leaveShiftIds = if (legacyLeave) selectedShifts.map { it.id }.toSet() else {
-                    leaveRequestsForDay.flatMap { it.leaveShiftsByDate?.get(date.toString()).orEmpty() }
-                        .filter { shiftId -> selectedShifts.any { it.id == shiftId } }.toSet()
-                }
+                val leaveShiftIds = approvedLeaveShiftIdsForDate(employee.id, date, schedule, shifts, leaveRequestsForDay)
                 val hasApprovedLeave = legacyLeave || leaveShiftIds.isNotEmpty()
                 val rows = attendanceByKey[key].orEmpty()
-                    .filter { row ->
-                        if (selectedShifts.isEmpty()) belongsToScheduleDate(row, date, null, zoneId)
-                        else selectedShifts.any { shift -> belongsToScheduleDate(row, date, shift, zoneId) }
-                    }
                 val adjustment = latestAdjustment(adjustments, employee.id, date)
-                if (rows.isEmpty() && schedule == null && adjustment == null && !hasApprovedLeave) return@map null
-                val summary = employeeDaySummaryForSchedule(
+                val hasOvertimeRequest = overtimeRequests.any { it.employeeId == employee.id && it.workDate == date.toString() }
+                if (rows.isEmpty() && schedule == null && adjustment == null && !hasApprovedLeave && !hasOvertimeRequest) return@map null
+                val summary = employeeDaySummaryWithRequests(
                     employeeId = employee.id,
                     date = date,
                     attendance = rows,
@@ -89,7 +84,8 @@ fun attendanceReportRows(
                     zoneId = zoneId,
                     adjustments = adjustments,
                     now = now,
-                    approvedLeaveShiftIds = leaveShiftIds
+                    approvedLeaveShiftIds = leaveShiftIds,
+                    overtimeRequests = overtimeRequests
                 )
                 AttendanceReportRow(
                     date = date.toString(),
@@ -100,13 +96,27 @@ fun attendanceReportRows(
                     checkOut = summary.checkOut?.atZone(zoneId)?.format(reportTimeFormatter).orEmpty(),
                     status = summary.status.name,
                     workedHours = summary.workedHours,
-                    overtimeHours = summary.overtimeHours
+                    overtimeHours = summary.overtimeHours,
+                    lateMinutes = summary.lateMinutes,
+                    earlyLeaveMinutes = summary.earlyLeaveMinutes,
+                    approvedLeaveShiftCount = leaveShiftIds.size
                 )
             }
             .filterNotNull()
             .toList()
     }.sortedWith(compareBy<AttendanceReportRow> { it.date }.thenBy { it.employeeName })
 }
+
+/** One predicate for both the report preview and its CSV export. */
+fun filterAttendanceReportRows(rows: List<AttendanceReportRow>, type: ReportType): List<AttendanceReportRow> =
+    rows.filter { row ->
+        when (type) {
+            ReportType.LATE_EARLY -> row.lateMinutes > 0 || row.earlyLeaveMinutes > 0
+            ReportType.LEAVE -> row.status == "LEAVE" || row.approvedLeaveShiftCount > 0
+            ReportType.OVERTIME -> row.overtimeHours > 0
+            else -> true
+        }
+    }
 
 fun deviceActivityRows(
     devices: List<DeviceSnapshot>,

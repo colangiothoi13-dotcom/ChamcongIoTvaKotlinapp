@@ -49,6 +49,7 @@ data class MainUiState(
     val employees: List<Employee> = emptyList(),
     val attendance: List<Attendance> = emptyList(),
     val historicalAttendance: List<Attendance> = emptyList(),
+    val historicalCalculationData: CalculationData? = null,
     val attendanceAdjustments: List<AttendanceAdjustment> = emptyList(),
     val attendanceClassificationOverrides: List<AttendanceClassificationOverride> = emptyList(),
     val offScheduleAttendanceReviews: List<OffScheduleAttendanceReview> = emptyList(),
@@ -76,11 +77,13 @@ data class MainUiState(
     val employeeAttendanceHistoryLoading: Boolean = false,
     val employeeAttendanceHistoryHasMore: Boolean = false,
     val employeeSchedules: List<WorkSchedule> = emptyList(),
+    val selectedEmployeeScheduleMonth: YearMonth = YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")),
     val employeeRequests: List<LeaveRequest> = emptyList(),
     val employeeOvertimeRequests: List<OvertimeRequest> = emptyList(),
     val employeeNotifications: List<AppNotification> = emptyList(),
     val selectedRequestFilter: String? = null,
     val selectedAdminTimesheetMonth: YearMonth = YearMonth.now(),
+    val selectedPayrollMonth: YearMonth = YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")),
     val employeeQuery: String = "",
     val departmentFilter: String? = null,
     val showRetired: Boolean = false,
@@ -101,13 +104,45 @@ data class MainUiState(
     val message: String? = null,
     val error: String? = null
 ) {
+    fun hasCompleteCalculationRange(start: LocalDate, end: LocalDate, employeeId: String? = null): Boolean =
+        !attendanceHistoryLoading && attendanceHistoryError == null && !attendanceHistoryTruncated &&
+            historicalCalculationData != null &&
+            attendanceHistoryQueryKey == "$start|$end|${employeeId?.trim().orEmpty()}"
+
+    val calculationSchedules: List<WorkSchedule>
+        get() = (schedules + historicalCalculationData?.schedules.orEmpty())
+            .distinctBy { "${it.employeeId}|${it.date}" }
+    val calculationShifts: List<WorkShift>
+        get() = (shifts + historicalCalculationData?.shifts.orEmpty()).distinctBy { it.id }
+    val calculationLeaveRequests: List<LeaveRequest>
+        get() = (leaveRequests + historicalCalculationData?.leaveRequests.orEmpty()).distinctBy { it.id }
+    val calculationOvertimeRequests: List<OvertimeRequest>
+        get() = (overtimeRequests + historicalCalculationData?.overtimeRequests.orEmpty()).distinctBy { it.id }
+    val calculationAdjustments: List<AttendanceAdjustment>
+        get() = (attendanceAdjustments + historicalCalculationData?.adjustments.orEmpty()).distinctBy { it.id }
+    val calculationClassificationOverrides: List<AttendanceClassificationOverride>
+        get() = (attendanceClassificationOverrides + historicalCalculationData?.classificationOverrides.orEmpty())
+            .distinctBy { it.id }
+    val calculationOffScheduleReviews: List<OffScheduleAttendanceReview>
+        get() = (offScheduleAttendanceReviews + historicalCalculationData?.offScheduleReviews.orEmpty())
+            .distinctBy { it.id }
+    val calculationEmployeeSchedules: List<WorkSchedule>
+        get() = (employeeSchedules + historicalCalculationData?.schedules.orEmpty()
+            .filter { it.employeeId == currentEmployee?.id }).distinctBy { "${it.employeeId}|${it.date}" }
+    val calculationEmployeeLeaveRequests: List<LeaveRequest>
+        get() = (employeeRequests + historicalCalculationData?.leaveRequests.orEmpty()
+            .filter { it.employeeId == currentEmployee?.id }).distinctBy { it.id }
+    val calculationEmployeeOvertimeRequests: List<OvertimeRequest>
+        get() = (employeeOvertimeRequests + historicalCalculationData?.overtimeRequests.orEmpty()
+            .filter { it.employeeId == currentEmployee?.id }).distinctBy { it.id }
+
     val operationalEmployees: List<Employee>
         get() = employees.filter { it.visibleOutsideRetiredList() }
 
     fun historicalEmployees(month: YearMonth): List<Employee> =
         employees.filter { it.visibleOutsideRetiredList(month) }
 
-    private val attendanceSelectedRange: AttendanceDateRange?
+    internal val attendanceSelectedRange: AttendanceDateRange?
         get() {
             val zone = ZoneId.of("Asia/Ho_Chi_Minh")
             val today = LocalDate.now(zone)
@@ -126,10 +161,10 @@ data class MainUiState(
         get() = attendanceSelectedRange?.let { historicalEmployees(YearMonth.from(it.start)) } ?: operationalEmployees
 
     val effectiveSchedules: List<WorkSchedule>
-        get() = applyApprovedOffScheduleReviewsToSchedules(schedules, offScheduleAttendanceReviews, shifts)
+        get() = applyApprovedOffScheduleReviewsToSchedules(calculationSchedules, calculationOffScheduleReviews, calculationShifts)
 
     val effectiveEmployeeSchedules: List<WorkSchedule>
-        get() = applyApprovedOffScheduleReviewsToSchedules(employeeSchedules, offScheduleAttendanceReviews, shifts)
+        get() = applyApprovedOffScheduleReviewsToSchedules(calculationEmployeeSchedules, calculationOffScheduleReviews, calculationShifts)
 
     private val hiddenRetiredEmployeeIds: Set<String>
         get() = employees.filterNot { it.visibleOutsideRetiredList() }.mapTo(mutableSetOf()) { it.id }
@@ -159,11 +194,11 @@ data class MainUiState(
     /** Effective rows are derived locally in Spark mode; Firestore raw scans stay immutable. */
     val sparkResolvedAttendance: List<Attendance>
         get() = resolveSparkPendingAttendance(
-            applyAttendanceClassificationOverrides(allAttendance, attendanceClassificationOverrides),
-            schedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh"), overtimeRequests, offScheduleAttendanceReviews
+            applyAttendanceClassificationOverrides(allAttendance, calculationClassificationOverrides),
+            calculationSchedules, calculationShifts, ZoneId.of("Asia/Ho_Chi_Minh"), calculationOvertimeRequests, calculationOffScheduleReviews
         )
     private val allEmployeeAttendance: List<Attendance>
-        get() = (employeeAttendance + employeeAttendanceHistory)
+        get() = (employeeAttendance + employeeAttendanceHistory + historicalAttendance.filter { it.employeeId == currentEmployee?.id })
             .distinctBy { row ->
                 row.id.ifBlank {
                     "${row.employeeId}|${row.timestamp.seconds}|${row.timestamp.nanoseconds}|${row.type}"
@@ -171,21 +206,21 @@ data class MainUiState(
             }
     val employeeSparkResolvedAttendance: List<Attendance>
         get() = resolveSparkPendingAttendance(
-            applyAttendanceClassificationOverrides(allEmployeeAttendance, attendanceClassificationOverrides),
-            employeeSchedules, shifts, ZoneId.of("Asia/Ho_Chi_Minh"), employeeOvertimeRequests,
-            offScheduleAttendanceReviews
+            applyAttendanceClassificationOverrides(allEmployeeAttendance, calculationClassificationOverrides),
+            calculationEmployeeSchedules, calculationShifts, ZoneId.of("Asia/Ho_Chi_Minh"), calculationEmployeeOvertimeRequests,
+            calculationOffScheduleReviews
         )
     val employeeAttendanceForSummaries: List<Attendance>
         get() = applyOffScheduleReviewDecisions(
-            applyAttendanceClassificationOverrides(employeeSparkResolvedAttendance, attendanceClassificationOverrides),
-            offScheduleAttendanceReviews, ZoneId.of("Asia/Ho_Chi_Minh"), shifts
+            applyAttendanceClassificationOverrides(employeeSparkResolvedAttendance, calculationClassificationOverrides),
+            calculationOffScheduleReviews, ZoneId.of("Asia/Ho_Chi_Minh"), calculationShifts
         )
             .filterNot { it.type == "DISCARDED" }
     val historicalAttendanceForSummaries: List<Attendance>
         get() = applyOffScheduleReviewDecisions(
-            applyAttendanceClassificationOverrides(sparkResolvedAttendance, attendanceClassificationOverrides),
-            offScheduleAttendanceReviews,
-            ZoneId.of("Asia/Ho_Chi_Minh"), shifts
+            applyAttendanceClassificationOverrides(sparkResolvedAttendance, calculationClassificationOverrides),
+            calculationOffScheduleReviews,
+            ZoneId.of("Asia/Ho_Chi_Minh"), calculationShifts
         ).filter { it.type != "DISCARDED" }
 
     val attendanceForSummaries: List<Attendance>
@@ -194,18 +229,20 @@ data class MainUiState(
     // Derived on every state snapshot, including schedule, shift and adjustment emissions.
     val dashboard: DashboardSummary
         get() = summarizeDashboard(operationalEmployees, attendanceForSummaries, selectedWeekStart,
-            schedules = effectiveSchedules, shifts = shifts, adjustments = attendanceAdjustments)
+            schedules = effectiveSchedules, shifts = calculationShifts, adjustments = calculationAdjustments,
+            requests = calculationLeaveRequests)
 
     val dailyDashboard: DailyDashboardSummary
         get() = summarizeDailyDashboard(
             employees = operationalEmployees,
             attendance = attendanceForSummaries,
             schedules = effectiveSchedules,
-            shifts = shifts,
-            requests = leaveRequests,
-            adjustments = attendanceAdjustments,
+            shifts = calculationShifts,
+            requests = calculationLeaveRequests,
+            adjustments = calculationAdjustments,
             date = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")),
-            zoneId = ZoneId.of("Asia/Ho_Chi_Minh")
+            zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
+            overtimeRequests = calculationOvertimeRequests
         )
 
     val visibleEmployees: List<Employee>
@@ -222,10 +259,10 @@ data class MainUiState(
             // instead of exposing the raw SCAN/PENDING device event.
             val resolvedAttendance = historicalAttendanceForSummaries.filter { it.employeeId in byEmployee }
             val rangedAttendance = selectedRange?.let {
-                filterAttendanceByDateRange(resolvedAttendance, it, effectiveSchedules, shifts, zone)
+                filterAttendanceByDateRange(resolvedAttendance, it, effectiveSchedules, calculationShifts, zone)
             } ?: resolvedAttendance
             return filterAttendance(rangedAttendance, attendanceStatusFilter, attendanceTypeFilter,
-                effectiveSchedules, shifts, attendanceAdjustments)
+                effectiveSchedules, calculationShifts, calculationAdjustments, leaveRequests = calculationLeaveRequests)
                 .filter { row -> attendanceEmployeeFilter.isNullOrBlank() || row.employeeId == attendanceEmployeeFilter }
                 .filter { row -> attendanceDepartmentFilter.isNullOrBlank() || byEmployee[row.employeeId]?.department == attendanceDepartmentFilter }
         }
@@ -239,12 +276,12 @@ data class MainUiState(
         get() = classifyPresenceForEmployees(
             employees = operationalEmployees,
             attendance = attendanceForSummaries,
-            requests = leaveRequests,
+            requests = calculationLeaveRequests,
             date = selectedPresenceDate,
             zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
-            adjustments = attendanceAdjustments,
+            adjustments = calculationAdjustments,
             schedules = effectiveSchedules,
-            shifts = shifts
+            shifts = calculationShifts
         )
 
     val weeklyWorkSummary: WeeklyWorkSummary
@@ -252,11 +289,11 @@ data class MainUiState(
             employees = operationalEmployees,
             attendance = attendanceForSummaries,
             schedules = effectiveSchedules,
-            shifts = shifts.associateBy { it.id },
-            approvedRequests = leaveRequests,
+            shifts = calculationShifts.associateBy { it.id },
+            approvedRequests = calculationLeaveRequests,
             weekStart = selectedWeekStart,
             zoneId = ZoneId.of("Asia/Ho_Chi_Minh"),
-            adjustments = attendanceAdjustments,
-            overtimeRequests = (overtimeRequests + employeeOvertimeRequests).distinctBy { it.id }
+            adjustments = calculationAdjustments,
+            overtimeRequests = (calculationOvertimeRequests + calculationEmployeeOvertimeRequests).distinctBy { it.id }
         )
 }

@@ -3,13 +3,11 @@ package vn.chamcong.iot.domain
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.EmployeeShiftSummary
+import vn.chamcong.iot.model.LeaveRequest
 import vn.chamcong.iot.model.OvertimeRequest
-import vn.chamcong.iot.model.OvertimeRequestStatus
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
-import vn.chamcong.iot.model.WorkTimeSummary
-import vn.chamcong.iot.model.workedHoursForMonth
-import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import kotlin.math.roundToLong
@@ -37,32 +35,31 @@ fun calculateMonthlyKpiBonuses(
     shifts: List<WorkShift>,
     overtimeRequests: List<OvertimeRequest>,
     adjustments: List<AttendanceAdjustment>,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    leaveRequests: List<LeaveRequest> = emptyList()
 ): Map<String, KpiBonusBreakdown> {
-    val mainAttendance = attendance.filter { it.shiftId != SUPPLEMENTARY_SHIFT_ID }
-    val mainSchedules = schedules.filter { schedule ->
-        scheduledShiftIds(schedule).any { it != SUPPLEMENTARY_SHIFT_ID }
-    }
     val base = employees.associate { employee ->
-        val completedOvertime = completedOvertimeSummaries(
-            employee.id, month, attendance, overtimeRequests, zoneId
-        )
-        val lateCount = employeeMonthSummaries(
+        val summaries = employeeMonthSummaries(
             employee.id,
             month.atDay(1),
-            mainAttendance,
-            mainSchedules,
+            attendance,
+            schedules,
             shifts,
             emptySet(),
             zoneId,
-            adjustments
-        ).count { summary ->
+            adjustments,
+            overtimeRequests = overtimeRequests,
+            leaveRequests = leaveRequests
+        )
+        val completedOvertime = summaries.flatMap { it.shiftSummaries }
+            .filter { it.shiftId == SUPPLEMENTARY_SHIFT_ID }
+        val lateCount = summaries.count { summary ->
             // Lateness depends on the adjusted check-in, even when checkout is missing.
             summary.lateMinutes > 0
         }
         employee.id to KpiBonusBreakdown(
             overtimeShiftCount = completedOvertime.size,
-            overtimeHours = completedOvertime.values.sumOf { it.overtimeHours },
+            overtimeHours = completedOvertime.sumOf(EmployeeShiftSummary::overtimeHours),
             lateCount = lateCount
         )
     }
@@ -103,42 +100,12 @@ fun payrollHoursForMonth(
     shifts: List<WorkShift>,
     overtimeRequests: List<OvertimeRequest>,
     adjustments: List<AttendanceAdjustment>,
-    zoneId: ZoneId
+    zoneId: ZoneId,
+    leaveRequests: List<LeaveRequest> = emptyList()
 ): Double {
-    if (overtimeRequests.isEmpty()) {
-        return workedHoursForMonth(attendance, employeeId, month, zoneId, schedules, shifts, adjustments)
-    }
-    val regularHours = workedHoursForMonth(
-        attendance.filter { it.shiftId != SUPPLEMENTARY_SHIFT_ID },
-        employeeId,
-        month,
-        zoneId,
-        schedules.filter { schedule -> scheduledShiftIds(schedule).any { it != SUPPLEMENTARY_SHIFT_ID } },
-        shifts,
-        adjustments
-    )
-    val overtimeHours = completedOvertimeSummaries(
-        employeeId, month, attendance, overtimeRequests, zoneId
-    ).values.sumOf { it.overtimeHours }
-    return ((regularHours + overtimeHours) * 100).roundToLong() / 100.0
-}
-
-private fun completedOvertimeSummaries(
-    employeeId: String,
-    month: YearMonth,
-    attendance: List<Attendance>,
-    overtimeRequests: List<OvertimeRequest>,
-    zoneId: ZoneId
-): Map<LocalDate, WorkTimeSummary> {
-    return overtimeRequests.asSequence()
-        .filter { it.employeeId == employeeId && it.status == OvertimeRequestStatus.APPROVED.name }
-        .filter { runCatching { validateOvertimeRequest(it) }.isSuccess }
-        .mapNotNull { request ->
-            val date = runCatching { LocalDate.parse(request.workDate) }.getOrNull() ?: return@mapNotNull null
-            if (YearMonth.from(date) != month) return@mapNotNull null
-            val summary = approvedOvertimeSummary(employeeId, date, attendance, request, zoneId)
-                ?.takeIf { it.overtimeHours > 0.0 } ?: return@mapNotNull null
-            date to summary
-        }
-        .toMap()
+    val hours = employeeMonthSummaries(
+        employeeId, month.atDay(1), attendance, schedules, shifts, emptySet(), zoneId,
+        adjustments, overtimeRequests = overtimeRequests, leaveRequests = leaveRequests
+    ).sumOf { daily -> daily.workedHours + daily.overtimeHours }
+    return (hours * 100).roundToLong() / 100.0
 }

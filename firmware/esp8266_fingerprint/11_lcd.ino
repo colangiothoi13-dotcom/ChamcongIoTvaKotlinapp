@@ -5,6 +5,11 @@
 const uint8_t LCD_ADDRESS = 0x27;  // Doi thanh 0x3F neu module dung dia chi nay
 LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
 bool fingerprintDoorNoticeActive = false;
+bool fingerprintDoorNoticeOffline = false;
+bool fingerprintDoorNoticeAttendanceSaved = true;
+const unsigned long FINGERPRINT_RESULT_HOLD_MS = 1000;
+bool fingerprintResultNoticeActive = false;
+unsigned long fingerprintResultNoticeStartedAt = 0;
 
 void initializeLcd() {
   Wire.begin(LCD_SDA_PIN, LCD_SCL_PIN);
@@ -97,8 +102,29 @@ void renderLcd(const String& firstLine, const String& secondLine) {
 
 void showLcd(const String& firstLine, const String& secondLine) {
   fingerprintDoorNoticeActive = false;
+  fingerprintDoorNoticeOffline = false;
+  fingerprintDoorNoticeAttendanceSaved = true;
+  fingerprintResultNoticeActive = false;
   lcdIdleMode = false;
   renderLcd(firstLine, secondLine);
+}
+
+bool fingerprintResultHoldActive() {
+  return fingerprintResultNoticeActive &&
+      !elapsedAtLeast(millis(), fingerprintResultNoticeStartedAt, FINGERPRINT_RESULT_HOLD_MS);
+}
+
+void showFingerprintResultNotice(const String& firstLine, const String& secondLine) {
+  showLcd(firstLine, secondLine);
+  fingerprintResultNoticeStartedAt = millis();
+  fingerprintResultNoticeActive = true;
+}
+
+void serviceFingerprintResultNotice() {
+  if (!fingerprintResultNoticeActive || fingerprintResultHoldActive()) return;
+  fingerprintResultNoticeActive = false;
+  if (!waitingForFingerRemoval && !doorNeedsResponsiveLoop() &&
+      !pendingCommandExecution && !pendingCommandResult) showReadyScreen();
 }
 
 void showSensorReconnectScreen() {
@@ -130,7 +156,7 @@ void showIdleScreen() {
   int pendingCount = attendancePendingCount();
   String secondLine = attendanceOutboxIsFull()
       ? "HANG DOI DAY"
-      : (pendingCount > 0 ? String("CHO SYNC: ") + pendingCount : "DAT NGON TAY...");
+      : (pendingCount > 0 ? String("CHO DONG BO: ") + pendingCount : "DAT NGON TAY...");
   if (hasValidClock()) {
     renderLcd(vietnamTimeText(), secondLine);
   } else {
@@ -140,7 +166,14 @@ void showIdleScreen() {
 }
 
 void showReadyScreen() {
+  if (fingerprintResultHoldActive()) return;
   fingerprintDoorNoticeActive = false;
+  // Removing the finger must not replace the current confirmation screen with
+  // the background queue count before this scan is confirmed or times out.
+  if (!foregroundAttendanceHandled) {
+    showLcd(foregroundAttendanceEmployeeName, "DANG XU LY");
+    return;
+  }
   if (sensorReady) showIdleScreen();
   else showSensorReconnectScreen();
 }
@@ -155,7 +188,7 @@ void maybeUpdateIdleClock() {
   int pendingCount = attendancePendingCount();
   String secondLine = attendanceOutboxIsFull()
       ? "HANG DOI DAY"
-      : (pendingCount > 0 ? String("CHO SYNC: ") + pendingCount : "DAT NGON TAY...");
+      : (pendingCount > 0 ? String("CHO DONG BO: ") + pendingCount : "DAT NGON TAY...");
   if (hasValidClock()) {
     renderLcd(vietnamTimeText(), secondLine);
   } else {

@@ -228,8 +228,10 @@ fun summarizeWeeklyWork(
     val monday = mondayOfWeek(weekStart)
     val dates = weekDates(monday)
     val activeEmployees = employees.filter(Employee::active)
+    val knownShifts = shifts.map { (id, shift) -> shift.copy(id = id) }
+    val knownShiftsById = knownShifts.associateBy(WorkShift::id)
     val scheduleByKey = schedules.associateBy { "${it.employeeId}_${it.date}" }
-    val attendanceByEmployee = assignAttendanceScheduleDates(attendance, schedules, shifts.values.toList(), zoneId)
+    val attendanceByEmployee = assignAttendanceScheduleDates(attendance, schedules, knownShifts, zoneId)
         .groupBy(Attendance::employeeId)
     var totalWorkedSeconds = 0L
     var totalOvertimeSeconds = 0L
@@ -250,7 +252,7 @@ fun summarizeWeeklyWork(
         dates.mapNotNull { date ->
             val key = "${employee.id}_$date"
             val schedule = scheduleByKey[key] ?: return@mapNotNull null
-            key.takeIf { approvedLeaveShiftIdsForDate(employee.id, date, schedule, shifts.values.toList(), approvedRequests).isNotEmpty() }
+            key.takeIf { approvedLeaveShiftIdsForDate(employee.id, date, schedule, knownShifts, approvedRequests).isNotEmpty() }
         }
     }.toSet()
 
@@ -258,103 +260,31 @@ fun summarizeWeeklyWork(
         dates.forEach { date ->
             val key = "${employee.id}_$date"
             val schedule = scheduleByKey[key]
-            val approvedOvertimeSeconds = overtimeRequests.sumOf { request ->
-                approvedOvertimeSummary(employee.id, date, attendance, request, zoneId)?.overtimeSeconds ?: 0L
-            }
-            totalOvertimeSeconds += approvedOvertimeSeconds
             val adjustment = latestAdjustment(adjustments, employee.id, date)
-            val scheduleShifts = schedule?.let { scheduledShifts(it, shifts) }.orEmpty()
-            val leaveShiftIds = approvedLeaveShiftIdsForDate(employee.id, date, schedule, shifts.values.toList(), approvedRequests)
+            val scheduleShifts = schedule?.let { scheduledShifts(it, knownShiftsById) }.orEmpty()
+            val leaveShiftIds = approvedLeaveShiftIdsForDate(employee.id, date, schedule, knownShifts, approvedRequests)
             val fullDayLegacyLeave = key in legacyApprovedLeaveKeys
-            if (schedule != null && scheduleShifts.size > 1) {
-                val daily = employeeDaySummaryForSchedule(
-                    employeeId = employee.id,
-                    date = date,
-                    attendance = attendanceByEmployee[employee.id].orEmpty(),
-                    schedule = schedule,
-                    shifts = scheduleShifts,
-                    approvedLeave = fullDayLegacyLeave,
-                    zoneId = zoneId,
-                    adjustments = adjustments,
-                    approvedLeaveShiftIds = leaveShiftIds
-                )
-                val workedHoursOverride = if (fullDayLegacyLeave || leaveShiftIds.isNotEmpty()) null
-                    else adjustment?.workedHoursOverride ?: schedule.workedHoursOverride
-                if (workedHoursOverride != null) {
-                    val overrideSeconds = (workedHoursOverride * 3600).roundToLong()
-                    if (overrideSeconds > 0) {
-                        workdays++
-                        totalWorkedSeconds += overrideSeconds
-                        dailyHours[date] = (dailyHours[date] ?: 0.0) + roundHours(overrideSeconds)
-                    }
-                    return@forEach
-                }
-                if (daily.status != vn.chamcong.iot.model.EmployeeAttendanceStatus.LEAVE &&
-                    (daily.checkIn == null || daily.checkOut == null ||
-                        daily.status == vn.chamcong.iot.model.EmployeeAttendanceStatus.MISSING_CHECK_IN ||
-                        daily.status == vn.chamcong.iot.model.EmployeeAttendanceStatus.MISSING_CHECK_OUT)
-                ) {
-                    unauthorizedAbsenceDays++
-                }
-                val workedSeconds = daily.workedSeconds
-                totalOvertimeSeconds += daily.overtimeSeconds
-                if (daily.lateMinutes > 0) lateCount++
-                if (daily.earlyLeaveMinutes > 0) earlyLeaveCount++
-                if (workedSeconds > 0) {
-                    workdays++
-                    totalWorkedSeconds += workedSeconds
-                    dailyHours[date] = (dailyHours[date] ?: 0.0) + roundHours(workedSeconds)
-                }
-                return@forEach
-            }
-            if (schedule != null && (fullDayLegacyLeave || scheduleShifts.firstOrNull()?.id?.let(leaveShiftIds::contains) == true)) {
-                return@forEach
-            }
-            val rawPair = resolveAttendancePair(
-                rows = attendanceByEmployee[employee.id].orEmpty(),
-                scheduleDate = date,
-                shift = scheduleShifts.firstOrNull(),
-                adjustments = adjustments,
-                zoneId = zoneId
+            val daily = employeeDaySummaryWithRequests(
+                employee.id, date, attendanceByEmployee[employee.id].orEmpty(), schedule,
+                knownShifts, fullDayLegacyLeave, zoneId, adjustments,
+                approvedLeaveShiftIds = leaveShiftIds, overtimeRequests = overtimeRequests
             )
-            // An employee can have an adjustment before their first raw scan exists.
-            val pair = rawPair.copy(
-                checkIn = adjustment?.checkInAt ?: rawPair.checkIn,
-                checkOut = adjustment?.checkOutAt ?: rawPair.checkOut,
-                adjustment = adjustment
-            )
-            val workedHoursOverride = adjustment?.workedHoursOverride ?: schedule?.workedHoursOverride
+            val workedHoursOverride = if (fullDayLegacyLeave || leaveShiftIds.isNotEmpty()) null
+                else adjustment?.workedHoursOverride ?: schedule?.workedHoursOverride
             validateWorkedHoursOverride(workedHoursOverride)
-            if (workedHoursOverride != null) {
-                val overrideSeconds = (workedHoursOverride * 3600).roundToLong()
-                if (overrideSeconds > 0) {
-                    workdays++
-                    totalWorkedSeconds += overrideSeconds
-                    dailyHours[date] = (dailyHours[date] ?: 0.0) + roundHours(overrideSeconds)
-                }
-                return@forEach
-            }
-            if (pair.checkIn == null || pair.checkOut == null) {
-                if (schedule != null) unauthorizedAbsenceDays++
-                return@forEach
-            }
-            var dayWorkedSeconds = 0L
-            val summary = calculateWorkTime(
-                checkIn = pair.checkIn,
-                checkOut = pair.checkOut,
-                shift = scheduleShifts.firstOrNull(),
-                overtimeHours = schedule?.overtimeHours ?: 0,
-                zoneId = zoneId,
-                scheduleDate = pair.scheduleDate
-            )
-            dayWorkedSeconds += summary.workedSeconds
-            totalOvertimeSeconds += summary.overtimeSeconds
-            if (summary.lateMinutes > 0) lateCount++
-            if (summary.earlyLeaveMinutes > 0) earlyLeaveCount++
-            if (dayWorkedSeconds > 0) {
+            val hasWorkingMainShift = scheduleShifts.any { it.id != SUPPLEMENTARY_SHIFT_ID && it.id !in leaveShiftIds }
+            if (workedHoursOverride == null && !fullDayLegacyLeave && hasWorkingMainShift &&
+                (daily.checkIn == null || daily.checkOut == null ||
+                    daily.status == vn.chamcong.iot.model.EmployeeAttendanceStatus.MISSING_CHECK_IN ||
+                    daily.status == vn.chamcong.iot.model.EmployeeAttendanceStatus.MISSING_CHECK_OUT)
+            ) unauthorizedAbsenceDays++
+            totalOvertimeSeconds += daily.overtimeSeconds
+            if (daily.lateMinutes > 0) lateCount++
+            if (daily.earlyLeaveMinutes > 0) earlyLeaveCount++
+            if (daily.workedSeconds > 0) {
                 workdays++
-                totalWorkedSeconds += dayWorkedSeconds
-                dailyHours[date] = (dailyHours[date] ?: 0.0) + roundHours(dayWorkedSeconds)
+                totalWorkedSeconds += daily.workedSeconds
+                dailyHours[date] = (dailyHours[date] ?: 0.0) + daily.workedHours
             }
         }
     }
@@ -418,4 +348,4 @@ private fun breakOverlapSeconds(
     return if (overlapEnd.isAfter(overlapStart)) Duration.between(overlapStart, overlapEnd).seconds else 0L
 }
 
-private fun roundHours(seconds: Long): Double = (seconds / 3600.0 * 100).roundToLong() / 100.0
+internal fun roundHours(seconds: Long): Double = (seconds / 3600.0 * 100).roundToLong() / 100.0

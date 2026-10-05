@@ -18,6 +18,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,17 +30,25 @@ import vn.chamcong.iot.model.PresenceRecord
 import vn.chamcong.iot.model.PresenceStatus
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.loadAttendanceRange
+import vn.chamcong.iot.ui.CalculationLoadingNotice
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.util.Locale
 
 @Composable
 fun PresenceScreen(state: MainUiState, vm: MainViewModel) {
+    val inPreview = LocalInspectionMode.current
+    val date = state.selectedPresenceDate
+    LaunchedEffect(date) {
+        if (!inPreview) vm.loadAttendanceRange(date, date, force = true)
+    }
     var selected by remember { mutableStateOf<PresenceStatus?>(null) }
-    val records = state.presenceRecords
+    val records = if (inPreview || state.hasCompleteCalculationRange(date, date)) state.presenceRecords else emptyList()
     val visible = records.filter { selected == null || it.status == selected }
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Theo dõi trạng thái có mặt", style = MaterialTheme.typography.titleLarge)
+        CalculationLoadingNotice(state, vm)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = { vm.selectPresenceDate(state.selectedPresenceDate.minusDays(1)) }) { Text("‹ Ngày trước") }
             Text(state.selectedPresenceDate.toString(), modifier = Modifier.padding(top = AppSpacing.medium))

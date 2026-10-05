@@ -35,6 +35,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,8 @@ import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.isOnline
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.loadAttendanceRange
+import vn.chamcong.iot.ui.CalculationLoadingNotice
 import vn.chamcong.iot.ui.AppDestination
 import vn.chamcong.iot.ui.attendanceStatusLabel
 import java.text.SimpleDateFormat
@@ -53,6 +57,10 @@ import java.util.Locale
 
 @Composable
 fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDestination) -> Unit) {
+    val inPreview = LocalInspectionMode.current
+    LaunchedEffect(state.selectedWeekStart) {
+        if (!inPreview) vm.loadAttendanceRange(state.selectedWeekStart, state.selectedWeekStart.plusDays(6), force = true)
+    }
     val summary = state.dashboard
     val daily = state.dailyDashboard
     val maxDailyCount = summary.weeklyAttendance.maxOfOrNull { it.count }?.coerceAtLeast(1) ?: 1
@@ -61,6 +69,7 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDesti
         verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
+            CalculationLoadingNotice(state, vm)
             Text("Tổng quan hệ thống", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text("Theo dõi nhân sự và chấm công trong ngày", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Hôm nay · ${daily.date}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)

@@ -19,6 +19,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.ui.AttendanceList
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.CalculationLoadingNotice
+import vn.chamcong.iot.ui.loadAttendanceRange
 import com.google.firebase.Timestamp
 import java.time.LocalDate
 import java.util.Date
@@ -38,6 +42,14 @@ import vn.chamcong.iot.model.Attendance
 
 @Composable
 fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
+    val range = state.attendanceSelectedRange
+    val inPreview = LocalInspectionMode.current
+    val employeeId = state.attendanceEmployeeFilter
+    LaunchedEffect(range, employeeId) {
+        if (!inPreview) range?.let { vm.loadAttendanceRange(it.start, it.endInclusive, employeeId, force = true) }
+    }
+    val ready = range == null || state.hasCompleteCalculationRange(range.start, range.endInclusive, employeeId)
+    val visibleRows = if (ready) state.visibleAttendance else emptyList()
     var target by remember { mutableStateOf<AttendanceAdjustmentTarget?>(null) }
     var scanReview by remember { mutableStateOf<Pair<Attendance, Attendance>?>(null) }
     var offScheduleTarget by remember { mutableStateOf<Attendance?>(null) }
@@ -122,11 +134,12 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 )
             }
         }
-        val rejectedReviewTargets = state.offScheduleAttendanceReviews
+        if (range != null) CalculationLoadingNotice(state, vm)
+        val rejectedReviewTargets = state.calculationOffScheduleReviews
             .filter { it.decision == "REJECT" && it.status in setOf("PENDING", "REJECTED") }
             .map { "${it.employeeId}|${it.scheduleDate}|${it.shiftId}" }
             .toSet()
-        val unresolvedReviews = state.offScheduleAttendanceReviews.filter { review ->
+        val unresolvedReviews = state.calculationOffScheduleReviews.filter { review ->
             val targetKey = "${review.employeeId}|${review.scheduleDate}|${review.shiftId}"
             val alreadyRejected = targetKey in rejectedReviewTargets
             !alreadyRejected && (review.status == "FAILED" ||
@@ -149,13 +162,13 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
                 }
             }
         }
-        Text("${state.visibleAttendance.size} lượt chấm", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = AppSpacing.xSmall))
+        Text("${visibleRows.size} lượt chấm", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = AppSpacing.xSmall))
     }
-    AttendanceList(state.visibleAttendance, Modifier.fillMaxSize(),
+    AttendanceList(visibleRows, Modifier.fillMaxSize(),
         adjustmentEnabled = !state.saving,
         scanReviewIds = (state.attendance + state.historicalAttendance)
             .filter { it.type == "SCAN" && it.resolutionStatus == "PENDING" }
-            .map { it.id }.toSet() - state.attendanceClassificationOverrides.map { it.attendanceId }.toSet(),
+            .map { it.id }.toSet() - state.calculationClassificationOverrides.map { it.attendanceId }.toSet(),
         onAdjust = if (vm.hasAdminAccess()) { row ->
             vm.clearError()
             target = attendanceAdjustmentTarget(row, state)
@@ -188,7 +201,7 @@ fun AttendanceScreen(state: MainUiState, vm: MainViewModel) {
         OffScheduleReviewDialog(
             row = selected,
             attendance = state.historicalAttendanceForSummaries,
-            shifts = state.shifts,
+            shifts = state.calculationShifts,
             busy = state.saving,
             error = state.error,
             onDismiss = { if (!state.saving) offScheduleTarget = null },
@@ -256,12 +269,12 @@ internal fun attendanceAdjustmentTarget(row: Attendance, state: MainUiState): At
     val date = attendanceAdjustmentDate(row)?.let(LocalDate::parse) ?: return null
     if (row.employeeId.isBlank()) return null
     val schedule = state.effectiveSchedules.firstOrNull { it.employeeId == row.employeeId && it.date == date.toString() }
-    val shift = state.shifts.firstOrNull { it.id == (row.shiftId ?: schedule?.shiftId) }
+    val shift = state.calculationShifts.firstOrNull { it.id == (row.shiftId ?: schedule?.shiftId) }
     val summary = employeeDaySummary(
         employeeId = row.employeeId, date = date,
-        attendance = assignAttendanceScheduleDates(state.historicalAttendanceForSummaries, state.effectiveSchedules, state.shifts, attendanceZone),
+        attendance = assignAttendanceScheduleDates(state.historicalAttendanceForSummaries, state.effectiveSchedules, state.calculationShifts, attendanceZone),
         schedule = schedule, shift = shift, approvedLeave = false, zoneId = attendanceZone,
-        adjustments = state.attendanceAdjustments
+        adjustments = state.calculationAdjustments
     )
     return AttendanceAdjustmentTarget(
         employeeId = row.employeeId,

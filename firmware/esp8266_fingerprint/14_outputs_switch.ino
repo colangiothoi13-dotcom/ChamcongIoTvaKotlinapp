@@ -1,6 +1,8 @@
 // Còi, LED báo trạng thái, và công tắc mở cửa.
 
 const unsigned long DOOR_SWITCH_DEBOUNCE_MS = 50;
+unsigned long outputEffectStartedAt = 0;
+unsigned long outputEffectDurationMs = 0;
 
 void initializeOutputsAndSwitch() {
   pinMode(LED_GREEN_PIN, OUTPUT);
@@ -24,28 +26,36 @@ void setLed(uint8_t pin, bool enabled) {
 }
 
 void signalResult(bool ok) {
-  setLed(ok ? LED_GREEN_PIN : LED_RED_PIN, true);
-  playBuzzerTone(ok ? 1800 : 500, ok ? 160 : 500);
-  delay(ok ? 900 : 1300);
   setLed(LED_GREEN_PIN, false);
   setLed(LED_RED_PIN, false);
+  setLed(ok ? LED_GREEN_PIN : LED_RED_PIN, true);
+  playBuzzerTone(ok ? 1800 : 500, ok ? 160 : 500);
+  outputEffectStartedAt = millis();
+  outputEffectDurationMs = ok ? 900 : 1300;
+}
+
+void serviceOutputEffects() {
+  if (outputEffectDurationMs == 0 ||
+      !elapsedAtLeast(millis(), outputEffectStartedAt, outputEffectDurationMs)) return;
+  setLed(LED_GREEN_PIN, false);
+  setLed(LED_RED_PIN, false);
+  outputEffectDurationMs = 0;
 }
 
 void testGreenLed() {
   setLed(LED_GREEN_PIN, true);
-  delay(600);
-  setLed(LED_GREEN_PIN, false);
+  outputEffectStartedAt = millis();
+  outputEffectDurationMs = 600;
 }
 
 void testRedLed() {
   setLed(LED_RED_PIN, true);
-  delay(600);
-  setLed(LED_RED_PIN, false);
+  outputEffectStartedAt = millis();
+  outputEffectDurationMs = 600;
 }
 
 void testBuzzer() {
   playBuzzerTone(1500, 600);
-  delay(650);
 }
 
 void handleDoorSwitch() {
@@ -65,6 +75,6 @@ void handleDoorSwitch() {
     Serial.println("NUT CUA: da nhan, dang mo cua");
     showLcd("DA NHAN NUT CUA", "DANG MO CUA");
     openDoor();
-    showReadyScreen();
+    if (!pendingCommandExecution) showReadyScreen();
   }
 }

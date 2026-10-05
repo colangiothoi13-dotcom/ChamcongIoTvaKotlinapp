@@ -6,6 +6,7 @@ const vm = require("node:vm");
 test("overtime approval rules test reads each GET response body only once", async () => {
   const cases = new Map();
   const responses = [];
+  let submittedRequestId;
   vm.runInNewContext(fs.readFileSync(require.resolve("../../test/overtimeRequestRules.test.js"), "utf8"), {
     Buffer,
     process,
@@ -14,9 +15,18 @@ test("overtime approval rules test reads each GET response body only once", asyn
       return require(name);
     },
     async fetch(url, options) {
-      if (options.method !== "GET") return new Response("{}", { status: 200 });
+      if (options.method !== "GET") {
+        const writes = options.body ? JSON.parse(options.body).writes || [] : [];
+        const createdRequest = writes.find(write => write.update?.name.includes("/overtimeRequests/") &&
+          write.update.fields.employeeId && write.update.fields.workDate)?.update.fields;
+        if (createdRequest) {
+          submittedRequestId = `${createdRequest.employeeId.stringValue}_${createdRequest.workDate.stringValue}`;
+        }
+        return new Response("{}", { status: 200 });
+      }
+      assert.ok(submittedRequestId, "Capture the request created by the source-driven rules test");
       const fields = url.includes("/audit_logs/") ? {
-        targetId: { stringValue: "EMP001_2026-09-25" }, status: { stringValue: "APPROVED" },
+        targetId: { stringValue: submittedRequestId }, status: { stringValue: "APPROVED" },
         actorId: { stringValue: "rules-admin" }, createdAt: { timestampValue: "2026-09-25T00:00:00Z" }
       } : {
         status: { stringValue: "APPROVED" }, reviewerId: { stringValue: "rules-admin" },

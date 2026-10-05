@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.domain.KpiBonusBreakdown
@@ -75,6 +76,17 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
     var settings by remember { mutableStateOf<Employee?>(null) }
     var picker by remember { mutableStateOf(false) }
     val validMonth = Regex("[0-9]{4}-(0[1-9]|1[0-2])").matches(month)
+    val selectedPayrollMonth = month.takeIf { validMonth }?.let(YearMonth::parse)
+    val calculationReady = selectedPayrollMonth?.let {
+        state.hasCompleteCalculationRange(it.atDay(1), it.atEndOfMonth())
+    } == true
+    val inPreview = LocalInspectionMode.current
+    LaunchedEffect(selectedPayrollMonth) {
+        if (!inPreview) selectedPayrollMonth?.let {
+            vm.selectPayrollMonth(it)
+            vm.loadAttendanceRange(it.atDay(1), it.atEndOfMonth(), force = true)
+        }
+    }
     val monthEmployees = if (validMonth) state.historicalEmployees(YearMonth.parse(month)) else emptyList()
     val operationalIds = monthEmployees.mapTo(mutableSetOf()) { it.id }
     val rows = state.payroll.filter { it.month == month && it.employeeId in operationalIds }
@@ -83,6 +95,16 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         OutlinedTextField(month, { month = it }, label = { Text("Tháng lương (yyyy-MM)") }, singleLine = true, isError = !validMonth)
         Text("Thực lĩnh = (lương cơ bản/giờ × số giờ làm) + thưởng − khấu trừ.", style = MaterialTheme.typography.bodySmall)
+        if (state.attendanceHistoryLoading) {
+            Text("Đang tải lịch, lượt quét, nghỉ phép, tăng ca và điều chỉnh của tháng...", style = MaterialTheme.typography.bodySmall)
+        }
+        state.attendanceHistoryError?.let {
+            Text(it, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = vm::retryAttendanceRange) { Text("Thử lại") }
+        }
+        if (state.attendanceHistoryTruncated) {
+            Text("Dữ liệu tháng chưa đầy đủ nên chưa thể lưu lương.", color = MaterialTheme.colorScheme.error)
+        }
         Button({ vm.clearError(); picker = true }, enabled = validMonth && !state.saving) { Text("Lập phiếu lương / thiết lập lương") }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             if (rows.isEmpty()) item { Text("Chưa có phiếu lương đã lưu trong tháng này") }
@@ -135,17 +157,19 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
     selected?.let { e ->
         val selectedMonth = YearMonth.parse(month)
         val breakdown = vm.kpiBonusBreakdowns(selectedMonth)[e.id] ?: KpiBonusBreakdown()
+        val overtimeHours = vm.employeeMonthSummaries(e.id, selectedMonth).sumOf { it.overtimeHours }
         val calculatedHours = payrollHoursForMonth(
             employeeId = e.id,
             month = selectedMonth,
             attendance = state.historicalAttendanceForSummaries,
             schedules = state.effectiveSchedules,
-            shifts = state.shifts,
-            overtimeRequests = state.overtimeRequests,
-            adjustments = state.attendanceAdjustments,
-            zoneId = PayrollZone
+            shifts = state.calculationShifts,
+            overtimeRequests = state.calculationOvertimeRequests,
+            adjustments = state.calculationAdjustments,
+            zoneId = PayrollZone,
+            leaveRequests = state.calculationLeaveRequests
         )
-        val regularHours = (calculatedHours - breakdown.overtimeHours).coerceAtLeast(0.0)
+        val regularHours = (calculatedHours - overtimeHours).coerceAtLeast(0.0)
         val hours = calculatedHours
         var deduction by remember(e.id, month) { mutableStateOf("0") }
         val current = state.employees.firstOrNull { it.id == e.id } ?: e
@@ -161,7 +185,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
                     Text("${current.code} • ${current.fullName}")
                     Text("Đơn giá lương cơ bản: ${money(current.baseSalary)}/giờ")
                     Text("Giờ ca chính: ${hoursText(regularHours)} giờ")
-                    Text("Giờ tăng ca: ${hoursText(breakdown.overtimeHours)} giờ • ${breakdown.overtimeShiftCount} ca")
+                    Text("Giờ tăng ca: ${hoursText(overtimeHours)} giờ • ${breakdown.overtimeShiftCount} ca bổ sung đã duyệt")
                     Text("Tổng giờ tính lương: ${hoursText(calculatedHours)} giờ")
                     Text("Đi muộn: ${breakdown.lateCount} lần")
                     Text("Top 3: ${breakdown.top3Rank?.let { "hạng $it • ${money(breakdown.top3Bonus)}" } ?: "không đủ điều kiện • ${money(breakdown.top3Bonus)}"}")
@@ -177,7 +201,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
             confirmButton = {
                 Button(
                     onClick = { vm.savePayroll(e.id, month, h, b, d!!) { selected = null } },
-                    enabled = !state.saving && h in 0.0..744.0 && b in 0..1000000000000L && d != null && d in 0..1000000000000L
+                    enabled = calculationReady && !state.saving && h in 0.0..744.0 && b in 0..1000000000000L && d != null && d in 0..1000000000000L
                 ) { Text("Lưu phiếu") }
             },
             dismissButton = { TextButton({ selected = null }, enabled = !state.saving) { Text("Hủy") } }

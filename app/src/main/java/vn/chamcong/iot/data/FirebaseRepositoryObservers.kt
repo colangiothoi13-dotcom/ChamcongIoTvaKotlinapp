@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.Instant
 import java.util.Date
@@ -46,10 +47,16 @@ fun FirebaseRepository.observeEmployeeAttendance(employeeId: String): Flow<List<
         }
     awaitClose { listener.remove() }
 }
-fun FirebaseRepository.observeEmployeeSchedules(employeeId: String): Flow<List<WorkSchedule>> = callbackFlow {
+fun FirebaseRepository.observeEmployeeSchedules(
+    employeeId: String,
+    startDate: LocalDate = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).withDayOfMonth(1).minusDays(1),
+    endDate: LocalDate = YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")).atEndOfMonth().plusDays(7)
+): Flow<List<WorkSchedule>> = callbackFlow {
     require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
     val listener = db.collection("workSchedules")
         .whereEqualTo("employeeId", employeeId)
+        .whereGreaterThanOrEqualTo("date", startDate.toString())
+        .whereLessThanOrEqualTo("date", endDate.toString())
         .addSnapshotListener { value, error ->
             if (error != null) close(error)
             else trySend(value?.documents.orEmpty()
@@ -106,8 +113,8 @@ fun FirebaseRepository.observeAllAttendance(): Flow<List<Attendance>> = callback
     }
     awaitClose { listener.remove() }
 }
-fun FirebaseRepository.observePayroll(): Flow<List<Payroll>> = callbackFlow {
-    val listener = db.collection("payroll").orderBy("month", Query.Direction.DESCENDING).addSnapshotListener { value, error ->
+fun FirebaseRepository.observePayroll(month: String = YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")).toString()): Flow<List<Payroll>> = callbackFlow {
+    val listener = db.collection("payroll").whereEqualTo("month", month).addSnapshotListener { value, error ->
         if (error != null) close(error)
         else trySend(value?.documents.orEmpty().mapNotNull { it.toObject(Payroll::class.java) })
     }
@@ -184,10 +191,14 @@ fun FirebaseRepository.observeDepartments(): Flow<List<Department>> = callbackFl
     awaitClose { listener.remove() }
 }
 
-fun FirebaseRepository.observeEmployeePayroll(employeeId: String): Flow<List<Payroll>> = callbackFlow {
+fun FirebaseRepository.observeEmployeePayroll(
+    employeeId: String,
+    month: String = YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")).toString()
+): Flow<List<Payroll>> = callbackFlow {
     require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
     val listener = db.collection("payroll")
         .whereEqualTo("employeeId", employeeId)
+        .whereEqualTo("month", month)
         .addSnapshotListener { value, error ->
             if (error != null) close(error)
             else trySend(value?.documents.orEmpty()
@@ -212,9 +223,14 @@ fun FirebaseRepository.observeShifts(): Flow<List<WorkShift>> = callbackFlow {
     awaitClose { listener.remove() }
 }
 
-// Admin calculation context spans arbitrary report/payroll periods and overnight boundaries.
-fun FirebaseRepository.observeSchedules(): Flow<List<WorkSchedule>> = callbackFlow {
+// The realtime shell is bounded; reports fetch their own server-verified context.
+fun FirebaseRepository.observeSchedules(
+    startDate: LocalDate = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).withDayOfMonth(1).minusDays(1),
+    endDate: LocalDate = YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh")).atEndOfMonth().plusDays(7)
+): Flow<List<WorkSchedule>> = callbackFlow {
     val listener = db.collection("workSchedules")
+        .whereGreaterThanOrEqualTo("date", startDate.toString())
+        .whereLessThanOrEqualTo("date", endDate.toString())
         .orderBy("date")
         .addSnapshotListener { value, error ->
             if (error != null) close(error)
@@ -255,8 +271,9 @@ fun FirebaseRepository.observeNotifications(): Flow<List<AppNotification>> = cal
     awaitClose { listener.remove() }
 }
 
-fun FirebaseRepository.observeWeeklyScheduleRequests(): Flow<List<WeeklyScheduleRequest>> = callbackFlow {
+fun FirebaseRepository.observeWeeklyScheduleRequests(weekStart: String? = null): Flow<List<WeeklyScheduleRequest>> = callbackFlow {
     val listener = db.collection("weeklyScheduleRequests")
+        .whereEqualTo("weekStart", weekStart ?: vn.chamcong.iot.domain.mondayOfWeek(LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"))).toString())
         .orderBy("weekStart", Query.Direction.DESCENDING)
         .addSnapshotListener { value, error ->
             if (error != null) close(error)

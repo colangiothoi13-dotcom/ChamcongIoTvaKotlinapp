@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -14,6 +17,8 @@ import vn.chamcong.iot.domain.canAccessEmployee
 import vn.chamcong.iot.data.*
 import vn.chamcong.iot.model.UserProfile
 import java.time.LocalDate
+import java.time.YearMonth
+import vn.chamcong.iot.domain.scheduleReadRanges
 
 internal fun MainViewModel.subscribe() {
     profileSubscription?.cancel()
@@ -61,6 +66,12 @@ internal fun MainViewModel.cancelDataSubscriptions() {
             employees = emptyList(),
             attendance = emptyList(),
             historicalAttendance = emptyList(),
+            historicalCalculationData = null,
+            attendanceHistoryLoading = false,
+            attendanceHistoryQueryKey = null,
+            attendanceHistoryError = null,
+            attendanceHistoryTruncated = false,
+            attendanceHistoryLoadedCount = 0,
             attendanceAdjustments = emptyList(),
             attendanceClassificationOverrides = emptyList(),
             offScheduleAttendanceReviews = emptyList(),
@@ -111,8 +122,11 @@ internal fun MainViewModel.subscribeAdmin() {
         }
     }
     dataSubscriptions += viewModelScope.launch {
-        repository.observePayroll().catch { e -> setError(e) }.collect { rows ->
-            _state.update { it.copy(payroll=rows) }
+        _state.map { it.selectedPayrollMonth }.distinctUntilChanged().collectLatest { month ->
+            _state.update { it.copy(payroll = emptyList()) }
+            repository.observePayroll(month.toString()).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(payroll=rows) }
+            }
         }
     }
     dataSubscriptions += viewModelScope.launch {
@@ -157,8 +171,11 @@ internal fun MainViewModel.subscribeAdmin() {
         }
     }
     dataSubscriptions += viewModelScope.launch {
-        repository.observeWeeklyScheduleRequests().catch { e -> setError(e) }.collect { requests ->
-            _state.update { it.copy(weeklyScheduleRequests = requests) }
+        _state.map { it.selectedWeekStart }.distinctUntilChanged().collectLatest { week ->
+            _state.update { it.copy(weeklyScheduleRequests = emptyList()) }
+            repository.observeWeeklyScheduleRequests(week.toString()).catch { e -> setError(e) }.collect { requests ->
+                _state.update { it.copy(weeklyScheduleRequests = requests) }
+            }
         }
     }
     dataSubscriptions += viewModelScope.launch {
@@ -224,8 +241,11 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
         }
     }
     dataSubscriptions += viewModelScope.launch {
-        repository.observeEmployeePayroll(employeeId).catch { e -> setError(e) }.collect { rows ->
-            _state.update { it.copy(employeePayroll = rows) }
+        _state.map { it.selectedPayrollMonth }.distinctUntilChanged().collectLatest { month ->
+            _state.update { it.copy(employeePayroll = emptyList()) }
+            repository.observeEmployeePayroll(employeeId, month.toString()).catch { e -> setError(e) }.collect { rows ->
+                _state.update { it.copy(employeePayroll = rows) }
+            }
         }
     }
     dataSubscriptions += viewModelScope.launch {
@@ -234,8 +254,13 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
         }
     }
     dataSubscriptions += viewModelScope.launch {
-        repository.observeEmployeeSchedules(employeeId).catch { e -> setError(e) }.collect { rows ->
-            _state.update { it.copy(employeeSchedules = rows) }
+        _state.map { it.selectedEmployeeScheduleMonth }.distinctUntilChanged().collectLatest { month ->
+            val current = YearMonth.now(zoneId)
+            val months = listOf(month, current).distinct()
+            combine(months.map { period ->
+                repository.observeEmployeeSchedules(employeeId, period.atDay(1).minusDays(7), period.atEndOfMonth().plusDays(14))
+            }) { windows -> windows.flatMap { it }.distinctBy { "${it.employeeId}|${it.date}" } }
+                .catch { e -> setError(e) }.collect { rows -> _state.update { it.copy(employeeSchedules = rows) } }
         }
     }
     dataSubscriptions += viewModelScope.launch {
@@ -280,8 +305,12 @@ internal fun MainViewModel.subscribeSchedules() {
     if (subscriptionMode != "ADMIN") return
     scheduleSubscription?.cancel()
     scheduleSubscription = viewModelScope.launch {
-        repository.observeSchedules()
-            .catch { e -> setError(e) }
-            .collect { schedules -> _state.update { it.copy(schedules = schedules) } }
+        _state.map { scheduleReadRanges(it.selectedWeekStart, it.selectedPresenceDate, LocalDate.now(zoneId)) }
+            .distinctUntilChanged().collectLatest { ranges ->
+                combine(ranges.map { repository.observeSchedules(it.start, it.endInclusive) }) { windows ->
+                    windows.flatMap { it }.distinctBy { "${it.employeeId}|${it.date}" }
+                }.catch { e -> setError(e) }
+                    .collect { schedules -> _state.update { it.copy(schedules = schedules) } }
+            }
     }
 }

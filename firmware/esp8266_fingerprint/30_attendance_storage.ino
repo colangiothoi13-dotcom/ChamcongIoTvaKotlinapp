@@ -332,17 +332,26 @@ bool removeAttendanceOutboxHead(size_t tailOffset) {
   return true;
 }
 
-bool flushAttendanceOutbox() {
+AttendanceSyncResult flushAttendanceOutbox() {
   if (!littleFsReady) {
     firebaseSyncStatus = "ERROR";
     setLatestError("Khong mo duoc hang doi LittleFS");
-    return false;
+    return AttendanceSyncResult::STORAGE_ERROR;
+  }
+  if (!canStartHttpsRequest("hang doi cham cong")) {
+    firebaseSyncStatus = "PENDING";
+    return AttendanceSyncResult::DEFERRED;
   }
   File input = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "r");
+  if (!input && LittleFS.exists(ATTENDANCE_OUTBOX_PATH)) {
+    firebaseSyncStatus = "ERROR";
+    setLatestError("Khong doc duoc hang doi LittleFS");
+    return AttendanceSyncResult::STORAGE_ERROR;
+  }
   if (!input || input.size() == 0) {
     if (input) input.close();
     firebaseSyncStatus = WiFi.status() == WL_CONNECTED ? "ONLINE" : "PENDING";
-    return true;
+    return AttendanceSyncResult::EMPTY;
   }
   String line = input.readStringUntil('\n');
   const size_t tailOffset = input.position();
@@ -354,7 +363,7 @@ bool flushAttendanceOutbox() {
       firebaseSyncStatus = "ERROR";
       setLatestError("Khong cap nhat duoc hang doi LittleFS");
     }
-    return removed;
+    return removed ? AttendanceSyncResult::ACKNOWLEDGED : AttendanceSyncResult::STORAGE_ERROR;
   }
 
   String eventId;
@@ -374,19 +383,34 @@ bool flushAttendanceOutbox() {
     firebaseSyncStatus = "ERROR";
     if (!removed) setLatestError("Khong cap nhat duoc hang doi LittleFS");
     else setLatestError("Bo qua ban ghi hang doi khong hop le");
-    return false;
+    return removed ? AttendanceSyncResult::REJECTED : AttendanceSyncResult::STORAGE_ERROR;
   }
 
-  const int code = postAttendanceEvent(eventId, payload);
+  // Resolve raw offline scans one at a time, without an employee list in RAM
+  // or flash. Discard temporary JSON/text before the TLS POST allocates memory.
+  line = "";
+  int preparationCode = 200;
+  {
+    String resolvedPayload;
+    preparationCode = resolveOfflineAttendancePayload(payload, resolvedPayload);
+    if (preparationCode == 200) payload = resolvedPayload;
+  }
+  const int code = preparationCode == 200 ? postAttendanceEvent(eventId, payload) : preparationCode;
   if (!httpResponseAcknowledgesEvent(code) && !isPermanentAttendanceFailure(code)) {
     firebaseSyncStatus = WiFi.status() == WL_CONNECTED ? "ERROR" : "PENDING";
     Serial.printf("OUTBOX giu event %s, HTTP %d\n", eventId.c_str(), code);
-    return false;
+    if (OFFLINE_AS608_ACCESS_ENABLED && attendanceTransportUnavailable(code)) {
+      // The saved foreground scan was already matched by the AS608. Grant it
+      // once under the selected offline policy; old/restored scans cannot open.
+      handleAttendanceDelivery(foregroundAttendanceEventId, AttendanceDelivery::LOCAL_ACCEPTED);
+    }
+    return AttendanceSyncResult::RETRY;
   }
 
   const bool permanentFailure = isPermanentAttendanceFailure(code);
   if (permanentFailure) {
     lastRejectedAttendanceEventId = eventId;
+    if (preparationCode != 200) setLatestError("Luot ngoai tuyen bi tu choi: mapping khong hop le");
     Serial.printf("OUTBOX bo qua event %s, loi vinh vien HTTP %d\n", eventId.c_str(), code);
   } else {
     lastAcknowledgedAttendanceEventId = eventId;
@@ -396,12 +420,26 @@ bool flushAttendanceOutbox() {
   if (!removeAttendanceOutboxHead(tailOffset)) {
     firebaseSyncStatus = "ERROR";
     setLatestError("Khong cap nhat duoc hang doi LittleFS");
-    return false;
+    // The server acknowledgment is still valid. A replay after a failed local
+    // rewrite is idempotent; it must never grant a second door opening.
+    handleAttendanceDelivery(eventId, permanentFailure ? AttendanceDelivery::REJECTED : AttendanceDelivery::CONFIRMED);
+    return AttendanceSyncResult::STORAGE_ERROR;
   }
   firebaseSyncStatus = permanentFailure
       ? "ERROR"
       : (attendanceOutboxBytes() == 0 && WiFi.status() == WL_CONNECTED ? "ONLINE" : "PENDING");
-  return !permanentFailure;
+  handleAttendanceDelivery(eventId, permanentFailure ? AttendanceDelivery::REJECTED : AttendanceDelivery::CONFIRMED);
+  return permanentFailure ? AttendanceSyncResult::REJECTED : AttendanceSyncResult::ACKNOWLEDGED;
+}
+
+bool attendanceOutboxIsEmpty() {
+  if (!littleFsReady) return false;
+  if (!LittleFS.exists(ATTENDANCE_OUTBOX_PATH)) return true;
+  File input = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "r");
+  if (!input) return false;
+  const bool empty = input.size() == 0;
+  input.close();
+  return empty;
 }
 
 size_t attendanceOutboxBytes() {

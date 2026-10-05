@@ -11,22 +11,29 @@ import vn.chamcong.iot.domain.validateAuditLog
 import vn.chamcong.iot.domain.validateAttendanceClassificationOverride
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 import java.time.Instant
 import vn.chamcong.iot.domain.validateAttendanceAdjustment
 import java.util.UUID
 
+private fun Query.currentScheduleMonth(): Query {
+    val month = YearMonth.now(ZoneId.of("Asia/Ho_Chi_Minh"))
+    return whereGreaterThanOrEqualTo("scheduleDate", month.atDay(1).minusDays(1).toString())
+        .whereLessThanOrEqualTo("scheduleDate", month.atEndOfMonth().plusDays(7).toString())
+}
+
 fun FirebaseRepository.observeAttendanceAdjustments(): Flow<List<AttendanceAdjustment>> = observeAdjustments(
-    db.collection("attendanceAdjustments").orderBy("createdAt", Query.Direction.DESCENDING)
+    db.collection("attendanceAdjustments").currentScheduleMonth()
 )
 
 fun FirebaseRepository.observeOffScheduleAttendanceReviews(): Flow<List<OffScheduleAttendanceReview>> = observeOffScheduleReviews(
-    db.collection("offScheduleReviews")
-        .orderBy("createdAt", Query.Direction.DESCENDING)
+    db.collection("offScheduleReviews").currentScheduleMonth()
 )
 
 fun FirebaseRepository.observeEmployeeOffScheduleAttendanceReviews(employeeId: String): Flow<List<OffScheduleAttendanceReview>> {
     require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
-    return observeOffScheduleReviews(db.collection("offScheduleReviews").whereEqualTo("employeeId", employeeId))
+    return observeOffScheduleReviews(db.collection("offScheduleReviews").whereEqualTo("employeeId", employeeId).currentScheduleMonth())
 }
 
 private fun observeOffScheduleReviews(query: Query): Flow<List<OffScheduleAttendanceReview>> = callbackFlow {
@@ -48,17 +55,16 @@ private fun observeOffScheduleReviews(query: Query): Flow<List<OffScheduleAttend
 
 fun FirebaseRepository.observeEmployeeAttendanceAdjustments(employeeId: String): Flow<List<AttendanceAdjustment>> {
     require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
-    // Sort locally so the employee shell needs no additional composite index.
-    return observeAdjustments(db.collection("attendanceAdjustments").whereEqualTo("employeeId", employeeId))
+    return observeAdjustments(db.collection("attendanceAdjustments").whereEqualTo("employeeId", employeeId).currentScheduleMonth())
 }
 
 fun FirebaseRepository.observeAttendanceClassificationOverrides(): Flow<List<AttendanceClassificationOverride>> =
-    observeClassificationOverrides(db.collection("attendanceClassificationOverrides"))
+    observeClassificationOverrides(db.collection("attendanceClassificationOverrides").currentScheduleMonth())
 
 fun FirebaseRepository.observeEmployeeAttendanceClassificationOverrides(employeeId: String): Flow<List<AttendanceClassificationOverride>> {
     require(employeeId.isNotBlank()) { "Chưa liên kết nhân viên" }
     return observeClassificationOverrides(
-        db.collection("attendanceClassificationOverrides").whereEqualTo("employeeId", employeeId)
+        db.collection("attendanceClassificationOverrides").whereEqualTo("employeeId", employeeId).currentScheduleMonth()
     )
 }
 
@@ -251,7 +257,7 @@ private fun AttendanceClassificationOverride.toFirestoreData(): Map<String, Any?
     "createdAt" to FieldValue.serverTimestamp()
 )
 
-private fun DocumentSnapshot.toAttendanceAdjustment(): AttendanceAdjustment? {
+internal fun DocumentSnapshot.toAttendanceAdjustment(): AttendanceAdjustment? {
     // Unacknowledged server timestamps must not win latest-adjustment selection.
     val created = getTimestamp("createdAt") ?: return null
     fun instant(field: String): Instant? = getTimestamp(field)?.let {

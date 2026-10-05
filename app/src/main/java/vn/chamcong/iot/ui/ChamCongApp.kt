@@ -302,7 +302,13 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 AppDestination.PRESENCE -> PresenceScreen(state, vm)
                 AppDestination.REQUESTS -> RequestsScreen(state, vm)
                 AppDestination.REPORTS -> ReportsScreen(state, vm)
-                AppDestination.MONTHLY_TIMESHEET -> MonthlyTimesheetScreen(
+                AppDestination.MONTHLY_TIMESHEET -> {
+                    val month = state.selectedAdminTimesheetMonth
+                    LaunchedEffect(month) {
+                        vm.loadAttendanceRange(month.atDay(1), month.atEndOfMonth(), force = true)
+                    }
+                    CalculationLoadingNotice(state, vm)
+                    if (state.hasCompleteCalculationRange(month.atDay(1), month.atEndOfMonth())) MonthlyTimesheetScreen(
                     month = state.selectedAdminTimesheetMonth,
                     employees = state.historicalEmployees(state.selectedAdminTimesheetMonth),
                     summariesForEmployee = { employeeId -> vm.employeeMonthSummaries(employeeId, state.selectedAdminTimesheetMonth) },
@@ -310,6 +316,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                     onNextMonth = { vm.moveAdminTimesheetMonth(1) },
                     modifier = Modifier.fillMaxSize()
                 )
+                }
                 AppDestination.DEPARTMENTS -> DepartmentsScreen(
                     departments = state.departments,
                     employeeCounts = state.departments.associate { department ->
@@ -466,7 +473,7 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                     )
                     EmployeeDestination.SCHEDULE -> EmployeeScheduleScreen(state, vm)
                     EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)
-                    EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state)
+                    EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state, vm)
                     EmployeeDestination.PROFILE -> EmployeeProfileScreen(
                         state = state,
                         vm = vm,

@@ -11,12 +11,15 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.domain.KpiBonusBreakdown
 import java.time.YearMonth
@@ -30,7 +33,17 @@ internal fun PerformanceScreen(state: MainUiState, vm: MainViewModel) {
     var month by remember { mutableStateOf(YearMonth.now().toString()) }
     val validMonth = Regex("[0-9]{4}-(0[1-9]|1[0-2])").matches(month)
     val selectedMonth = if (validMonth) YearMonth.parse(month) else null
-    val breakdowns = selectedMonth?.let(vm::kpiBonusBreakdowns).orEmpty()
+    val inPreview = LocalInspectionMode.current
+    val calculationReady = selectedMonth?.let {
+        state.hasCompleteCalculationRange(it.atDay(1), it.atEndOfMonth())
+    } == true
+    LaunchedEffect(selectedMonth) {
+        if (!inPreview) selectedMonth?.let {
+            vm.loadAttendanceRange(it.atDay(1), it.atEndOfMonth(), force = true)
+        }
+    }
+    val breakdowns = if (calculationReady || inPreview) selectedMonth?.let(vm::kpiBonusBreakdowns).orEmpty() else emptyMap()
+    val employees = selectedMonth?.let(state::historicalEmployees).orEmpty()
 
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         OutlinedTextField(
@@ -44,17 +57,29 @@ internal fun PerformanceScreen(state: MainUiState, vm: MainViewModel) {
         if (!validMonth) {
             Text("Tháng không hợp lệ", color = MaterialTheme.colorScheme.error)
         }
+        if (validMonth && !calculationReady && !inPreview) {
+            Text("Đang chờ đủ dữ liệu lịch, lượt quét, nghỉ phép, tăng ca và điều chỉnh của tháng.", style = MaterialTheme.typography.bodySmall)
+            state.attendanceHistoryError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = vm::retryAttendanceRange) { Text("Thử lại") }
+            }
+            if (state.attendanceHistoryTruncated) {
+                Text("Dữ liệu tháng chưa đầy đủ nên chưa thể tính KPI.", color = MaterialTheme.colorScheme.error)
+            }
+        }
         Text(
             "Top 3 chỉ dành cho nhân viên không đi muộn; thứ hạng dùng số ca tăng ca hoàn thành.",
             style = MaterialTheme.typography.bodySmall
         )
         LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-            if (state.operationalEmployees.isEmpty()) {
+            if (employees.isEmpty()) {
                 item { Text("Chưa có nhân viên để tính hiệu suất") }
             }
-            items(state.operationalEmployees, key = { it.id }) { employee ->
-                val breakdown = breakdowns[employee.id] ?: KpiBonusBreakdown()
-                PerformanceCard(employee.fullName.ifBlank { employee.id }, employee.code, breakdown)
+            if (calculationReady || inPreview) {
+                items(employees, key = { it.id }) { employee ->
+                    val breakdown = breakdowns[employee.id] ?: KpiBonusBreakdown()
+                    PerformanceCard(employee.fullName.ifBlank { employee.id }, employee.code, breakdown)
+                }
             }
         }
     }

@@ -54,15 +54,32 @@ fun mergeWeeklyAssignment(
     existing: WorkSchedule?,
     selectedShift: WorkShift,
     shiftsById: Map<String, WorkShift>
+): WorkSchedule = mergeScheduleAssignment(incoming, existing, listOf(selectedShift), shiftsById)
+
+/** Shared by weekly and department assignments, including selecting both main shifts at once. */
+fun mergeScheduleAssignment(
+    incoming: WorkSchedule,
+    existing: WorkSchedule?,
+    selectedShifts: List<WorkShift>,
+    shiftsById: Map<String, WorkShift>
 ): WorkSchedule {
+    require(selectedShifts.size in 1..2 && selectedShifts.map { it.id }.distinct().size == selectedShifts.size &&
+        selectedShifts.map { it.category }.distinct().size == selectedShifts.size) {
+        "Mỗi ngày chỉ được có một ca sáng và một ca chiều"
+    }
+    selectedShifts.forEach { shift ->
+        validateScheduleShift(shift)
+        require(shift.active) { "Ca ${shift.name} không còn hoạt động" }
+    }
+    val selectedCategories = selectedShifts.map { it.category }.toSet()
     val previousIds = existing?.let(::scheduledShiftIds).orEmpty()
     val retained = previousIds.map { id ->
         shiftsById[id] ?: error("Ca đã phân trước đó không còn tồn tại: $id")
-    }.filter { it.category != selectedShift.category }
+    }.filter { it.category !in selectedCategories }
     require(retained.all { it.active && canAssignScheduleShift(it) }) {
         "Một ca đã phân trước đó không còn hoạt động. Vui lòng kiểm tra lịch ngày ${incoming.date}."
     }
-    val selected = (retained + selectedShift).distinctBy { it.id }.sortedBy { it.startTime }
+    val selected = (retained + selectedShifts).distinctBy { it.id }.sortedBy { it.startTime }
     require(selected.size in 1..2 && selected.map { it.category }.distinct().size == selected.size) {
         "Mỗi ngày chỉ được có một ca sáng và một ca chiều"
     }
@@ -71,9 +88,9 @@ fun mergeWeeklyAssignment(
         shiftIds = selected.map { it.id },
         shiftName = selected.joinToString(" + ") { it.name },
         overtimeHours = existing?.overtimeHours ?: incoming.overtimeHours,
-        workedHoursOverride = existing?.workedHoursOverride,
-        adjustmentNote = existing?.adjustmentNote.orEmpty(),
-        note = existing?.note.orEmpty()
+        workedHoursOverride = if (existing != null) existing.workedHoursOverride else incoming.workedHoursOverride,
+        adjustmentNote = existing?.adjustmentNote ?: incoming.adjustmentNote,
+        note = existing?.note ?: incoming.note
     )
 }
 
