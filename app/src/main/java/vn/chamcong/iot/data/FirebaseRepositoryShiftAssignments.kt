@@ -298,19 +298,50 @@ suspend fun FirebaseRepository.copyPreviousWeek(sourceWeekStart: String, targetW
         details = "Sao chép $sourceMonday sang $targetMonday: ${newSchedules.size} lịch"
     )
     validateAuditLog(audit)
-    val chunks = newSchedules.chunked(400)
-    chunks.forEachIndexed { index, chunk ->
-        db.runBatch { batch ->
-            chunk.forEach { schedule ->
-                batch.set(db.collection("workSchedules").document(schedule.id), schedule.copy(
-                    id = "", shiftIds = schedule.shiftIds.ifEmpty { listOf(schedule.shiftId) }
-                ))
-            }
-            if (index == chunks.lastIndex) batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
-        }.await()
+    var saved = 0
+    try {
+        newSchedules.chunked(400).forEach { chunk ->
+            val auditRef = db.collection("audit_logs").document()
+            val copied = db.runTransaction { transaction ->
+                val targetRefs = chunk.associateWith { schedule ->
+                    db.collection("workSchedules").document(schedule.id)
+                }
+                // Reading every target makes a concurrent assignment cause a retry instead
+                // of being overwritten by a stale targetSnapshot taken before this transaction.
+                val existingTargets = targetRefs.mapValues { (_, ref) -> transaction.get(ref).exists() }
+                val employees = chunk.map { it.employeeId }.distinct().associateWith { employeeId ->
+                    transaction.get(db.collection("employees").document(employeeId))
+                        .toObject(Employee::class.java)?.copy(id = employeeId)
+                }
+                val candidates = chunk.filter { schedule ->
+                    existingTargets[schedule] == false && employees[schedule.employeeId]?.active == true
+                }
+                candidates.forEach { schedule ->
+                    val employee = requireNotNull(employees[schedule.employeeId])
+                    transaction.set(targetRefs.getValue(schedule), schedule.copy(
+                        id = "", employeeName = employee.fullName, department = employee.department,
+                        shiftIds = schedule.shiftIds.ifEmpty { listOf(schedule.shiftId) }
+                    ))
+                }
+                if (candidates.isNotEmpty()) transaction.set(auditRef, audit.copy(
+                    details = "Sao chép $sourceMonday sang $targetMonday: ${candidates.size} lịch mới; " +
+                        "giữ các lịch đã có, bỏ qua nhân viên đã nghỉ"
+                ).toFirestoreData())
+                candidates.size
+            }.await()
+            saved += copied
+        }
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        throw IllegalStateException(
+            "Đã sao chép $saved/${newSchedules.size} lịch. Lịch đã có được giữ nguyên; có thể thử lại an toàn. " +
+                error.localizedMessage,
+            error
+        )
     }
-    if (chunks.isEmpty()) writeAuditLog(audit)
-    return newSchedules.size
+    if (newSchedules.isEmpty()) writeAuditLog(audit)
+    return saved
 }
 
 internal suspend fun FirebaseRepository.requireAssignableStoredShift(shiftId: String) {

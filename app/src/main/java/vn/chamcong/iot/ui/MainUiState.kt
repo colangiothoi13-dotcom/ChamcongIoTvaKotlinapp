@@ -46,6 +46,7 @@ import java.time.ZoneId
 data class MainUiState(
     val signedIn: Boolean = false,
     val profileResolved: Boolean = false,
+    val profileError: String? = null,
     val loading: Boolean = false,
     val employees: List<Employee> = emptyList(),
     val attendance: List<Attendance> = emptyList(),
@@ -63,12 +64,18 @@ data class MainUiState(
     val employeeResources: List<EmployeeResource> = emptyList(),
     val employeeResourcesLoading: Boolean = false,
     val employeeResourcesError: String? = null,
-    val selectedWeekStart: LocalDate = mondayOfWeek(LocalDate.now()),
+    val selectedWeekStart: LocalDate = mondayOfWeek(LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"))),
     val selectedPresenceDate: LocalDate = LocalDate.now(),
     val shifts: List<WorkShift> = emptyList(),
     val schedules: List<WorkSchedule> = emptyList(),
     val weeklyScheduleRequests: List<WeeklyScheduleRequest> = emptyList(),
+    val weeklyScheduleRequestsLoading: Boolean = false,
+    val weeklyScheduleRequestsError: String? = null,
+    val weeklyScheduleRequestsLoadedWeekStart: LocalDate? = null,
     val employeeWeeklyScheduleRequest: WeeklyScheduleRequest? = null,
+    val employeeWeeklyScheduleRequestLoading: Boolean = false,
+    val employeeWeeklyScheduleRequestError: String? = null,
+    val employeeWeeklyScheduleRequestLoadedWeekStart: LocalDate? = null,
     val employeeWeeklyTargetWeekStart: LocalDate = mondayOfWeek(LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"))).plusWeeks(1),
     val leaveRequests: List<LeaveRequest> = emptyList(),
     val overtimeRequests: List<OvertimeRequest> = emptyList(),
@@ -108,6 +115,14 @@ data class MainUiState(
     val message: String? = null,
     val error: String? = null
 ) {
+    val employeeWeeklyScheduleRequestReady: Boolean
+        get() = employeeWeeklyScheduleRequestLoadedWeekStart == employeeWeeklyTargetWeekStart &&
+            !employeeWeeklyScheduleRequestLoading && employeeWeeklyScheduleRequestError == null
+
+    val weeklyScheduleRequestsReady: Boolean
+        get() = weeklyScheduleRequestsLoadedWeekStart == selectedWeekStart &&
+            !weeklyScheduleRequestsLoading && weeklyScheduleRequestsError == null
+
     fun hasCompleteCalculationRange(start: LocalDate, end: LocalDate, employeeId: String? = null): Boolean =
         !attendanceHistoryLoading && attendanceHistoryError == null && !attendanceHistoryTruncated &&
             historicalCalculationData != null &&

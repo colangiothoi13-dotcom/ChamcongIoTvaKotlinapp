@@ -103,6 +103,13 @@ suspend fun FirebaseRepository.reviewWeeklyScheduleRequest(
         require(current.status == WeeklyScheduleRequestStatus.PENDING) {
             "Chỉ đăng ký đang chờ duyệt mới được xử lý"
         }
+        if (status == WeeklyScheduleRequestStatus.APPROVED) {
+            val employee = transaction.get(db.collection("employees").document(current.employeeId))
+                .toObject(Employee::class.java)
+            require(employee != null && employee.active) {
+                "Nhân viên không còn hoạt động hoặc không tồn tại; không thể duyệt đăng ký lịch tuần"
+            }
+        }
 
         val normalizedShifts = if (status == WeeklyScheduleRequestStatus.APPROVED) {
             validatedWeeklyShiftMap(current.weekStart, current.shiftsByDate)

@@ -209,7 +209,7 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDesti
                                     Text(notification.title, fontWeight = if (notification.read) FontWeight.Normal else FontWeight.Bold)
                                     Text(notification.body, style = MaterialTheme.typography.bodySmall)
                                 }
-                                if (!notification.read) TextButton(onClick = { vm.markNotificationRead(notification.id) }) { Text("Đã đọc") }
+                                if (!notification.read) TextButton(onClick = { vm.markNotificationRead(notification.id) }, enabled = !state.saving) { Text("Đã đọc") }
                             }
                         }
                     }

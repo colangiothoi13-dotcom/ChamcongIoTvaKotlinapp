@@ -1,10 +1,19 @@
 package vn.chamcong.iot.domain
 
 import vn.chamcong.iot.model.EmployeeAccountInput
+import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.UserProfile
 import vn.chamcong.iot.model.UserRole
 
 private val employeeEmailPattern = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+
+/** After a device accepts enrollment, retain its employee/mapping so it can finish or be cleaned up. */
+fun canRollbackNewEmployeeProvisioning(
+    employee: Employee,
+    commandEmployeeId: String?,
+    commandStatus: String?
+): Boolean = employee.fingerprintTemplateId == null &&
+    (commandEmployeeId != employee.id || commandStatus == "REQUESTED")
 
 fun validateEmployeeAccountInput(input: EmployeeAccountInput) {
     require(employeeEmailPattern.matches(input.email.trim())) { "Email tài khoản nhân viên không hợp lệ" }

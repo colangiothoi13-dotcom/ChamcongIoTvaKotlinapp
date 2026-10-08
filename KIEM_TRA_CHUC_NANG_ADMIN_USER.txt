@@ -1,0 +1,161 @@
+KIỂM TRA NÚT BẤM VÀ CHỨC NĂNG ADMIN / NHÂN VIÊN
+Ngày kiểm tra: 08/10/2026
+
+PHƯƠNG PHÁP VÀ PHẠM VI
+
+Đối chiếu các nút đang mở trong menu với callback, ViewModel, Repository,
+validator và quyền Firebase; kiểm tra điều hướng, tải/lỗi, nhập liệu, gửi/lưu,
+duyệt/từ chối, hủy và chống nhấn lặp. Chạy kiểm thử Android, Firestore Emulator,
+Firebase Functions và mô phỏng firmware; build APK debug.
+
+Đây là kiểm chứng mã nguồn và kiểm thử tự động. Không coi kết quả này là đã
+bấm mọi nút trên điện thoại với hai tài khoản, hoặc đã đo thiết bị thật.
+Các kiểm thử Firestore dùng dự án demo và máy chủ cục bộ; không tạo đơn,
+duyệt lịch, thay đổi mật khẩu, sửa nhân viên hay gửi lệnh lên Firebase online.
+Kết quả và thông tin APK cuối cùng được ghi ở mục Kiểm thử hồi quy của README.md.
+
+ADMIN — CÁC NHÓM ĐÃ ĐỐI CHIẾU
+
+01. Tác vụ / Phân ca: thẻ điều hướng mở đúng màn hình; Duyệt đăng ký tuần sau
+    mở Đơn từ → Đăng ký tuần, chọn tuần sau của ngày hiện tại theo giờ Việt Nam.
+    Có nút Quay lại trên thanh đầu.
+02. Tổng quan: chọn tuần, mở các chỉ số, xem thông báo và đánh dấu đã đọc có
+    xử lý thực. Lỗi dữ liệu không được dùng để khẳng định kỳ tính toán đầy đủ.
+03. Nhân viên: thêm, sửa hồ sơ, tìm kiếm, lọc phòng ban/người đã nghỉ,
+    thiết lập lương, đăng ký/xóa vân tay và chuyển trạng thái đã nghỉ nối Repository.
+    Ngày vào làm do Admin cập nhật tại Nhân viên → Sửa hồ sơ → Lưu hồ sơ.
+04. Tạo tài khoản: dùng Auth phụ để giữ phiên Admin; lỗi tạo tài khoản có hoàn tác
+    hoặc thông báo kết quả một phần. Nếu thiết bị đã nhận đăng ký vân tay thì giữ
+    hồ sơ/ánh xạ để tránh để lại mẫu vân tay không có chủ.
+05. Phòng ban: tạo, đổi tên, kích hoạt/ngừng hoạt động nối backend; lỗi nằm trong
+    form. Đổi tên giữ trạng thái active/createdAt hiện tại và không kéo hồ sơ đã
+    chuyển phòng về phòng ban cũ. Giữ giới hạn tối đa 498 hồ sơ cho một lần đổi tên.
+06. Ca làm: chỉnh sửa ca và phân tăng ca 18:00–22:00 có validation; khóa form khi lưu.
+07. Lịch: đổi tuần/tháng, hôm nay, phân ca cá nhân/phòng ban/hàng loạt và sao chép
+    tuần trước có xử lý thực. Sao chép không ghi đè lịch/điều chỉnh được Admin khác
+    vừa tạo; trả đúng số lịch đã lưu và báo rõ nếu chỉ hoàn thành một phần.
+08. Đăng ký lịch tuần: danh sách ở Đơn từ → Đăng ký tuần; có tải/lỗi/Thử lại riêng.
+    Một dòng mỗi đơn, tìm/lọc và đơn chờ xếp trước; chạm mọi trạng thái để mở
+    Chi tiết đăng ký tuần cuộn đủ sáu ngày/ca, ghi chú và người duyệt. Tổng hợp
+    mặc định thu gọn, mở tên chưa gửi/số lượng ca; số chưa gửi chỉ có khi biết roster.
+    Giữ đơn đã lưu khi hồ sơ nhân viên chưa tải; chỉ duyệt khi đủ điều kiện.
+    Transaction duyệt kiểm tra lại nhân viên còn hoạt động. Duyệt hàng loạt báo
+    số đơn đã hoàn thành nếu một đơn sau đó thất bại; xác nhận rõ duyệt toàn tuần,
+    kể cả các đơn bị tìm kiếm/bộ lọc ẩn.
+09. Chấm công: bộ lọc ngày/người/phòng ban/trạng thái, tải lại, điều chỉnh giờ,
+    xác nhận/xóa lượt quét và xử lý ngoài lịch nối đúng handler. Lý do và dữ liệu
+    điều chỉnh được kiểm tra; khóa lựa chọn và chặn đóng modal khi đang lưu.
+10. Đơn từ: ba nhóm Đăng ký tuần / Đơn khác / Tăng ca, mặc định Đăng ký tuần
+    với tuần sau theo giờ Việt Nam; điều hướng tuần dùng chung selectedWeekStart.
+    Chuyển nhóm giữ tuần đã chọn; Tuần kế tiếp quay về tuần sau của hôm nay.
+    Khoảng tuần dd/MM – dd/MM/yyyy đến thứ Bảy, điều hướng gọn theo chiều ngang.
+    Cả ba nhóm có Tìm nhân viên theo tên/mã NV/phòng ban không dấu, bộ lọc trạng thái,
+    tóm tắt kết quả và mỗi đơn một dòng. Chạm mở chi tiết ở mọi trạng thái; Đơn khác
+    giữ ca nghỉ/đề nghị/đính kèm/phản hồi, Tăng ca giữ lý do gửi/từ chối và người duyệt.
+    Duyệt/từ chối đơn PENDING có kiểm tra trạng thái mới nhất;
+    lý do từ chối không rỗng. Giữ chính sách loại người đã nghỉ khỏi danh sách
+    nghiệp vụ đang hoạt động; có giải thích khi thiếu hồ sơ đối chiếu tăng ca.
+11. Thiết bị: cấu hình, LED, còi, cửa, đồng bộ và khởi động lại có lệnh Firebase.
+    Kiểm tra online, khả năng thiết bị và lệnh đang xử lý. Gửi lệnh thành công
+    không đồng nghĩa thiết bị đã thực thi; kết quả phải xem trạng thái command.
+12. Lương / hiệu suất / bảng công: chọn kỳ, xem chi tiết và lưu lương có dữ liệu
+    tính toán đúng kỳ; kỳ lỗi/thiếu dữ liệu bị chặn lưu/xuất. Phiếu lương không bị
+    ghi đè. Số tiền, giờ và tháng được kiểm tra; khóa field khi lưu.
+13. Báo cáo: mã hiển thị như NV0004 được đổi thành document ID trước truy vấn.
+    Mã NV không tìm thấy báo lỗi riêng, ngày sai có hướng dẫn yyyy-MM-dd;
+    vẫn hỗ trợ ID trực tiếp cho lịch sử. CSV chờ đủ dữ liệu và bắt lỗi tạo/chia sẻ.
+14. Có mặt: bộ chọn ngày/trạng thái nối VM; không báo rỗng khi kỳ chưa tải hoàn tất.
+15. Nhật ký: chỉ đọc; tìm kiếm nhận cả hành động/đối tượng tiếng Việt hiển thị.
+16. Thông báo / tiện ích nhân viên: gửi thông báo và CRUD họp/khen thưởng/tài liệu
+    ghi dữ liệu, audit và phạm vi người nhận. Tài liệu dùng đường dẫn HTTPS.
+17. Tài khoản: đổi mật khẩu, đăng xuất nối Auth; lỗi đổi mật khẩu được hiện trong
+    modal. Auth đã đổi nhưng audit lỗi vẫn báo mật khẩu đã đổi, kèm tình trạng audit.
+18. Cài đặt: enum còn trong mã nhưng chưa mở trong menu; không coi là tính năng đã có.
+
+NHÂN VIÊN — CÁC NHÓM ĐÃ ĐỐI CHIẾU
+
+01. Trang chủ / thanh dưới / tiện ích: các đường dẫn mở màn hình thực và quay lại
+    được, gồm đăng ký ca, lịch họp, tin tức, khen thưởng, tài liệu, thâm niên và hỗ trợ.
+02. Lịch của tôi: đổi tháng/tuần/ngày, hôm nay và chi tiết ca chờ đúng kỳ tải xong;
+    không báo Chưa được phân ca trong khi đang tải hoặc đọc lỗi.
+03. Đăng ký ca: chọn sáng/chiều/cả ngày, chọn nhanh cả tuần, xóa chọn, ghi chú,
+    gửi/cập nhật nối transaction. Chỉ sửa/gửi sau khi đọc đơn đúng tuần thành công;
+    đơn đã duyệt và đơn quá hạn bị khóa, lỗi tải có Thử lại.
+04. Sao chép tuần này: tải đủ phạm vi lịch nguồn rồi mới cho sao chép để không
+    vô tình thay draft bằng lịch rỗng khi nguồn chưa tải.
+05. Đơn từ: mở form, chọn loại, ngày, ca nghỉ/đổi ca, giờ điều chỉnh, gửi và hủy
+    đơn nghỉ đang chờ có backend. Chọn ngày nghỉ khác tháng tải đúng ca theo khoảng
+    chọn; chặn ngày sai/đảo, khóa input lúc gửi, giữ nội dung nếu gửi thất bại.
+06. Chấm công: đổi tháng, xem dữ liệu kỳ và tải thêm lịch sử có xử lý. Nút Gửi yêu
+    cầu điều chỉnh mở sẵn form điều chỉnh, không mặc định sang đơn nghỉ phép.
+07. Tăng ca: kiểm tra ngày hôm nay/tương lai và hạn trước 18:00; gửi đúng khung
+    18:00–22:00, xem lịch sử/trạng thái/phản hồi; khóa ngày/lý do trong lúc gửi.
+08. Cá nhân: lưu điện thoại/địa chỉ có validation và khóa khi lưu; nội dung hỗ trợ
+    vân tay kiểm tra giới hạn 4.000 ký tự, gửi đơn và xem phản hồi Admin.
+09. Tin tức / thông báo: mở/thu gọn nội dung và đánh dấu đúng mục đã đọc qua Firebase.
+10. Họp / khen thưởng / tài liệu: đọc đúng phạm vi toàn công ty/phòng ban/cá nhân,
+    lọc loại, tải/lỗi/Thử lại; mở HTTPS có xử lý khi thiếu ứng dụng.
+11. Thâm niên: lấy ngày vào làm/ngày nghỉ từ hồ sơ Admin; ngày không hợp lệ có
+    thông báo, không tự tính thâm niên từ dữ liệu giả.
+12. Bảng lương: đổi tháng, mở đúng phiếu và xem chi tiết; thông tin là phiếu Admin
+    đã lưu. Khen thưởng ở Tiện ích không tự cộng vào tiền lương.
+13. Đăng nhập / quên mật khẩu / đổi mật khẩu / đăng xuất: nối Auth. Khóa nhập và
+    nhấn lặp khi đang xử lý; lỗi tải hồ sơ quyền có Thử lại/Đăng xuất thay vì spinner mãi.
+
+CÁC KIỂM THỬ HỒI QUY BỔ SUNG
+
+Sau làm gọn ba nhóm Đơn từ Admin, Android được chạy lại: 284 test trong 45 suite
+đạt, không failure/error/skipped; build debug thành công, không bổ sung test mới.
+APK tại app/build/outputs/apk/debug/app-debug.apk tạo ngày 08/10/2026 lúc 12:29:26
+giờ Việt Nam, dung lượng 23.747.004 byte. Firestore 49/49, Functions 32/32 và
+firmware 69/69 là kết quả đợt rà soát trước, không chạy lại trong lần làm gọn UI này.
+Đợt làm gọn dùng lại nguồn đơn, trạng thái và transaction hiện có, không đổi
+Rules/indexes; luồng Employee Lịch làm việc → Đăng ký tuần sau giữ nguyên.
+
+- Readiness đăng ký tuần nhân viên: snapshot chưa về, lỗi, đang tải và đổi tuần.
+- Form nhân viên: ngày sai/đảo/cross-month, giới hạn điện thoại/địa chỉ/hỗ trợ.
+- Đổi mật khẩu: Auth → audit, Auth lỗi, audit lỗi sau thành công, cancellation.
+- Hoàn tác tạo nhân viên: lệnh chưa nhận/đã PROCESSING/COMPLETED và mẫu đã lưu.
+- Báo cáo: mã hiển thị/ID/case/whitespace/ID lịch sử/mã NV không tồn tại.
+- Nhật ký: tìm hành động/đối tượng tiếng Việt và giữ tìm dữ liệu kỹ thuật.
+- Firestore thật trên Emulator: copy vs phân lịch đồng thời, rollback vs thiết bị
+  nhận lệnh, đổi tên phòng ban vs trạng thái/chuyển nhân viên, duyệt vs nghỉ việc.
+
+GIỚI HẠN VÀ PHẦN CẦN THỬ TRÊN THIẾT BỊ
+
+- Chưa thực hiện bấm toàn bộ UI bằng hai tài khoản thật trên điện thoại, chia sẻ
+  CSV qua ứng dụng ngoài, nhận push, cảm biến vân tay, LED/còi/cửa/restart vật lý.
+- Danh sách LazyColumn có key đã được đối chiếu mã nguồn; chưa đo hiệu năng trên
+  điện thoại thật. Kịch bản tìm/lọc/chi tiết và xác nhận duyệt tuần cần thử trực tiếp.
+- Danh sách lịch sử đơn/tin tức/thông báo/phiếu lương còn dùng lỗi chung, chưa có
+  trạng thái tải và Thử lại riêng cho từng listener. Danh sách rỗng lúc khởi tạo
+  không đủ để kết luận thao tác gửi trước đó đã thất bại.
+- Rules hiện không cho Employee ghi PASSWORD_CHANGE audit. Auth vẫn đổi được
+  mật khẩu; app hiện thông báo riêng nếu chưa ghi được nhật ký. Không mở thêm Rules.
+- Đổi tên phòng ban kiểm tra các hồ sơ tìm được trước transaction; hồ sơ mới gia
+  nhập sau truy vấn có thể cần đồng bộ lại tên hiển thị. Tên phòng ban được kiểm
+  tra trùng bằng truy vấn, chưa có khóa duy nhất cho hai lần tạo tên đồng thời.
+- Functions là phần tùy chọn: nếu bật thông báo duyệt tuần của Functions song
+  song với luồng Spark, cần thống nhất nơi phát thông báo để tránh trùng.
+- Không thay đổi Rules/indexes/firmware/Functions triển khai. Lần chuyển khu duyệt
+  cần cài APK mới cho Admin; luồng nhân viên giữ nguyên, không cần deploy Firebase
+  hay nạp firmware lại.
+
+KỊCH BẢN THỬ THỰC TẾ NÊN ĐỐI CHIẾU
+
+1. Nhân viên gửi ca tuần sau tại Lịch làm việc → Đăng ký tuần sau → Admin mở
+   Đơn từ → Đăng ký tuần hoặc Phân ca → Duyệt đăng ký tuần sau → xử lý → nhân viên
+   thấy đúng trạng thái và lịch đã phân; thử gửi lại đơn đã duyệt. Đổi ba nhóm và
+   điều hướng tuần; xác nhận khu Lịch không còn danh sách duyệt đăng ký tuần.
+   Tìm/lọc, chạm cả đơn đã xử lý để đọc đầy đủ; mở/thu gọn Tổng hợp và thử hủy
+   xác nhận duyệt toàn tuần khi một số đơn đang bị lọc ẩn.
+2. Nhân viên tạo đơn nghỉ theo ca ở tháng khác/điều chỉnh giờ/tăng ca → Admin
+   duyệt hoặc từ chối → nhân viên thấy kết quả; thử hủy đơn nghỉ còn PENDING.
+3. Admin sửa hồ sơ/ngày vào làm → nhân viên thấy thông tin/thâm niên; Admin tạo
+   họp/khen thưởng/tài liệu theo phạm vi → đúng người xem được và mở tài liệu.
+4. Nhập sai ngày/mã nhân viên, thao tác lúc mạng lỗi và thử lại; kiểm tra nội dung
+   form được giữ khi gửi thất bại và không sửa được trong lúc đang gửi.
+5. Chọn tháng lương/bảng công, đối chiếu giờ trước khi lưu và chia sẻ CSV; xác
+   nhận nút lưu/xuất bị khóa nếu dữ liệu kỳ chưa tải đủ.
+6. Thử vân tay/lệnh thiết bị bằng dữ liệu kiểm thử và quan sát trạng thái thực thi;
+   không dùng thông báo Đã gửi lệnh để kết luận cửa/cảm biến đã hoạt động.

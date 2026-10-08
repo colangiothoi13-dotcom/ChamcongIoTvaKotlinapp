@@ -29,11 +29,7 @@ import java.util.Locale
 @Composable
 fun AuditScreen(state: MainUiState) {
     var query by remember { mutableStateOf("") }
-    val normalized = query.trim().lowercase()
-    val logs = state.visibleAuditLogs.filter { log ->
-        normalized.isBlank() || listOf(log.action, log.targetType, log.targetId, log.actorName, log.details)
-            .any { it.lowercase().contains(normalized) }
-    }
+    val logs = state.visibleAuditLogs.filter { auditLogMatchesQuery(it, query) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item {
             Text("Nhật ký hệ thống", style = MaterialTheme.typography.titleLarge)

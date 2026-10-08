@@ -4,9 +4,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +41,7 @@ fun EmployeesScreen(
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Danh sách nhân sự", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            Button(onClick = onAdd) { Text("Thêm") }
+            Button(onClick = onAdd, enabled = !state.saving) { Text("Thêm") }
         }
         OutlinedTextField(
             value = state.employeeQuery,
@@ -48,7 +50,7 @@ fun EmployeesScreen(
             label = { Text("Tìm theo tên hoặc mã nhân viên") },
             singleLine = true
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             departments.forEach { department ->
                 FilterChip(
                     selected = (state.departmentFilter ?: "Tất cả") == department,

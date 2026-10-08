@@ -58,18 +58,24 @@ class MainViewModel private constructor(application: Application, private val pr
     internal val zoneId = ZoneId.of("Asia/Ho_Chi_Minh")
 
     fun signIn(email: String, password: String) = viewModelScope.launch {
-        _state.update { it.copy(loading = true, error = null) }
-        runCatching { repository.signIn(email, password) }
-            .onSuccess {
-                _state.update { it.copy(signedIn = true, loading = false) }
-                subscribe()
-            }
-            .onFailure { e -> _state.update { it.copy(loading = false, error = userFacingErrorMessage(e)) } }
+        if (_state.value.loading || _state.value.saving) return@launch
+        _state.update { it.copy(loading = true, error = null, message = null) }
+        try {
+            repository.signIn(email, password)
+            _state.update { it.copy(signedIn = true, loading = false) }
+            subscribe()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            _state.update { it.copy(loading = false, error = userFacingErrorMessage(error)) }
+        }
     }
 
     internal val dataSubscriptions = mutableListOf<Job>()
     internal var profileSubscription: Job? = null
     internal var scheduleSubscription: Job? = null
+    internal var weeklyScheduleRequestsSubscription: Job? = null
+    internal var employeeWeeklyScheduleRequestSubscription: Job? = null
     internal var employeeResourcesSubscription: Job? = null
     internal var subscriptionMode: String? = null
     internal var attendanceHistoryJob: Job? = null
@@ -203,7 +209,9 @@ class MainViewModel private constructor(application: Application, private val pr
     fun submitWeeklySchedule(shiftsByDate: Map<String, List<String>>, note: String = "", done: () -> Unit = {}) =
         perform(done, errorContext = "Không gửi được đăng ký ca") {
         val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
+        require(_state.value.employeeWeeklyScheduleRequestReady) { "Cần tải đăng ký hiện tại trước khi gửi" }
         val weekStart = mondayOfWeek(LocalDate.now(zoneId)).plusWeeks(1)
+        require(weekStart == _state.value.employeeWeeklyTargetWeekStart) { "Tuần đăng ký đã thay đổi. Vui lòng tải lại đăng ký ca" }
         val currentShifts = _state.value.shifts.associateBy(WorkShift::id)
         val orderedShiftsByDate = shiftsByDate.mapValues { (_, ids) ->
             ids.distinct().sortedBy { currentShifts[it]?.startTime ?: it }
@@ -230,16 +238,30 @@ class MainViewModel private constructor(application: Application, private val pr
         if (status == WeeklyScheduleRequestStatus.APPROVED) "Đã duyệt đăng ký lịch tuần" else "Đã yêu cầu nhân viên chỉnh sửa lịch tuần"
     }
     fun approveWeeklySchedulesForWeek(weekStart: String, done: () -> Unit = {}) = perform(done) {
-        val pending = _state.value.weeklyScheduleRequests.filter {
-            it.weekStart == weekStart && it.status == WeeklyScheduleRequestStatus.PENDING
+        val state = _state.value
+        require(state.weeklyScheduleRequestsReady && state.selectedWeekStart.toString() == weekStart) {
+            "Cần tải đăng ký của đúng tuần trước khi duyệt"
+        }
+        val activeEmployeeIds = state.operationalEmployees.filter { it.active }.mapTo(mutableSetOf()) { it.id }
+        val pending = state.weeklyScheduleRequests.filter {
+            it.weekStart == weekStart && it.status == WeeklyScheduleRequestStatus.PENDING &&
+                it.employeeId in activeEmployeeIds
         }
         require(pending.isNotEmpty()) { "Không có đăng ký đang chờ duyệt trong tuần này" }
-        pending.forEach { request ->
-            repository.reviewWeeklyScheduleRequest(
-                request.id,
-                WeeklyScheduleRequestStatus.APPROVED,
-                ""
-            )
+        var approvedCount = 0
+        try {
+            pending.forEach { request ->
+                repository.reviewWeeklyScheduleRequest(
+                    request.id,
+                    WeeklyScheduleRequestStatus.APPROVED,
+                    ""
+                )
+                approvedCount++
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            error("Đã duyệt $approvedCount/${pending.size} đăng ký. Các đơn còn lại chưa được xử lý. ${userFacingErrorMessage(error)}")
         }
         "Đã duyệt ${pending.size} đăng ký lịch tuần"
     }
@@ -268,8 +290,8 @@ class MainViewModel private constructor(application: Application, private val pr
         "Đã gửi email đặt lại mật khẩu"
     }
     fun changePassword(newPassword: String, done: () -> Unit = {}) = perform(done) {
-        repository.changePassword(newPassword)
-        "Đã đổi mật khẩu"
+        if (repository.changePassword(newPassword)) "Đã đổi mật khẩu"
+        else "Đã đổi mật khẩu; chưa ghi được nhật ký thao tác"
     }
     fun updateDeviceConfiguration(deviceId: String, name: String, location: String, done: () -> Unit = {}) = perform(done) {
         repository.updateDeviceConfiguration(deviceId, name, location)
@@ -371,7 +393,24 @@ class MainViewModel private constructor(application: Application, private val pr
     }
     fun selectWeek(value: LocalDate) {
         val monday = mondayOfWeek(value)
-        _state.update { it.copy(selectedWeekStart = monday) }
+        _state.update {
+            if (it.selectedWeekStart == monday) it
+            else it.copy(
+                selectedWeekStart = monday,
+                weeklyScheduleRequests = emptyList(),
+                weeklyScheduleRequestsLoading = subscriptionMode == "ADMIN",
+                weeklyScheduleRequestsError = null,
+                weeklyScheduleRequestsLoadedWeekStart = null
+            )
+        }
+    }
+    fun selectWeeklyRegistrationWeek() = selectWeek(mondayOfWeek(LocalDate.now(zoneId)).plusWeeks(1))
+    fun retryWeeklyScheduleRequests() {
+        if (subscriptionMode == "ADMIN") subscribeAdminWeeklyScheduleRequests()
+    }
+    fun retryEmployeeWeeklyScheduleRequest() = subscribeEmployeeWeeklyScheduleRequest()
+    fun retryUserProfile() {
+        if (_state.value.signedIn) subscribe()
     }
     fun moveWeek(delta: Long) = selectWeek(_state.value.selectedWeekStart.plusWeeks(delta))
     fun selectPayrollMonth(month: YearMonth) = _state.update { it.copy(selectedPayrollMonth = month) }

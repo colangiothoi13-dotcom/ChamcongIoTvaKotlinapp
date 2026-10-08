@@ -46,9 +46,9 @@ fun ShiftsScreen(state: MainUiState, vm: MainViewModel) {
         Button(onClick = {
             vm.clearError()
             showOvertimeAssignment = true
-        }) { Text("Thêm ca tăng ca") }
+        }, enabled = !state.saving) { Text("Thêm ca tăng ca") }
         displayedShifts.forEach { shift ->
-                ShiftRow(shift) {
+                ShiftRow(shift, state.saving) {
                     vm.clearError()
                     if (shift.category == ShiftCategory.SUPPLEMENTARY.name) editor = shift
                 }
@@ -83,21 +83,21 @@ private fun OvertimeAssignmentDialog(state: MainUiState, vm: MainViewModel, onDi
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("Ca tăng ca cố định 18:00–22:00. Chọn nhân viên và ngày làm việc.")
                 employees.forEach { employee ->
-                    FilterChip(selected = employeeId == employee.id, onClick = { employeeId = employee.id },
+                    FilterChip(selected = employeeId == employee.id, onClick = { employeeId = employee.id }, enabled = !state.saving,
                         label = { Text("${employee.code} • ${employee.fullName}") })
                 }
                 if (employees.isEmpty()) Text("Chưa có nhân viên đang làm")
                 OutlinedTextField(workDate, { workDate = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Ngày tăng ca (yyyy-MM-dd)") }, singleLine = true,
+                    label = { Text("Ngày tăng ca (yyyy-MM-dd)") }, singleLine = true, enabled = !state.saving,
                     isError = date == null || date.dayOfWeek.value == 7)
                 if (alreadyAssigned) Text("Nhân viên đã có ca tăng ca ngày này", color = MaterialTheme.colorScheme.error)
                 OutlinedTextField(reason, { reason = it.take(500) }, Modifier.fillMaxWidth(),
-                    label = { Text("Lý do phân ca") })
+                    label = { Text("Lý do phân ca") }, enabled = !state.saving)
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
-            Button(enabled = !state.saving && employeeId.isNotBlank() && date != null &&
+            Button(enabled = !state.saving && employees.any { it.id == employeeId } && date != null &&
                 date.dayOfWeek.value in 1..6 && reason.isNotBlank() && !alreadyAssigned,
                 onClick = { vm.assignOvertimeToEmployee(employeeId, workDate, reason) { onDismiss() } }) {
                 Text("Phân ca")
@@ -108,7 +108,7 @@ private fun OvertimeAssignmentDialog(state: MainUiState, vm: MainViewModel, onDi
 }
 
 @Composable
-private fun ShiftRow(shift: WorkShift, onEdit: () -> Unit) {
+private fun ShiftRow(shift: WorkShift, saving: Boolean, onEdit: () -> Unit) {
     androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
             Text(shift.name, style = MaterialTheme.typography.titleMedium)
@@ -119,7 +119,7 @@ private fun ShiftRow(shift: WorkShift, onEdit: () -> Unit) {
                 "Áp dụng từ ${shift.effectiveFrom}${shift.effectiveTo?.let { " đến $it" } ?: ""}",
                 style = MaterialTheme.typography.bodySmall)
             if (shift.category == ShiftCategory.SUPPLEMENTARY.name) {
-                TextButton(onClick = onEdit) { Text("Chỉnh sửa") }
+                TextButton(onClick = onEdit, enabled = !saving) { Text("Chỉnh sửa") }
             }
         }
     }
@@ -158,29 +158,31 @@ private fun ShiftEditorDialog(
                                 category = item.name
                                 name = shiftNameForCategoryChange(name, item.name)
                             },
-                            label = { Text(shiftCategoryLabel(item.name)) }
+                            label = { Text(shiftCategoryLabel(item.name)) },
+                            enabled = !state.saving
                         )
                     }
                 }
-                OutlinedTextField(name, { name = it }, label = { Text("Tên ca") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(start, { start = it }, label = { Text("Giờ bắt đầu (HH:mm)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Tên ca") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
+                OutlinedTextField(start, { start = it }, label = { Text("Giờ bắt đầu (HH:mm)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
                 OutlinedTextField(
                     end,
                     { end = it },
                     label = { Text("Giờ kết thúc (HH:mm)") },
                     supportingText = { Text("Giờ kết thúc phải sau giờ bắt đầu; ca không qua ngày") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.saving
                 )
-                OutlinedTextField(early, { if (it.all(Char::isDigit)) early = it }, label = { Text("Cho phép chấm sớm (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(late, { if (it.all(Char::isDigit)) late = it }, label = { Text("Cho phép đi trễ (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(earlyLeave, { if (it.all(Char::isDigit)) earlyLeave = it }, label = { Text("Cho phép về sớm (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(breakStart, { breakStart = it }, label = { Text("Bắt đầu nghỉ (HH:mm, không bắt buộc)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(breakEnd, { breakEnd = it }, label = { Text("Kết thúc nghỉ (HH:mm, không bắt buộc)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(effectiveFrom, { effectiveFrom = it }, label = { Text("Ngày áp dụng (yyyy-MM-dd)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(effectiveTo, { effectiveTo = it }, label = { Text("Ngày kết thúc (không bắt buộc)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(early, { if (it.all(Char::isDigit)) early = it }, label = { Text("Cho phép chấm sớm (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
+                OutlinedTextField(late, { if (it.all(Char::isDigit)) late = it }, label = { Text("Cho phép đi trễ (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
+                OutlinedTextField(earlyLeave, { if (it.all(Char::isDigit)) earlyLeave = it }, label = { Text("Cho phép về sớm (phút)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
+                OutlinedTextField(breakStart, { breakStart = it }, label = { Text("Bắt đầu nghỉ (HH:mm, không bắt buộc)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
+                OutlinedTextField(breakEnd, { breakEnd = it }, label = { Text("Kết thúc nghỉ (HH:mm, không bắt buộc)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
+                OutlinedTextField(effectiveFrom, { effectiveFrom = it }, label = { Text("Ngày áp dụng (yyyy-MM-dd)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
+                OutlinedTextField(effectiveTo, { effectiveTo = it }, label = { Text("Ngày kết thúc (không bắt buộc)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !state.saving)
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Checkbox(checked = countsOvertime, onCheckedChange = { countsOvertime = it })
+                    Checkbox(checked = countsOvertime, onCheckedChange = { countsOvertime = it }, enabled = !state.saving)
                     Text("Ca này được tính tăng ca")
                 }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

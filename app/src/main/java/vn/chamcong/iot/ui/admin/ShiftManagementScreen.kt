@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -30,11 +31,14 @@ private data class ShiftHubItem(
 
 private val shiftHubItems = listOf(
     ShiftHubItem(AppDestination.SHIFTS, "Ca sáng, ca chiều mặc định và phân tăng ca cho nhân viên", Icons.Default.Schedule),
-    ShiftHubItem(AppDestination.SCHEDULE, "Chọn nhiều nhân viên và ngày từ thứ hai đến chủ nhật để phân ca", Icons.Default.Event)
+    ShiftHubItem(AppDestination.SCHEDULE, "Chọn nhiều nhân viên và ngày từ thứ Hai đến thứ Bảy để phân ca", Icons.Default.Event)
 )
 
 @Composable
-fun ShiftManagementScreen(onOpen: (AppDestination) -> Unit) {
+fun ShiftManagementScreen(
+    onOpenWeeklyRegistrations: () -> Unit = {},
+    onOpen: (AppDestination) -> Unit
+) {
     LazyColumn(
         contentPadding = PaddingValues(bottom = AppSpacing.large),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
@@ -42,6 +46,15 @@ fun ShiftManagementScreen(onOpen: (AppDestination) -> Unit) {
         item {
             Text("Phân ca", style = MaterialTheme.typography.headlineSmall)
             Text("Quản lý ca làm và lịch làm việc theo tuần", style = MaterialTheme.typography.bodyMedium)
+        }
+        item {
+            Card(onClick = onOpenWeeklyRegistrations, modifier = Modifier.fillMaxWidth()) {
+                ListItem(
+                    headlineContent = { Text("Duyệt đăng ký tuần sau") },
+                    supportingContent = { Text("Mở Đơn từ để xem và duyệt ca đăng ký cho tuần kế tiếp") },
+                    leadingContent = { Icon(Icons.Default.FactCheck, contentDescription = null) }
+                )
+            }
         }
         items(shiftHubItems, key = { it.destination.name }) { item ->
             Card(onClick = { onOpen(item.destination) }, modifier = Modifier.fillMaxWidth()) {

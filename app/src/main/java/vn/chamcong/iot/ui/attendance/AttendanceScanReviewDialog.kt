@@ -60,11 +60,11 @@ internal fun AttendanceScanReviewDialog(
                 Text("Xác nhận Vào ca hoặc Ra ca. Xóa sẽ loại lượt quét khỏi kết quả chấm công và giữ bản ghi gốc trong nhật ký.",
                     style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                    FilterChip(choice == "CHECK_IN", { choice = "CHECK_IN" }, label = { Text("Vào ca") })
-                    FilterChip(choice == "CHECK_OUT", { choice = "CHECK_OUT" }, label = { Text("Ra ca") })
+                    FilterChip(choice == "CHECK_IN", { choice = "CHECK_IN" }, label = { Text("Vào ca") }, enabled = !busy)
+                    FilterChip(choice == "CHECK_OUT", { choice = "CHECK_OUT" }, label = { Text("Ra ca") }, enabled = !busy)
                 }
                 OutlinedTextField(reason, { reason = it.take(500) }, Modifier.fillMaxWidth(),
-                    label = { Text("Lý do xử lý (bắt buộc)") })
+                    label = { Text("Lý do xử lý (bắt buộc)") }, enabled = !busy)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },

@@ -24,11 +24,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalInspectionMode
 import vn.chamcong.iot.domain.canAssignScheduleShift
 import vn.chamcong.iot.domain.scheduledShifts
 import vn.chamcong.iot.model.LeaveRequest
@@ -37,17 +39,21 @@ import vn.chamcong.iot.model.RequestType
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.CalculationLoadingNotice
+import vn.chamcong.iot.ui.loadAttendanceRange
 import vn.chamcong.iot.ui.overtime.EmployeeOvertimeRequestSection
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 
 @Composable
-fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
-    var showForm by remember { mutableStateOf(false) }
-    var type by remember { mutableStateOf(RequestType.LEAVE) }
-    var startDate by remember { mutableStateOf(LocalDate.now().toString()) }
-    var endDate by remember { mutableStateOf(LocalDate.now().toString()) }
-    var requestDate by remember { mutableStateOf(LocalDate.now().toString()) }
+fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel, initialType: RequestType = RequestType.LEAVE) {
+    var showForm by remember(initialType) { mutableStateOf(initialType != RequestType.LEAVE) }
+    var type by remember(initialType) { mutableStateOf(initialType) }
+    val today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"))
+    var startDate by remember { mutableStateOf(today.toString()) }
+    var endDate by remember { mutableStateOf(today.toString()) }
+    var requestDate by remember { mutableStateOf(today.toString()) }
     var reason by remember { mutableStateOf("") }
     var proposedCheckIn by remember { mutableStateOf("") }
     var proposedCheckOut by remember { mutableStateOf("") }
@@ -56,18 +62,28 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
     var shiftMenuExpanded by remember { mutableStateOf(false) }
     val supportedTypes = listOf(RequestType.LEAVE, RequestType.LATE, RequestType.EARLY_LEAVE, RequestType.ATTENDANCE_ADJUSTMENT, RequestType.REMOTE, RequestType.SHIFT_CHANGE)
     val singleDateRequest = type == RequestType.ATTENDANCE_ADJUSTMENT || type == RequestType.SHIFT_CHANGE
-    val validRequestDate = !singleDateRequest || runCatching { LocalDate.parse(requestDate.trim()) }.isSuccess
+    val validRequestDate = !singleDateRequest || employeeRequestDateRange(requestDate, requestDate) != null
     val activeChangeShifts = remember(state.shifts) {
         state.shifts.filter { it.active && canAssignScheduleShift(it) }
     }
+    val dateRange = employeeRequestDateRange(startDate, endDate)
     val validLeaveRange = runCatching {
-        val first = LocalDate.parse(startDate.trim())
-        val last = LocalDate.parse(endDate.trim())
-        require(!last.isBefore(first) && java.time.temporal.ChronoUnit.DAYS.between(first, last) < 31)
+        val (first, last) = requireNotNull(dateRange)
+        require(java.time.temporal.ChronoUnit.DAYS.between(first, last) < 31)
         generateSequence(first) { date -> date.plusDays(1).takeUnless { it.isAfter(last) } }.toList()
     }.getOrNull()
-    val schedulesByDate = remember(state.employeeSchedules) { state.employeeSchedules.associateBy { it.date } }
-    val shiftsById = remember(state.shifts) { state.shifts.associateBy { it.id } }
+    val employeeId = state.currentEmployee?.id
+    val inPreview = LocalInspectionMode.current
+    LaunchedEffect(showForm, type, dateRange, employeeId) {
+        if (!inPreview && showForm && type == RequestType.LEAVE && validLeaveRange != null && employeeId != null) {
+            val (first, last) = requireNotNull(dateRange)
+            vm.loadAttendanceRange(first, last, employeeId, force = true)
+        }
+    }
+    val leaveRangeReady = inPreview || (dateRange != null && employeeId != null &&
+        state.hasCompleteCalculationRange(dateRange.first, dateRange.second, employeeId))
+    val schedulesByDate = state.calculationEmployeeSchedules.associateBy { it.date }
+    val shiftsById = state.calculationShifts.associateBy { it.id }
     val leaveOptions = validLeaveRange.orEmpty().mapNotNull { date ->
         val schedule = schedulesByDate[date.toString()] ?: return@mapNotNull null
         val assigned = scheduledShifts(schedule, shiftsById)
@@ -77,7 +93,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
         val selected = leaveSelection[date.toString()].orEmpty().intersect(assigned.map { it.id }.toSet())
         date.toString().takeIf { selected.isNotEmpty() }?.let { it to selected.sorted() }
     }.toMap()
-    val leaveScopeValid = validLeaveRange != null && selectedLeaveScope.isNotEmpty() &&
+    val leaveScopeValid = leaveRangeReady && validLeaveRange != null && selectedLeaveScope.isNotEmpty() &&
         selectedLeaveScope.all { (date, ids) -> ids.all { id -> leaveOptions.firstOrNull { it.first.toString() == date }?.second?.any { it.id == id } == true } }
     val selectedShift = activeChangeShifts.firstOrNull { it.id == requestedShiftId }
     val adjustmentTimesValid =
@@ -87,14 +103,14 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
         RequestType.LEAVE -> leaveScopeValid
         RequestType.ATTENDANCE_ADJUSTMENT -> validRequestDate && adjustmentTimesValid
         RequestType.SHIFT_CHANGE -> validRequestDate && selectedShift != null
-        else -> true
+        else -> dateRange != null
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Đơn từ của tôi", style = MaterialTheme.typography.titleLarge)
-                TextButton({ showForm = !showForm }) { Text(if (showForm) "Đóng form" else "Tạo đơn") }
+                TextButton({ vm.clearError(); showForm = !showForm }, enabled = !state.saving) { Text(if (showForm) "Đóng form" else "Tạo đơn") }
             }
         }
         if (showForm) {
@@ -106,6 +122,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                             items(supportedTypes, key = { it.name }) { candidate ->
                                 FilterChip(
                                     selected = type == candidate,
+                                    enabled = !state.saving,
                                     onClick = {
                                         if (!singleDateRequest && (candidate == RequestType.SHIFT_CHANGE || candidate == RequestType.ATTENDANCE_ADJUSTMENT)) {
                                             requestDate = startDate
@@ -128,17 +145,26 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                     )
                                 },
                                 singleLine = true,
+                                enabled = !state.saving,
                                 isError = !validRequestDate,
                                 supportingText = { if (!validRequestDate) Text("Nhập ngày hợp lệ theo dạng yyyy-MM-dd") }
                             )
                         } else {
-                            OutlinedTextField(startDate, { startDate = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Ngày bắt đầu (yyyy-MM-dd)") }, singleLine = true)
-                            OutlinedTextField(endDate, { endDate = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Ngày kết thúc (yyyy-MM-dd)") }, singleLine = true)
+                            OutlinedTextField(startDate, { startDate = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Ngày bắt đầu (yyyy-MM-dd)") }, singleLine = true, enabled = !state.saving, isError = dateRange == null)
+                            OutlinedTextField(endDate, { endDate = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Ngày kết thúc (yyyy-MM-dd)") }, singleLine = true, enabled = !state.saving, isError = dateRange == null)
+                            if (dateRange == null && type != RequestType.LEAVE) Text(
+                                "Nhập ngày hợp lệ; ngày kết thúc phải từ ngày bắt đầu trở đi.",
+                                color = MaterialTheme.colorScheme.error)
                         }
                         if (type == RequestType.LEAVE) {
                             Text("Chọn từng ca đã được phân. Chọn tất cả ca trong ngày để xin nghỉ cả ngày; có thể chọn nhiều ngày.", style = MaterialTheme.typography.bodySmall)
                             if (validLeaveRange == null) {
                                 Text("Khoảng ngày không hợp lệ hoặc vượt quá 31 ngày.", color = MaterialTheme.colorScheme.error)
+                            } else if (!leaveRangeReady) {
+                                if (state.attendanceHistoryError == null && !state.attendanceHistoryTruncated) {
+                                    Text("Đang tải ca đã phân trong khoảng ngày đã chọn…", style = MaterialTheme.typography.bodySmall)
+                                }
+                                CalculationLoadingNotice(state, vm)
                             } else if (leaveOptions.isEmpty()) {
                                 Text("Không có lịch ca đã phân trong khoảng ngày này.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else {
@@ -146,7 +172,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text(date.toString(), style = MaterialTheme.typography.titleSmall)
-                                            TextButton(onClick = {
+                                            TextButton(enabled = !state.saving, onClick = {
                                                 val next = leaveSelection.toMutableMap()
                                                 val current = next[date.toString()].orEmpty()
                                                 next[date.toString()] = if (current.size == assigned.size) emptySet() else assigned.map { it.id }.toSet()
@@ -161,6 +187,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                                 val selected = shift.id in leaveSelection[date.toString()].orEmpty()
                                                 FilterChip(
                                                     selected = selected,
+                                                    enabled = !state.saving,
                                                     onClick = {
                                                         val next = leaveSelection.toMutableMap()
                                                         val current = next[date.toString()].orEmpty().toMutableSet()
@@ -175,7 +202,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                     }
                                 }
                             }
-                            if (validLeaveRange != null && selectedLeaveScope.isEmpty()) {
+                            if (validLeaveRange != null && leaveRangeReady && selectedLeaveScope.isEmpty()) {
                                 Text("Chọn ít nhất một ca nghỉ.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                         }
@@ -187,6 +214,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Giờ vào đề xuất (HH:mm)") },
                                 singleLine = true,
+                                enabled = !state.saving,
                                 isError = !isValidOptionalTime(proposedCheckIn)
                             )
                             OutlinedTextField(
@@ -195,6 +223,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Giờ ra đề xuất (HH:mm)") },
                                 singleLine = true,
+                                enabled = !state.saving,
                                 isError = !isValidOptionalTime(proposedCheckOut)
                             )
                             if (!adjustmentTimesValid) {
@@ -216,12 +245,13 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                 Box {
                                     OutlinedButton(
                                         onClick = { shiftMenuExpanded = true },
+                                        enabled = !state.saving,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(selectedShift?.let(::shiftChoiceLabel) ?: "Chọn ca muốn đổi sang")
                                     }
                                     DropdownMenu(
-                                        expanded = shiftMenuExpanded,
+                                        expanded = shiftMenuExpanded && !state.saving,
                                         onDismissRequest = { shiftMenuExpanded = false }
                                     ) {
                                         activeChangeShifts.forEach { shift ->
@@ -237,7 +267,7 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                 }
                             }
                         }
-                        OutlinedTextField(reason, { reason = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Lý do") }, minLines = 3)
+                        OutlinedTextField(reason, { reason = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Lý do") }, minLines = 3, enabled = !state.saving)
                         Button(
                             onClick = {
                                 val requestStartDate = if (singleDateRequest) requestDate.trim() else startDate.trim()
@@ -256,10 +286,12 @@ fun EmployeeRequestsScreen(state: MainUiState, vm: MainViewModel) {
                                     reason = ""
                                     proposedCheckIn = ""
                                     proposedCheckOut = ""
+                                    requestedShiftId = null
+                                    leaveSelection = emptyMap()
                                 }
                             },
-                            enabled = !state.saving && reason.isNotBlank() && formValid
-                        ) { Text("Gửi đơn") }
+                            enabled = !state.saving && employeeId != null && reason.isNotBlank() && formValid
+                        ) { Text(if (state.saving) "Đang gửi…" else "Gửi đơn") }
                     }
                 }
             }

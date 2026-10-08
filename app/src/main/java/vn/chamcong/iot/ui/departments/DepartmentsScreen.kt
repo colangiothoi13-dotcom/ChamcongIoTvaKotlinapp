@@ -53,7 +53,8 @@ fun DepartmentsScreen(
     onCreateDepartment: (name: String, onSaved: () -> Unit) -> Unit,
     onRenameDepartment: (departmentId: String, name: String, onSaved: () -> Unit) -> Unit,
     onSetDepartmentActive: (departmentId: String, active: Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    error: String? = null
 ) {
     var filter by remember { mutableStateOf(DepartmentFilter.ACTIVE) }
     var createDialogOpen by remember { mutableStateOf(false) }
@@ -144,6 +145,7 @@ fun DepartmentsScreen(
             title = "Thêm phòng ban",
             initialName = "",
             saving = saving,
+            error = error,
             onDismiss = { createDialogOpen = false },
             onSave = { name -> onCreateDepartment(name) { createDialogOpen = false } }
         )
@@ -154,6 +156,7 @@ fun DepartmentsScreen(
             title = "Chỉnh sửa phòng ban",
             initialName = department.name,
             saving = saving,
+            error = error,
             onDismiss = { departmentBeingEdited = null },
             onSave = { name ->
                 onRenameDepartment(department.id, name) { departmentBeingEdited = null }
@@ -210,6 +213,7 @@ private fun DepartmentNameDialog(
     title: String,
     initialName: String,
     saving: Boolean,
+    error: String?,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit
 ) {
@@ -220,14 +224,17 @@ private fun DepartmentNameDialog(
         onDismissRequest = { if (!saving) onDismiss() },
         title = { Text(title) },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Tên phòng ban") },
-                singleLine = true,
-                enabled = !saving
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Tên phòng ban") },
+                    singleLine = true,
+                    enabled = !saving
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
         },
         confirmButton = {
             Button(

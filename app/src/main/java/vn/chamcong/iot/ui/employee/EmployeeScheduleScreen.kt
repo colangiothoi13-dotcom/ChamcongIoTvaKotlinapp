@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,6 +62,7 @@ import vn.chamcong.iot.model.OvertimeRequestStatus
 import vn.chamcong.iot.model.WeeklyScheduleRequestStatus
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.CalculationLoadingNotice
 import vn.chamcong.iot.ui.loadAttendanceRange
 import vn.chamcong.iot.ui.AppSpacing
 import java.time.LocalDate
@@ -134,14 +136,19 @@ fun EmployeeScheduleScreen(
     LaunchedEffect(observedMonth, state.currentEmployee?.id) {
         if (!inPreview) vm.selectEmployeeScheduleMonth(observedMonth)
     }
-    LaunchedEffect(section, dates.first(), dates.last(), state.currentEmployee?.id) {
-        if (!inPreview && section == EmployeeScheduleSection.ASSIGNED) {
+    val rangeStart = if (section == EmployeeScheduleSection.ASSIGNED) dates.first() else weekStart.minusWeeks(1)
+    val rangeEnd = if (section == EmployeeScheduleSection.ASSIGNED) dates.last() else weekStart.minusWeeks(1).plusDays(5)
+    LaunchedEffect(section, rangeStart, rangeEnd, state.currentEmployee?.id) {
+        if (!inPreview) {
             state.currentEmployee?.id?.let { employeeId ->
-                // A displayed week can span two months.
-                vm.loadAttendanceRange(dates.first(), dates.last(), employeeId, force = true)
+                // A displayed or copied week can span two months.
+                vm.loadAttendanceRange(rangeStart, rangeEnd, employeeId, force = true)
             }
         }
     }
+    val assignedRangeReady = inPreview || (state.currentEmployee?.id?.let {
+        state.hasCompleteCalculationRange(rangeStart, rangeEnd, it)
+    } == true)
     val schedulesByDate = remember(schedules) {
         schedules.mapNotNull { schedule ->
             runCatching { LocalDate.parse(schedule.date) }.getOrNull()?.let { it to schedule }
@@ -183,6 +190,7 @@ fun EmployeeScheduleScreen(
                 onNoteChange = { note = it }
             )
         } else {
+            CalculationLoadingNotice(state, vm)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -212,7 +220,7 @@ fun EmployeeScheduleScreen(
                         }) { Icon(Icons.Default.ChevronLeft, contentDescription = "Kỳ trước") }
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(periodLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-                            Text("$assignedDayCount/${dates.size} ngày có ca", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (assignedRangeReady) "$assignedDayCount/${dates.size} ngày có ca" else "Đang chờ dữ liệu lịch làm", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         IconButton(onClick = {
                             anchorDate = if (view == EmployeeScheduleView.WEEK) anchorDate.plusWeeks(1) else anchorDate.plusMonths(1)
@@ -223,6 +231,7 @@ fun EmployeeScheduleScreen(
                         selectedDate = anchorDate,
                         onDateSelected = { anchorDate = it },
                         summaries = dates.associateWith { date ->
+                            if (!assignedRangeReady) return@associateWith "…"
                             val ids = schedulesByDate[date].orEmpty().flatMap(::employeeScheduleShiftIds).distinct()
                             employeeCalendarShiftSummary(ids, shiftsById).ifBlank {
                                 if (state.calculationEmployeeOvertimeRequests.any { it.workDate == date.toString() }) "TC" else ""
@@ -233,14 +242,16 @@ fun EmployeeScheduleScreen(
                 }
             }
             Text("Chọn ngày trên lịch để xem ca làm.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            EmployeeScheduleDayCard(
-                date = anchorDate,
-                schedules = schedulesByDate[anchorDate].orEmpty(),
-                shiftsById = shiftsById,
-                overtimeRequests = state.calculationEmployeeOvertimeRequests.filter { it.workDate == anchorDate.toString() },
-                attendance = attendance,
-                now = now
-            )
+            if (assignedRangeReady) {
+                EmployeeScheduleDayCard(
+                    date = anchorDate,
+                    schedules = schedulesByDate[anchorDate].orEmpty(),
+                    shiftsById = shiftsById,
+                    overtimeRequests = state.calculationEmployeeOvertimeRequests.filter { it.workDate == anchorDate.toString() },
+                    attendance = attendance,
+                    now = now
+                )
+            }
         }
     }
 }
@@ -341,7 +352,12 @@ private fun EmployeeWeeklyScheduleRegistration(
     val shiftsById = remember(state.shifts) { state.shifts.associateBy(WorkShift::id) }
     val isApproved = request?.status == WeeklyScheduleRequestStatus.APPROVED
     val overdue = !isWeeklyScheduleSubmissionOpen(weekStart, now, employeeScheduleZone)
-    val editable = !isApproved && !overdue && !state.saving
+    val ready = state.employeeWeeklyScheduleRequestReady
+    val editable = ready && !isApproved && !overdue && !state.saving
+    val copyStart = weekStart.minusWeeks(1)
+    val copyRangeReady = LocalInspectionMode.current || (state.currentEmployee?.id?.let {
+        state.hasCompleteCalculationRange(copyStart, copyStart.plusDays(5), it)
+    } == true)
     val morning = mainShifts.firstOrNull { it.category == ShiftCategory.MORNING.name }
     val afternoon = mainShifts.firstOrNull { it.category == ShiftCategory.EVENING.name }
     val selectedIds = selections[selectedDate.toString()].orEmpty()
@@ -364,11 +380,29 @@ private fun EmployeeWeeklyScheduleRegistration(
             Column(Modifier.fillMaxWidth().padding(AppSpacing.medium), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("Đăng ký lịch tuần sau", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text("${weekStart.format(employeeScheduleDateFormatter)} – ${weekDates.last().format(employeeScheduleDateFormatter)}", style = MaterialTheme.typography.bodyMedium)
-                Text("Trạng thái: $statusLabel", color = if (request?.status == WeeklyScheduleRequestStatus.NEEDS_REVISION) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                request?.reviewNote?.takeIf(String::isNotBlank)?.let {
-                    Text("Phản hồi Admin: $it", color = MaterialTheme.colorScheme.error)
+                if (ready) {
+                    Text("Trạng thái: $statusLabel", color = if (request?.status == WeeklyScheduleRequestStatus.NEEDS_REVISION) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                    request?.reviewNote?.takeIf(String::isNotBlank)?.let {
+                        Text("Phản hồi Admin: $it", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
+        }
+        if (!ready) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(AppSpacing.medium), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    if (state.employeeWeeklyScheduleRequestError != null) {
+                        Text(state.employeeWeeklyScheduleRequestError, color = MaterialTheme.colorScheme.error)
+                        OutlinedButton(onClick = vm::retryEmployeeWeeklyScheduleRequest, enabled = !state.saving) {
+                            Text("Thử lại")
+                        }
+                    } else {
+                        CircularProgressIndicator()
+                        Text("Đang tải đăng ký tuần sau…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            return@Column
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(horizontal = AppSpacing.xSmall, vertical = AppSpacing.medium), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
@@ -429,7 +463,7 @@ private fun EmployeeWeeklyScheduleRegistration(
                 OutlinedButton(enabled = editable && morning != null && afternoon != null, onClick = {
                     onSelectionsChange(weekDates.associate { it.toString() to listOfNotNull(morning?.id, afternoon?.id) })
                 }) { Text("Cả ngày cả tuần") }
-                OutlinedButton(enabled = editable, onClick = {
+                OutlinedButton(enabled = editable && copyRangeReady, onClick = {
                     onSelectionsChange(weekDates.associate { targetDate ->
                         val source = state.effectiveEmployeeSchedules.filter { it.date == targetDate.minusWeeks(1).toString() }
                         targetDate.toString() to employeeRegistrationShiftIds(source.flatMap(::employeeScheduleShiftIds), shiftsById)
@@ -438,6 +472,10 @@ private fun EmployeeWeeklyScheduleRegistration(
                 TextButton(enabled = editable, onClick = {
                     onSelectionsChange(weekDates.associate { it.toString() to emptyList() })
                 }) { Text("Xóa chọn") }
+            }
+            if (!copyRangeReady) {
+                Text("Cần tải đầy đủ lịch tuần này để sao chép.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                CalculationLoadingNotice(state, vm)
             }
             if (hasUnavailableSelections) Text("Một số ca đã chọn không còn hoạt động. Vui lòng chọn lại ca hoặc xóa chọn.", color = MaterialTheme.colorScheme.error)
             if (overdue) {
@@ -592,7 +630,7 @@ private fun EmployeeWeeklyScheduleRegistrationPreview() {
         var note by remember { mutableStateOf("") }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             EmployeeWeeklyScheduleRegistration(
-                state = state.copy(shifts = shifts),
+                state = state.copy(shifts = shifts, employeeWeeklyScheduleRequestLoadedWeekStart = weekStart),
                 vm = vm,
                 now = weekStart.minusDays(4).atStartOfDay(employeeScheduleZone).toInstant(),
                 selectedDate = selectedDate,

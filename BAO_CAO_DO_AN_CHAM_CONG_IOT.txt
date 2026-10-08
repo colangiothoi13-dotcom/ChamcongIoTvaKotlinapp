@@ -4,7 +4,7 @@ HỆ THỐNG CHẤM CÔNG IoT BẰNG VÂN TAY
 Phiên bản tài liệu: 1.1
 Ngày biên soạn: 27/09/2026
 Ngày cập nhật: 08/10/2026
-Ghi chú: Nội dung mô tả trạng thái mã nguồn hiện tại; các thay đổi Firestore Rules và index nêu trong báo cáo chưa được triển khai lên Firebase online. Kết quả kiểm thử mới, kết quả lịch sử và các phép đo phần cứng còn thiếu được phân biệt ở mục 3.7. Các vị trí có ký hiệu [CẦN BỔ SUNG] là phần nhóm tự điền thêm sau khi đo đạc, chụp ảnh hoặc hoàn thiện sơ đồ.
+Ghi chú: Nội dung mô tả trạng thái mã nguồn hiện tại; kiểm tra chỉ đọc ngày 08/10/2026 đã xác nhận Firestore Rules đang hoạt động khớp source và index tiện ích đã READY trên Firebase online. Bản sửa UI duyệt tuần sau đã qua kiểm thử/build; cần cài APK mới trên máy Admin, không cần deploy Rules thêm. Kết quả kiểm thử mới, kết quả lịch sử và các phép đo phần cứng còn thiếu được phân biệt ở mục 3.7. Các vị trí có ký hiệu [CẦN BỔ SUNG] là phần nhóm tự điền thêm sau khi đo đạc, chụp ảnh hoặc hoàn thiện sơ đồ.
 
 
 MỤC LỤC
@@ -571,7 +571,7 @@ Schema employeeResources/{id}:
 
 Admin đọc danh sách và ghi nội dung; nhân viên đang hoạt động chỉ đọc ALL, EMPLOYEE:<id của mình> và DEPARTMENT:<departmentId hiện tại>. Biểu mẫu Admin chỉ cho chọn nhân viên/phòng ban đang hoạt động; Rules kiểm tra đối tượng nhận riêng tồn tại và kiểm tra trạng thái hoạt động của Employee khi đọc. Listener lấy tối đa 200 nội dung được cập nhật gần nhất, dùng chung giới hạn cho cả ba loại; khi đổi phòng ban hoặc tài khoản, dữ liệu cũ được xóa và listener tạo lại theo phạm vi mới.
 
-Truy vấn nhân viên dùng whereIn(audience) và orderBy(updatedAt, DESC), cần composite index employeeResources: audience ASC, updatedAt DESC. Tin tức không đọc trực tiếp announcements; màn hình dùng notifications của chính nhân viên có type = ANNOUNCEMENT. Các collection và index trong mã nguồn không tự được áp dụng lên Firebase online nếu chưa deploy.
+Truy vấn nhân viên dùng whereIn(audience) và orderBy(updatedAt, DESC), cần composite index employeeResources: audience ASC, updatedAt DESC. Tin tức không đọc trực tiếp announcements; màn hình dùng notifications của chính nhân viên có type = ANNOUNCEMENT. Trạng thái Rules/index đang hoạt động đã được đối chiếu ở mục 3.4; khi dùng dự án Firebase khác cần áp dụng cấu hình tương ứng.
 
 2.6. Mô hình tác nhân và các sơ đồ Use Case
 
@@ -781,6 +781,14 @@ Admin shell có các khu vực chính:
 
 Các module quản trị được mở từ các luồng tương ứng gồm thiết bị, ca làm, lịch, bảng công, bảng lương, hiệu suất, báo cáo, tháng công, audit, phòng ban, thông báo và Tiện ích nhân viên. Admin mở Tác vụ → Quản trị → Tiện ích nhân viên để đăng lịch họp, khen thưởng hoặc tài liệu; các thao tác gồm Đăng nội dung, Chỉnh sửa → Lưu thay đổi, Hủy chỉnh sửa/Tạo mới và Xóa có xác nhận.
 
+Admin mở Đơn từ → Đăng ký tuần để xem và duyệt yêu cầu; lối tắt Phân ca → Duyệt đăng ký tuần sau cũng mở nhóm này. Màn hình Đơn từ có ba nhóm Đăng ký tuần, Đơn khác và Tăng ca, mặc định chọn tuần sau tính từ ngày hiện tại theo giờ Việt Nam: ngày 08/10/2026 hiển thị Tuần 12/10 – 17/10/2026, từ thứ Hai đến thứ Bảy. Biểu tượng Xem tuần trước/Xem tuần sau và nút Tuần kế tiếp dùng chung selectedWeekStart của Admin, listener đọc đúng tuần đang chọn. Chuyển nhóm giữ tuần đã chọn; Tuần kế tiếp quay về tuần sau của ngày hiện tại. Khu duyệt nằm trong Đơn từ; Lịch giữ lưới tuần/tháng và phân lịch.
+
+Trong cả ba nhóm, mỗi yêu cầu là một dòng gọn gồm tên, mã NV/phòng ban, ngày hoặc loại đơn và trạng thái; đơn chờ duyệt xếp trước. Ô Tìm nhân viên có gợi ý Tên, mã NV, phòng ban, hỗ trợ tìm không dấu và bộ lọc trạng thái; các nhóm có tóm tắt số lượng riêng. Chạm bất kỳ dòng nào để mở chi tiết cuộn được: Chi tiết đăng ký tuần hiển thị đủ sáu ngày, ca, ghi chú và thông tin duyệt; Chi tiết đơn giữ lý do, ngày, ca nghỉ, giờ/ca đề nghị, đính kèm và phản hồi; Chi tiết đăng ký tăng ca giữ ngày/giờ, lý do gửi, thời điểm và người xử lý/lý do từ chối. Đơn đã xử lý vẫn xem chi tiết được nhưng không có thao tác duyệt lại. Các nút xử lý chỉ bật cho đơn chờ đủ điều kiện, khóa nhập và đóng trong lúc gửi/lưu.
+
+Nhóm đăng ký tuần có tóm tắt số đã gửi/chờ duyệt và số chưa gửi khi đã biết danh sách nhân viên hoạt động. Các chip Tất cả, Chờ duyệt, Đã duyệt, Cần sửa dùng số lượng của cả tuần; số đăng ký đang hiển thị phản ánh kết quả lọc. Nút Tổng hợp/Thu gọn mở hoặc thu gọn tên nhân viên chưa gửi và số lượng theo ngày/ca, thay vì đặt lịch sáu ngày của mọi người ngay trên danh sách. Duyệt toàn bộ N đơn chờ của tuần mở xác nhận Duyệt toàn bộ đăng ký tuần? với phạm vi tuần rõ ràng; thao tác áp dụng cho toàn bộ đơn chờ đủ điều kiện của tuần, kể cả đơn bị ẩn bởi tìm kiếm hoặc bộ lọc. Admin chọn Duyệt toàn bộ để gửi hoặc Hủy để dừng bước xác nhận.
+
+Danh sách tuần có trạng thái Đang tải đăng ký lịch tuần…, lỗi Không tải được đăng ký lịch tuần. và nút Thử lại; chỉ báo chưa có đăng ký sau snapshot đúng tuần thành công. Yêu cầu không bị ẩn khi hồ sơ nhân viên chưa tải; thao tác duyệt chỉ bật cho nhân viên đang hoạt động đã được tải và xác minh, và transaction kiểm tra lại trạng thái hoạt động. Thành phần giao diện AdminWeeklyScheduleRequests dùng lại handler, nguồn weeklyScheduleRequests, trạng thái và transaction hiện có; lần làm gọn giao diện Admin không sửa backend, Rules/indexes hoặc luồng gửi lịch của Employee.
+
 Employee shell có các khu vực chính:
 
 - Trang chủ.
@@ -802,7 +810,7 @@ Danh sách Tiện ích có các màn hình cụ thể, liên kết tới dữ li
 - Hỗ trợ: nhập nội dung 1-4.000 ký tự để gửi FINGERPRINT_SUPPORT vào leaveRequests, xem trạng thái và reviewNote của Admin. Yêu cầu này không tự đăng ký lại vân tay hoặc mở cuộc trò chuyện.
 - Đơn báo và Đăng ký ca: mở các luồng Đơn từ và đăng ký lịch tuần hiện có.
 
-Luồng tài nguyên là Compose → MainViewModel → validateEmployeeResource → FirebaseRepository → Firestore Rules → employeeResources; listener đưa nội dung về MainUiState rồi màn hình lọc theo loại. Các màn hình tài nguyên có trạng thái đang tải, trống, lỗi và nút Thử lại. Form giữ nội dung khi lưu thất bại và chỉ xóa bản nháp sau khi lưu thành công. Quyền server không phụ thuộc vào việc người dùng có nhìn thấy nút quản trị trong UI.
+Luồng tài nguyên là Compose (kiểm tra bản nháp) → MainViewModel → FirebaseRepository (chuẩn hóa và validateEmployeeResource) → Firestore Rules → employeeResources; listener đưa nội dung về MainUiState rồi màn hình lọc theo loại. Các màn hình tài nguyên có trạng thái đang tải, trống, lỗi và nút Thử lại. Form giữ nội dung khi lưu thất bại và chỉ xóa bản nháp sau khi lưu thành công. Quyền server không phụ thuộc vào việc người dùng có nhìn thấy nút quản trị trong UI.
 
 Trong shell, back stack nội bộ được duy trì cho các màn hình con. Khi người dùng bấm nút Back vật lý hoặc cử chỉ Back của Android ở màn hình con, ứng dụng quay về màn hình trước. Khi đã ở màn hình gốc và không còn màn hình nội bộ để quay lại, hành vi mặc định của Android được giữ lại.
 
@@ -828,13 +836,13 @@ Phân biệt các loại thay đổi khi triển khai:
 - Thay đổi firmware: nạp lại chương trình vào ESP8266.
 - Thay đổi cấu hình Wi-Fi/secret: cập nhật secrets.h hoặc cấu hình tương ứng, không đưa bí mật thật vào Git.
 
-Trạng thái ngày 08/10/2026: các Rules và index mới đã kiểm thử ở Emulator, nhưng CHƯA deploy lên Firebase online vì chưa có xác nhận triển khai. Đối chiếu chỉ đọc với Rules đang hoạt động cho thấy thay đổi gồm thêm employeeResources, cho phép GET slot đăng ký tuần của chính nhân viên khi document chưa tồn tại và sửa phép tính deadline; các quyền list, create/update của đăng ký tuần vẫn giữ giới hạn hiện có. Index mới chỉ thêm một composite index audience/updatedAt; giữ nguyên 21 index hiện có và không xóa index.
+Trạng thái ngày 08/10/2026: kiểm tra chỉ đọc xác nhận Rules đang hoạt động trên chamcongiot-56ae5 được cập nhật lúc 09:42:14 giờ Việt Nam và khớp mã nguồn hiện tại. Rules có employeeResources, cho phép GET slot đăng ký tuần của chính nhân viên khi document chưa tồn tại và dùng timestamp tính deadline; các quyền list, create/update của đăng ký tuần vẫn giữ giới hạn hiện có. Tổng cộng 22 index khớp cấu hình local, không thiếu/thừa; composite index audience ASC/updatedAt DESC của employeeResources ở trạng thái READY.
 
-Sau khi được xác nhận triển khai, lệnh dành riêng cho phần thay đổi này là:
+Lệnh hướng dẫn cho dự án mới hoặc lần thay đổi Rules/indexes sau này là:
 
     firebase deploy --only firestore:rules,firestore:indexes --project chamcongiot-56ae5 --non-interactive
 
-Lệnh trên được ghi để hướng dẫn, chưa được thực thi trong lần cập nhật này. Không cần deploy Functions hoặc nạp lại firmware cho thay đổi tiện ích/Rules này; APK mới vẫn cần được cài trên điện thoại. Khi Firebase online còn dùng Rules cũ, employeeResources có thể trả PERMISSION_DENIED; cập nhật giao diện đơn thuần không áp dụng quyền server mới.
+Lần cập nhật tài liệu chỉ kiểm tra trạng thái, không thực thi lệnh trên. Bản chuyển khu Admin xem/duyệt đăng ký tuần sang Đơn từ không đổi Rules/indexes và không cần deploy Firebase thêm; cần cài APK mới trên máy Admin để có vị trí màn hình mới. APK Admin cũ vẫn có thể vào Lịch và chọn Tuần sau › để xem đúng tuần yêu cầu đã lưu. Không cần deploy Functions hoặc nạp lại firmware cho thay đổi UI này; Employee tiếp tục gửi tại Lịch làm việc → Đăng ký tuần sau.
 
 3.5. Mô tả chi tiết các Use Case
 
@@ -977,11 +985,13 @@ Mục tiêu: Chuyển yêu cầu lịch tuần thành lịch làm việc đượ
 
 Luồng chính:
 
-1. Admin mở danh sách yêu cầu.
-2. Kiểm tra ngày, ca, số lượng nhân viên và điều kiện nghiệp vụ.
-3. Duyệt thành APPROVED hoặc trả lại NEEDS_REVISION kèm yêu cầu sửa; theo dõi mốc xử lý 17:00 thứ Bảy theo giờ Việt Nam.
+1. Admin mở Đơn từ → Đăng ký tuần, hoặc Phân ca → Duyệt đăng ký tuần sau để đến cùng khu duyệt.
+2. Khi vào màn hình, mặc định chọn tuần sau của ngày hiện tại theo giờ Việt Nam; dùng biểu tượng điều hướng hoặc Tuần kế tiếp khi cần. Đối chiếu khoảng ngày dd/MM – dd/MM/yyyy, chờ snapshot đúng tuần thành công, tìm/lọc nhân viên rồi chạm dòng để mở Chi tiết đăng ký tuần. Kiểm tra đủ sáu ngày, ca, ghi chú và điều kiện nghiệp vụ; nếu tải lỗi, bấm Thử lại.
+3. Trong chi tiết đơn chờ đủ điều kiện, Duyệt thành APPROVED hoặc nhập phản hồi tối đa 1.000 ký tự để Yêu cầu sửa thành NEEDS_REVISION; theo dõi mốc xử lý 17:00 thứ Bảy theo giờ Việt Nam. Với Duyệt toàn bộ N đơn chờ của tuần, đọc xác nhận phạm vi cả tuần trước khi bấm Duyệt toàn bộ; bộ lọc/tìm kiếm không thu hẹp phạm vi này.
 4. Khi duyệt, hệ thống tạo/cập nhật workSchedules theo các ca đã chấp thuận và ghi nhật ký theo luồng nghiệp vụ.
 5. Employee nhận thông báo hoặc thấy trạng thái mới. Yêu cầu cần sửa vẫn phải tuân thủ hạn gửi của Employee.
+
+Danh sách vẫn hiển thị yêu cầu khi dữ liệu nhân viên chưa sẵn sàng; quyền duyệt chỉ mở cho nhân viên đang hoạt động đã được tải/xác minh và transaction kiểm tra lại trạng thái hoạt động. Mọi trạng thái đều mở được chi tiết; Tổng hợp mặc định thu gọn để xem riêng tên chưa gửi và số lượng từng ngày/ca khi cần. Kiểm tra chỉ đọc ngày 08/10/2026 ghi nhận một yêu cầu PENDING cho tuần 12/10 cùng audit SHIFT_UPDATE lúc 09:44:56 giờ Việt Nam. Bản app cũ mặc định dùng tuần 05/10 làm điều kiện truy vấn nên không thấy yêu cầu 12/10 đã lưu. Bản hiện tại mở khu duyệt tại Đơn từ, chọn tuần sau khi vào và giữ các trạng thái PENDING/NEEDS_REVISION/APPROVED, audit cùng luồng transaction hiện có. Sau duyệt, Admin có thể vào Phân ca → Lịch hoặc Tác vụ → Lịch để xem và phân lịch; Employee vẫn đăng ký tại Lịch làm việc → Đăng ký tuần sau.
 
 UC-08 - Gửi và duyệt đơn nghỉ phép/điều chỉnh chấm công
 
@@ -993,7 +1003,7 @@ Luồng chính:
 1. Employee chọn loại đơn, ngày, lý do và bằng chứng nếu có.
 2. Hệ thống kiểm tra ngày và dữ liệu bắt buộc.
 3. Employee gửi đơn.
-4. Admin xem, duyệt hoặc từ chối.
+4. Admin mở Đơn từ → Đơn khác, tìm theo tên/mã NV/phòng ban hoặc lọc trạng thái; chạm dòng để mở Chi tiết đơn, kiểm tra đủ ngày, lý do, dữ liệu đề nghị và phản hồi. Chỉ đơn chờ đủ điều kiện có Duyệt/Từ chối; từ chối phải nhập lý do, Hủy quay lại chi tiết.
 5. Kết quả được ghi và gửi thông báo.
 6. Quy tắc phân loại ưu tiên đơn nghỉ phép đã duyệt khi tính trạng thái ngày.
 
@@ -1007,7 +1017,7 @@ Luồng chính:
 
 1. Employee gửi yêu cầu tăng ca với thời gian và lý do.
 2. Hệ thống kiểm tra cửa sổ tăng ca, ví dụ 18:00-22:00.
-3. Admin duyệt hoặc từ chối.
+3. Admin mở Đơn từ → Tăng ca, tìm/lọc trên danh sách gọn rồi chạm dòng mở Chi tiết đăng ký tăng ca. Có thể đọc mọi trạng thái và thông tin gửi/duyệt/lý do từ chối; chỉ đơn chờ đủ điều kiện có Duyệt/Từ chối. Từ chối yêu cầu lý do không rỗng, Quay lại trở về phần xem.
 4. Nếu được duyệt, dữ liệu được dùng khi tính bảng công/bảng lương.
 
 Không được coi mọi hoạt động ngoài ca là tăng ca tự động nếu chưa có quy tắc hoặc phê duyệt phù hợp.
@@ -1058,7 +1068,7 @@ Luồng chính:
 5. Firestore ghi createdAt/createdBy khi tạo và updatedAt khi sửa; listener cập nhật danh sách.
 6. Admin có thể Chỉnh sửa → Lưu thay đổi hoặc Xóa sau xác nhận.
 
-Luồng thay thế: Thiếu dữ liệu, thời gian không hợp lệ, URL không phải HTTPS, người nhận đã ngừng hoạt động, mạng lỗi hoặc Rules chưa triển khai. Không xóa bản nháp khi lưu lỗi.
+Luồng thay thế: Thiếu dữ liệu, thời gian không hợp lệ, URL không phải HTTPS, người nhận đã ngừng hoạt động, mạng lỗi hoặc quyền/schema bị Rules từ chối. Không xóa bản nháp khi lưu lỗi.
 
 UC-14 - Sử dụng tiện ích và xem thâm niên
 
@@ -1204,6 +1214,18 @@ KT-APP-11 - Lỗi server và dữ liệu tính công chưa sẵn sàng
 
 Ngắt kết nối server hoặc mô phỏng lỗi Source.SERVER khi tải kỳ công. Dù danh sách nhân viên đã có từ listener/cache, dashboard không được kết luận chấm công bằng 0 là kết quả hoàn chỉnh. Xác nhận hiển thị lỗi/Tải lại dữ liệu, không lưu bảng lương hoặc xuất CSV từ dữ liệu cũ/chưa đủ. Kết nối lại và Tải lại phải nhận đúng kỳ; kiểm tra cả đúng 5.000 bản ghi và còn dữ liệu vượt giới hạn. Không dùng cache fallback để bỏ qua điều kiện dữ liệu tính toán hoàn chỉnh.
 
+KT-APP-12 - Admin thấy đăng ký tuần sau đã gửi
+
+Ngày 08/10/2026, gửi yêu cầu tuần 12/10 từ Employee rồi Admin mở Đơn từ → Đăng ký tuần hoặc Phân ca → Duyệt đăng ký tuần sau; xác nhận nhóm mặc định và khoảng Tuần 12/10 – 17/10/2026, danh sách nhận đúng yêu cầu. Chuyển qua Đơn khác và Tăng ca phải hiển thị đúng nhóm và giữ tuần đã chọn; khu Lịch chỉ giữ calendar/phân lịch, không còn danh sách duyệt đăng ký. Đổi tuần bằng biểu tượng phải đổi truy vấn yêu cầu cùng tuần đang xem, xóa dữ liệu phạm vi cũ và chờ snapshot mới; Tuần kế tiếp phải quay về tuần sau của ngày hiện tại. Không báo chưa có đăng ký trong lúc tải hoặc khi lỗi. Kiểm tra lỗi listener và Thử lại riêng, danh sách yêu cầu vẫn hiển thị khi chưa có danh sách nhân viên nhưng thao tác duyệt bị khóa cho đến khi hồ sơ hoạt động được tải/xác minh. Duyệt hoặc yêu cầu sửa phải cập nhật đúng yêu cầu của tuần mục tiêu, audit và lịch theo luồng hiện có. Employee tiếp tục dùng Lịch làm việc → Đăng ký tuần sau; việc thay giao diện Admin không yêu cầu gửi lại đơn.
+
+[HÌNH 3.26 - Lối tắt chọn tuần sau, nhãn tuần và danh sách Admin duyệt yêu cầu đã gửi.]
+
+KT-APP-13 - Danh sách Đơn từ gọn và chi tiết đầy đủ
+
+Ở từng nhóm Đăng ký tuần/Đơn khác/Tăng ca, tìm theo tên có dấu/không dấu, mã NV và phòng ban; đổi chip trạng thái và đối chiếu số lượng, thứ tự đơn chờ trước. Chạm cả đơn chờ và đơn đã xử lý, cuộn để đọc hết lý do dài, ca/ngày, ghi chú, người duyệt và phản hồi; đơn đã xử lý phải chỉ xem được. Lịch sáu ngày của đăng ký tuần chỉ hiển thị trong chi tiết; Tổng hợp mặc định thu gọn và mở được tên chưa gửi/số lượng ca. Bộ chọn tuần phải vừa chiều rộng điện thoại, dùng ngày dd/MM và đến thứ Bảy.
+
+Lọc chỉ còn một dòng rồi bấm Duyệt toàn bộ N đơn chờ của tuần: hộp xác nhận phải ghi đúng tuần và giải thích vẫn duyệt tất cả đơn chờ đủ điều kiện của tuần, kể cả dòng bị ẩn; Hủy không thay đổi dữ liệu. Kiểm tra đóng/nhập/bấm lặp khi đang gửi bị khóa, lỗi giữ nội dung phản hồi và có thể thử lại; backend vẫn kiểm tra PENDING mới nhất. Đây là kịch bản UI cần thử trực tiếp trên điện thoại, không được coi là đã thực hiện chỉ từ kết quả unit test.
+
 3.6.3. Kịch bản quay video minh chứng
 
 Video nên quay liên tục, nhìn thấy cả thiết bị thật và màn hình ứng dụng nếu có thể. Mỗi video nên có lời mô tả ngắn:
@@ -1221,16 +1243,23 @@ Mỗi video ghi thêm ngày quay, phiên bản firmware, phiên bản APK, thi�
 
 3.7. Kết quả kiểm thử hiện tại
 
-Kết quả đã xác nhận trong phiên làm việc cập nhật ngày 08/10/2026:
+Kết quả kiểm thử đã xác nhận ngày 08/10/2026; Android được chạy lại sau khi làm gọn ba nhóm Đơn từ của Admin:
 
-- Android: 255/255 unit test đạt trong 39 test suite, không có failure/error; chạy `:app:testDebugUnitTest :app:assembleDebug` với Gradle 8.9 và JDK 17. Kết quả bao gồm quy tắc tiện ích, lịch tuần, trạng thái dữ liệu tính toán và trường hợp giới hạn 5.000 bản ghi.
-- Bản debug APK build thành công tại `app/build/outputs/apk/debug/app-debug.apk`; kết quả build và XML test được đối chiếu lại ngày 08/10/2026.
-- Firestore Rules: 46/46 test đạt trên Emulator chạy bằng Java 21, gồm 5 test employeeResources và 7 regression test đăng ký tuần. Việc chạy Emulator là cục bộ, không ghi dữ liệu Firebase online.
-- Firebase Functions: 32/32 test đã đạt với `npm test --prefix firebase/functions` trong phiên làm việc. Functions vẫn là phần mở rộng, không thuộc luồng bắt buộc của dự án Firebase Spark; test này không có nghĩa Functions đã được deploy.
+- Android: 284/284 unit test đạt trong 45 test suite, không có failure/error/skipped; chạy `:app:testDebugUnitTest :app:assembleDebug` với Gradle 8.9 và JDK 17. Bao gồm trạng thái duyệt/đăng ký tuần, form nhân viên, đổi mật khẩu khi audit lỗi, hoàn tác tài khoản, bộ lọc mã nhân viên/nhật ký, cùng các nghiệp vụ tính toán và giới hạn 5.000 bản ghi.
+- Bản debug APK build thành công sau khi làm gọn ba nhóm Đơn từ Admin tại `app/build/outputs/apk/debug/app-debug.apk`, tạo lúc 12:29:26 giờ Việt Nam ngày 08/10/2026, dung lượng 23.747.004 byte; kết quả build và XML test được đối chiếu lại.
+- Firestore Rules/transaction: 49/49 test đạt trong đợt rà soát trước trên Emulator chạy bằng Java 21, gồm 5 test employeeResources, 7 regression test đăng ký tuần và 3 test thao tác Admin đồng thời mới trong adminActionTransactions.test.js. Rules không đổi trong đợt rà soát; toàn bộ kiểm thử dùng dự án demo trên localhost, không ghi dữ liệu Firebase online.
+- Firebase Functions: 32/32 test đạt bằng `node --test` tại firebase/functions trong đợt rà soát trước. Functions vẫn là phần mở rộng, không thuộc luồng bắt buộc của dự án Firebase Spark; test này không có nghĩa Functions đã được deploy.
+- Mô phỏng firmware: 69/69 test đạt cho trạng thái lệnh, offline attendance và runtime. Không chạy lại cảm biến, cửa, LED/còi hay nạp firmware trên phần cứng thật.
+
+Lần làm gọn ba nhóm Đơn từ Admin chạy lại bộ kiểm thử Android hiện có và build APK, không bổ sung test mới; không chạy lại Firestore 49/49, Functions 32/32 hoặc firmware 69/69. Nguồn đơn, các trạng thái và transaction duyệt giữ nguyên; không đổi backend, Rules/indexes hay luồng gửi đăng ký của Employee. Danh sách LazyColumn có key đã được đối chiếu mã nguồn; chưa kiểm thử toàn bộ UI hoặc đo hiệu năng trên điện thoại thật.
+
+Đợt rà soát đối chiếu nút → callback → ViewModel → Repository/Rules ở cả Admin và Employee. Sửa điều hướng yêu cầu điều chỉnh, tải ca nghỉ khác tháng, readiness và thử lại đăng ký, sao chép đúng dữ liệu nguồn, khóa form khi lưu/gửi, lỗi trong modal, lọc báo cáo bằng mã hiển thị và tìm nhật ký tiếng Việt. Backend bảo toàn lịch khi sao chép đồng thời, giữ hồ sơ khi thiết bị đã nhận vân tay nhưng tạo tài khoản lỗi, giữ trạng thái/chuyển phòng khi đổi tên và kiểm tra nhân viên active trong transaction duyệt tuần. Auth đổi mật khẩu thành công nhưng audit thất bại được thông báo riêng; không báo đổi mật khẩu thất bại. Xem KIEM_TRA_CHUC_NANG_ADMIN_USER.txt để đối chiếu từng nhóm chức năng và giới hạn kiểm chứng.
+
+Kiểm tra Firebase chỉ đọc đã xác nhận Rules đang áp dụng, index tiện ích READY và một yêu cầu tuần sau PENDING có audit. Kết quả kiểm thử/build trên máy phát triển và đối chiếu dữ liệu không thay thế thao tác UI thủ công trên điện thoại; chưa khẳng định đã nghiệm thu luồng duyệt bằng điện thoại thật.
 
 Kết quả lịch sử được giữ để đối chiếu:
 
-- Ngày 28/09/2026 từng ghi nhận Android 191/191 unit test; con số này đã được thay bằng kết quả 255/255 ở trên cho mã nguồn hiện tại.
+- Ngày 28/09/2026 từng ghi nhận Android 191/191 unit test; trước bản sửa duyệt tuần sau ngày 08/10 từng đạt 255/255 trong 39 suite, sau sửa duyệt tuần sau đạt 261/261 trong 40 suite. Kết quả rà soát rộng hiện tại là 284/284 trong 45 suite ở trên.
 - Bản release có R8, minify và shrink từng build thành công khi loại trừ các task lintVital; môi trường offline khi đó thiếu com.android.tools.lint:lint-gradle:31.7.3. APK lịch sử là app-release-unsigned.apk do chưa cấu hình keystore ký phát hành. Lần cập nhật 08/10 chỉ xác nhận lại build debug, không khẳng định release mới đã build hoặc ký.
 - Các mô tả firmware và kịch bản phần cứng dựa trên mã nguồn, kiểm tra đã ghi nhận trước đó và kế hoạch thực nghiệm. Lần cập nhật này không chạy lại thử nghiệm thiết bị thật hoặc bổ sung phép đo sinh trắc học, điện áp/dòng, mất điện hay video.
 
@@ -1249,7 +1278,7 @@ Hai lỗi Rules của luồng đăng ký tuần đã được tái hiện và s�
 1. GET document chưa tồn tại bị PERMISSION_DENIED: Rule cũ truy cập resource.data.employeeId khi transaction đọc slot lần đầu, nhưng document chưa có nên không có resource.data. Rule mới tách get/list; chỉ cho Employee đang hoạt động đọc slot thiếu đúng employeeId_yyyy-MM-dd của mình, ngày thứ Hai hợp lệ và document thực sự chưa tồn tại. So sánh đầy đủ ID sau khi lấy token ngày cuối cùng, không dùng employeeId làm regex; vẫn bảo vệ ID chứa dấu gạch dưới/ký tự regex. Document có sẵn nhưng mang employeeId người khác vẫn bị từ chối, và quyền list không mở rộng.
 2. Deadline gây lỗi phép toán string + duration: isoDateAfter trả chuỗi ngày nên biểu thức cũ không thể so với request.time. Rule mới dùng timestamp: request.time < isoDate(weekStart) - duration.value(2, 'd') + duration.value(5, 'h'). Mốc 05:00 UTC thứ Bảy liền trước bằng 12:00 giờ Việt Nam; hạn gửi vẫn là trước mốc đó.
 
-Kiểm thử đã tái hiện GET đầu tiên trả 403 ở Rules cũ; phiên bản chỉ sửa GET đọc slot thiếu thành công nhưng commit vẫn 403 do string + duration. Rules cuối cùng cho phép transaction tạo PENDING kèm audit, cập nhật yêu cầu còn hạn, đồng thời từ chối slot khác, truy vấn rộng, tài khoản không hợp lệ, sửa APPROVED và tạo/sửa khi hết hạn. Các Rules/index cuối cùng CHƯA deploy lên Firebase online, vì chưa có xác nhận triển khai.
+Kiểm thử đã tái hiện GET đầu tiên trả 403 ở Rules cũ; phiên bản chỉ sửa GET đọc slot thiếu thành công nhưng commit vẫn 403 do string + duration. Rules cuối cùng cho phép transaction tạo PENDING kèm audit, cập nhật yêu cầu còn hạn, đồng thời từ chối slot khác, truy vấn rộng, tài khoản không hợp lệ, sửa APPROVED và tạo/sửa khi hết hạn. Rules đang hoạt động đã được đối chiếu khớp source ngày 08/10; cấu hình index cũng khớp và index tiện ích READY. Bản sửa Admin nhìn thấy yêu cầu tuần sau là thay đổi truy vấn/state/UI, không cần đổi quyền server.
 
 Cách chạy lại kiểm thử Rules cục bộ: cần Java 21 trên PATH, mở terminal thứ nhất chạy:
 
@@ -1275,9 +1304,10 @@ Các kết quả tự động không thay thế cho kiểm thử trên điện t
 - Quản lý nhân viên, ca, lịch, đơn, báo cáo và audit theo các luồng hiện có.
 - Tiện ích nhân viên nối Firestore cho lịch họp, khen thưởng và tài liệu theo người nhận; Tin tức đọc thông báo của mình, Thâm niên lấy ngày vào làm và Hỗ trợ dùng đơn FINGERPRINT_SUPPORT.
 - Lối tắt đăng ký ca mở trực tiếp tuần sau; gửi/cập nhật lịch qua transaction cùng audit và các trạng thái PENDING/NEEDS_REVISION/APPROVED.
+- Khu Admin duyệt đăng ký nằm ở Đơn từ → Đăng ký tuần; lối tắt Phân ca → Duyệt đăng ký tuần sau mở cùng nhóm. Khi vào, mặc định tuần sau của ngày hiện tại; điều hướng tuần và listener dùng cùng selectedWeekStart. Danh sách có trạng thái tải/lỗi/thử lại riêng và không bị ẩn khi hồ sơ nhân viên chưa tải xong; Employee giữ luồng gửi tại Lịch làm việc → Đăng ký tuần sau.
 - Firmware ESP8266 đọc vân tay, LCD, LED, buzzer, servo, Wi-Fi, NTP và hàng đợi LittleFS.
 - Xử lý Back vật lý/cử chỉ trong các shell của ứng dụng.
-- Android 255/255 unit test, Rules Emulator Java 21 đạt 46/46 test và build debug theo kết quả nêu trên.
+- Rà soát chức năng Admin/Employee: Android 284/284 unit test trong 45 suite và build debug thành công sau làm gọn ba nhóm Đơn từ Admin; bộ Rules không đổi, Emulator Java 21 đạt 49/49 trong đợt rà soát trước.
 - Sửa hai lỗi Rules đăng ký lần đầu/deadline và xử lý lỗi tải server mà không bỏ qua điều kiện dữ liệu tính công đầy đủ.
 
 Phần cần nhóm bổ sung trước khi nộp:
@@ -1288,7 +1318,7 @@ Phần cần nhóm bổ sung trước khi nộp:
 - Ảnh màn hình theo từng Use Case.
 - Video hoạt động end-to-end.
 - Link hoặc mã nguồn phụ lục nếu giảng viên yêu cầu.
-- Xác nhận và triển khai Rules/index đã kiểm thử lên Firebase online, chờ index sẵn sàng rồi thử lại các luồng trên điện thoại. Tại thời điểm báo cáo, bước deploy chưa được thực hiện.
+- Cài APK debug mới đã build và thử luồng Admin duyệt đăng ký tuần sau trên điện thoại; Rules/index trên Firebase online đã được xác minh áp dụng, không cần deploy thêm cho thay đổi UI này.
 
 3.9. Hạn chế và hướng phát triển
 
@@ -1301,7 +1331,7 @@ Hạn chế:
 - Chưa đánh giá tải khi có nhiều thiết bị và nhiều sự kiện đồng thời.
 - Chưa kiểm thử đầy đủ trong điều kiện mất điện đột ngột khi đang ghi LittleFS.
 - Chưa có vỏ bảo vệ, chống nước, chống bụi và chống phá hoại.
-- Rules/index mới chưa được triển khai lên Firebase online; kết quả Emulator chưa thay thế thử nghiệm end-to-end trên môi trường online sau deploy.
+- Rules/index đang hoạt động đã được đối chiếu, nhưng kết quả Emulator và kiểm tra chỉ đọc chưa thay thế toàn bộ thử nghiệm end-to-end trên điện thoại/thiết bị thật.
 - Tài liệu là liên kết HTTPS bên ngoài, chưa có tải tệp/phiên bản tài liệu trong ứng dụng; khen thưởng là nội dung ghi nhận, tách khỏi tiền thưởng bảng lương.
 - Danh sách tài nguyên giới hạn 200 nội dung cập nhật gần nhất cho cả ba loại, chưa có tải tiếp lịch sử; sửa/xóa tài nguyên chưa ghi audit log riêng.
 
@@ -1325,7 +1355,7 @@ KẾT LUẬN
 
 Điểm đáng chú ý về mặt thiết kế là sự tách biệt giữa attendance event gốc và kết quả phân loại. Nhờ đó, hệ thống có thể giải thích một bản ghi được xử lý ra sao, hỗ trợ điều chỉnh có lý do và lưu audit. Việc có hàng đợi offline cũng giúp mô hình sát hơn với điều kiện sử dụng thực tế, nơi Wi-Fi có thể không ổn định.
 
-Ở phiên bản mã nguồn cập nhật, các tiện ích nhân viên đã có luồng dữ liệu và xử lý nghiệp vụ cụ thể, cùng kiểm tra quyền theo người nhận. Kiểm thử Android và Firestore Emulator đạt kết quả ở mục 3.7; để các Rules/index mới hoạt động trên Firebase online, vẫn cần xác nhận deploy và kiểm tra lại bằng APK trên điện thoại. Các minh chứng phần cứng và phép đo còn đánh dấu [CẦN BỔ SUNG] chưa được thay bằng kết quả tự động.
+Ở phiên bản mã nguồn cập nhật, các tiện ích nhân viên đã có luồng dữ liệu và xử lý nghiệp vụ cụ thể, cùng kiểm tra quyền theo người nhận. Rules/index trên Firebase online đã được kiểm tra chỉ đọc và khớp cấu hình hiện tại; bản sửa Admin duyệt tuần sau cần APK mới và kiểm tra giao diện trên điện thoại. Kết quả kiểm thử được nêu rõ theo lần chạy tại mục 3.7. Các minh chứng phần cứng và phép đo còn đánh dấu [CẦN BỔ SUNG] chưa được thay bằng kết quả tự động.
 
 Sản phẩm hiện tại nên được trình bày đúng là prototype phục vụ học tập và chứng minh kiến thức hệ thống nhúng, IoT, Android, Firebase và thiết kế phần mềm. Để nâng cấp thành sản phẩm thực tế, nhóm cần tiếp tục hoàn thiện nguồn, bảo mật thiết bị, đo lường độ chính xác, thiết kế cơ khí, khả năng mở rộng và kiểm thử thực địa.
 
@@ -1427,6 +1457,7 @@ Hình 3.22: Admin tạo/sửa lịch họp, khen thưởng và tài liệu.
 Hình 3.23: Tiện ích Employee theo phạm vi người nhận.
 Hình 3.24: Lối tắt Đăng ký ca, chọn ca tuần sau và yêu cầu PENDING.
 Hình 3.25: Ngày vào làm, Thâm niên và phản hồi hỗ trợ vân tay.
+Hình 3.26: Lối tắt chọn tuần sau, nhãn tuần và danh sách Admin duyệt lịch.
 
 Video 01: Nhận dạng và mở/đóng cửa.
 Video 02: Nút Back vật lý.
@@ -1506,6 +1537,9 @@ Gợi ý sơ đồ tuần tự đăng ký tuần:
     Rules -> Repository: Cho phép đọc slot của mình dù chưa có document
     Repository -> Firestore: Ghi yêu cầu PENDING + audit trong cùng transaction
     Rules -> Repository: Kiểm tra deadline timestamp và các ràng buộc
+    Admin -> UI: Đơn từ -> Đăng ký tuần / Phân ca -> Duyệt đăng ký tuần sau
+    Admin UI -> MainViewModel: Chọn tuần sau của ngày hiện tại khi vào; điều hướng tuần
+    Repository listener -> Firestore: Đọc yêu cầu đúng tuần đăng ký
     Admin -> Firestore: APPROVED hoặc NEEDS_REVISION theo luồng duyệt
     Firestore -> Employee UI: Trạng thái và phản hồi
 

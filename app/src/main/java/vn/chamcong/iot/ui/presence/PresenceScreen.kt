@@ -44,7 +44,8 @@ fun PresenceScreen(state: MainUiState, vm: MainViewModel) {
         if (!inPreview) vm.loadAttendanceRange(date, date, force = true)
     }
     var selected by remember { mutableStateOf<PresenceStatus?>(null) }
-    val records = if (inPreview || state.hasCompleteCalculationRange(date, date)) state.presenceRecords else emptyList()
+    val ready = inPreview || state.hasCompleteCalculationRange(date, date)
+    val records = if (ready) state.presenceRecords else emptyList()
     val visible = records.filter { selected == null || it.status == selected }
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         Text("Theo dõi trạng thái có mặt", style = MaterialTheme.typography.titleLarge)
@@ -73,7 +74,7 @@ fun PresenceScreen(state: MainUiState, vm: MainViewModel) {
             }
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-            if (visible.isEmpty()) item { Text("Không có nhân viên trong nhóm này") }
+            if (ready && visible.isEmpty()) item { Text("Không có nhân viên trong nhóm này") }
             items(visible, key = { it.employee.id }) { PresenceCard(it) }
         }
     }

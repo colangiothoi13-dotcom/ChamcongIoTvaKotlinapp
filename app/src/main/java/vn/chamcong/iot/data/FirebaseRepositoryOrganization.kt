@@ -26,24 +26,40 @@ suspend fun FirebaseRepository.saveDepartment(departmentId: String?, rawName: St
     } else emptyList()
     require(affectedEmployees.size <= 498) { "Có quá nhiều nhân viên để đổi tên phòng ban trong một lần" }
 
-    val batch = db.batch()
-    batch.set(ref, mapOf(
-        "name" to name,
-        "active" to (old?.getBoolean("active") ?: true),
-        "createdAt" to (old?.getTimestamp("createdAt") ?: now),
-        "updatedAt" to now
-    ))
-    affectedEmployees.forEach { employee ->
-        batch.update(employee.reference, mapOf("department" to name, "departmentId" to ref.id))
-    }
     val auditRef = db.collection("audit_logs").document()
     val audit = AuditLog(
         actorId = currentUserId, actorName = currentUserName,
         action = AuditAction.DEPARTMENT_UPDATE.name, targetType = "department", targetId = ref.id,
         details = if (old == null) "Tạo phòng ban $name" else "Đổi tên phòng ban ${old.getString("name")} thành $name"
     )
-    batch.set(auditRef, audit.toFirestoreData())
-    batch.commit().await()
+    validateAuditLog(audit)
+    db.runTransaction { transaction ->
+        val current = transaction.get(ref)
+        if (old == null) {
+            require(!current.exists()) { "Phòng ban đã được tạo. Vui lòng tải lại danh sách." }
+        } else {
+            require(current.exists() && current.getString("name") == old.getString("name")) {
+                "Phòng ban đã thay đổi. Vui lòng tải lại trước khi đổi tên."
+            }
+        }
+        // Read all candidate profiles before writes; a transfer causes retry and is skipped.
+        val employees = affectedEmployees.associateWith { transaction.get(it.reference) }
+        if (old == null) {
+            transaction.set(ref, mapOf("name" to name, "active" to true, "createdAt" to now, "updatedAt" to now))
+        } else {
+            // Preserve current active/createdAt instead of replacing them from the preliminary query.
+            transaction.update(ref, mapOf("name" to name, "updatedAt" to now))
+        }
+        employees.forEach { (candidate, employee) ->
+            val currentDepartmentId = employee.getString("departmentId").orEmpty()
+            val stillMember = currentDepartmentId == ref.id ||
+                (currentDepartmentId.isBlank() && employee.getString("department") == old?.getString("name"))
+            if (employee.exists() && stillMember) {
+                transaction.update(candidate.reference, mapOf("department" to name, "departmentId" to ref.id))
+            }
+        }
+        transaction.set(auditRef, audit.toFirestoreData())
+    }.await()
     return ref.id
 }
 

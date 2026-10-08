@@ -188,18 +188,25 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
             }
         }
     }
-    if (editing) DeviceConfigDialog(device, state.saving, onDismiss = { editing = false }) { name, location ->
+    if (editing) DeviceConfigDialog(device, state.saving, state.error, onDismiss = { editing = false }) { name, location ->
         vm.updateDeviceConfiguration(device.id, name, location) { editing = false }
     }
     if (restartConfirm) {
         AlertDialog(
             onDismissRequest = { if (!state.saving) restartConfirm = false },
             title = { Text("Khởi động lại thiết bị?") },
-            text = { Text("Thiết bị sẽ hoàn tất việc ghi nhận lệnh rồi khởi động lại. Hãy xác nhận khi không có người đang quét vân tay.") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    Text("Thiết bị sẽ hoàn tất việc ghi nhận lệnh rồi khởi động lại. Hãy xác nhận khi không có người đang quét vân tay.")
+                    if (!online) Text("Thiết bị đang mất kết nối.", color = MaterialTheme.colorScheme.error)
+                    else if (pending) Text("Thiết bị đang xử lý một lệnh khác.", color = MaterialTheme.colorScheme.error)
+                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
             confirmButton = {
                 Button(onClick = {
                     vm.requestDeviceCommand(device.id, DeviceCommandType.RESTART_DEVICE) { restartConfirm = false }
-                }, enabled = !state.saving) { Text("Khởi động lại") }
+                }, enabled = canAct) { Text("Khởi động lại") }
             },
             dismissButton = { TextButton(onClick = { restartConfirm = false }, enabled = !state.saving) { Text("Hủy") } }
         )
@@ -237,7 +244,7 @@ private fun LatestAttendance(item: Attendance) {
 }
 
 @Composable
-private fun DeviceConfigDialog(device: DeviceSnapshot, saving: Boolean, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+private fun DeviceConfigDialog(device: DeviceSnapshot, saving: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
     var name by remember(device.id) { mutableStateOf(device.name) }
     var location by remember(device.id) { mutableStateOf(device.location) }
     AlertDialog(
@@ -245,8 +252,9 @@ private fun DeviceConfigDialog(device: DeviceSnapshot, saving: Boolean, onDismis
         title = { Text("Cấu hình thiết bị") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Tên thiết bị") }, singleLine = true)
-                OutlinedTextField(location, { location = it }, label = { Text("Vị trí") }, singleLine = true)
+                OutlinedTextField(name, { name = it }, label = { Text("Tên thiết bị") }, singleLine = true, enabled = !saving)
+                OutlinedTextField(location, { location = it }, label = { Text("Vị trí") }, singleLine = true, enabled = !saving)
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = { Button({ onSave(name, location) }, enabled = !saving && name.isNotBlank()) { Text("Lưu") } },

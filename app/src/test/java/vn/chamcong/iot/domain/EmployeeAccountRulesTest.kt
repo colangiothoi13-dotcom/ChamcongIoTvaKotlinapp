@@ -2,11 +2,35 @@ package vn.chamcong.iot.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import vn.chamcong.iot.model.EmployeeAccountInput
+import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.UserRole
 
 class EmployeeAccountRulesTest {
+    @Test
+    fun unstartedEnrollmentCanBeRolledBack() {
+        val employee = Employee(id = "employee-1", pendingTemplateId = 1)
+        assertTrue(canRollbackNewEmployeeProvisioning(employee, "employee-1", "REQUESTED"))
+        assertTrue(canRollbackNewEmployeeProvisioning(employee, null, null))
+    }
+
+    @Test
+    fun deviceAcceptedEnrollmentRetainsEmployeeAndMapping() {
+        val employee = Employee(id = "employee-1", pendingTemplateId = 1)
+        listOf("PROCESSING", "COMPLETED", "FAILED").forEach { status ->
+            assertFalse(canRollbackNewEmployeeProvisioning(employee, "employee-1", status))
+        }
+    }
+
+    @Test
+    fun storedFingerprintCannotBeRemovedByAccountRollback() {
+        val employee = Employee(id = "employee-1", fingerprintTemplateId = 1)
+        assertFalse(canRollbackNewEmployeeProvisioning(employee, "employee-1", "REQUESTED"))
+        assertFalse(canRollbackNewEmployeeProvisioning(employee, "different-employee", "COMPLETED"))
+    }
+
     @Test
     fun validInputCreatesActiveEmployeeProfileLinkedToEmployeeDocument() {
         val input = EmployeeAccountInput(

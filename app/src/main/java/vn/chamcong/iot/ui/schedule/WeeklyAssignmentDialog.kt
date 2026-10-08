@@ -21,7 +21,6 @@ import vn.chamcong.iot.ui.MainViewModel
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import vn.chamcong.iot.model.WeeklyScheduleRequestStatus
 
 @Composable
 internal fun WeeklyScheduleWarning(state: MainUiState) {
@@ -30,11 +29,11 @@ internal fun WeeklyScheduleWarning(state: MainUiState) {
         while (true) { now = Instant.now(); delay(1000) }
     }
     val weekStart = mondayOfWeek(state.selectedWeekStart)
-    val operationalIds = state.operationalEmployees.mapTo(mutableSetOf()) { it.id }
-    val requests = state.weeklyScheduleRequests.filter { it.weekStart == weekStart.toString() && it.employeeId in operationalIds }
-    val missingCount = state.operationalEmployees.count { employee -> employee.active && requests.none { it.employeeId == employee.id } }
-    val pendingCount = requests.count { it.status == WeeklyScheduleRequestStatus.PENDING }
-    val revisionCount = requests.count { it.status == WeeklyScheduleRequestStatus.NEEDS_REVISION }
+    val presentation = weeklyScheduleRequestsPresentation(state)
+    if (!presentation.ready) return
+    val missingCount = presentation.missingEmployees.size
+    val pendingCount = presentation.pendingRequests.size
+    val revisionCount = presentation.revisionCount
     val employeeDeadline = weekStart.minusDays(2).atTime(12, 0).atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant()
     val adminDeadline = weekStart.minusDays(2).atTime(17, 0).atZone(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant()
     val overdueEmployee = now.isAfter(employeeDeadline)
@@ -43,7 +42,9 @@ internal fun WeeklyScheduleWarning(state: MainUiState) {
     if (missingCount > 0) {
         Text("${if (overdueEmployee) "Quá hạn gửi" else "Chưa đăng ký"}: $missingCount nhân viên.",
             color = if (overdueEmployee) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-    } else Text("Tất cả nhân viên đang hoạt động đã gửi đăng ký.", style = MaterialTheme.typography.bodySmall)
+    } else if (presentation.allActiveEmployeesSubmitted) {
+        Text("Tất cả nhân viên đang hoạt động đã gửi đăng ký.", style = MaterialTheme.typography.bodySmall)
+    }
     if (pendingCount > 0) {
         Text("Đơn đang chờ Admin duyệt: $pendingCount${if (overdueAdmin) " • ĐÃ QUÁ HẠN" else ""}.",
             color = if (overdueAdmin) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)

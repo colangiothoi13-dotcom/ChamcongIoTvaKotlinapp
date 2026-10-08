@@ -42,6 +42,7 @@ import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,7 +66,7 @@ fun EmployeeProfileScreen(
         item { ProfileHeader(employee) }
         item {
             Text("Liên hệ & địa chỉ", style = MaterialTheme.typography.headlineSmall)
-            PersonalInformationCard(employee, state.userProfile?.email.orEmpty(), onSaveContact)
+            PersonalInformationCard(employee, state.userProfile?.email.orEmpty(), state.saving, onSaveContact)
         }
         item {
             Text("Công việc", style = MaterialTheme.typography.headlineSmall)
@@ -76,6 +77,7 @@ fun EmployeeProfileScreen(
             FingerprintCard(
                 employee,
                 state.devices.firstOrNull { it.id == employee.fingerprintDeviceId }?.name.orEmpty(),
+                state.saving,
                 onRequestFingerprintSupport
             )
         }
@@ -124,7 +126,7 @@ fun EmployeeProfileScreen(
             }
         }
         item {
-            Button(onClick = onChangePassword, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = onChangePassword, enabled = !state.saving, modifier = Modifier.fillMaxWidth()) {
                 Text("Đổi mật khẩu")
             }
         }
@@ -177,10 +179,13 @@ private fun ProfileHeader(employee: Employee) {
 private fun PersonalInformationCard(
     employee: Employee,
     fallbackEmail: String,
+    saving: Boolean,
     onSaveContact: (phone: String, address: String) -> Unit
 ) {
     var phone by remember(employee.id, employee.phone) { mutableStateOf(employee.phone) }
     var address by remember(employee.id, employee.address) { mutableStateOf(employee.address) }
+    val phoneError = employeePhoneError(phone)
+    val addressError = employeeAddressError(address)
 
     Card(Modifier.fillMaxWidth()) {
         Column(
@@ -195,6 +200,9 @@ private fun PersonalInformationCard(
                 onValueChange = { phone = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Số điện thoại") },
+                enabled = !saving,
+                isError = phoneError != null,
+                supportingText = { phoneError?.let { Text(it) } },
                 singleLine = true
             )
             OutlinedTextField(
@@ -202,14 +210,18 @@ private fun PersonalInformationCard(
                 onValueChange = { address = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Địa chỉ") },
+                enabled = !saving,
+                isError = addressError != null,
+                supportingText = { addressError?.let { Text(it) } },
                 minLines = 2,
                 maxLines = 3
             )
             Button(
                 onClick = { onSaveContact(phone.trim(), address.trim()) },
+                enabled = !saving && phoneError == null && addressError == null,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Lưu thông tin liên hệ")
+                Text(if (saving) "Đang lưu…" else "Lưu thông tin liên hệ")
             }
         }
     }
@@ -235,9 +247,11 @@ private fun WorkInformationCard(employee: Employee) {
 private fun FingerprintCard(
     employee: Employee,
     deviceName: String,
+    saving: Boolean,
     onRequestFingerprintSupport: (reason: String, onSubmitted: () -> Unit) -> Unit
 ) {
     var supportReason by remember(employee.id) { mutableStateOf("") }
+    val supportError = employeeSupportReasonError(supportReason)
     val isRegistered = employee.fingerprintTemplateId != null
     val isPending = !isRegistered && employee.pendingTemplateId != null
     val status = when {
@@ -283,6 +297,9 @@ private fun FingerprintCard(
                 onValueChange = { supportReason = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Nội dung cần hỗ trợ") },
+                enabled = !saving,
+                isError = supportReason.isNotBlank() && supportError != null,
+                supportingText = { Text(supportError ?: "${supportReason.length}/4.000 ký tự") },
                 minLines = 2,
                 maxLines = 4
             )
@@ -291,9 +308,9 @@ private fun FingerprintCard(
                     onRequestFingerprintSupport(supportReason.trim()) { supportReason = "" }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = supportReason.isNotBlank()
+                enabled = !saving && supportError == null
             ) {
-                Text("Gửi yêu cầu hỗ trợ")
+                Text(if (saving) "Đang gửi…" else "Gửi yêu cầu hỗ trợ")
             }
         }
     }
@@ -314,7 +331,9 @@ private fun ProfileInformationRow(label: String, value: String) {
 @Composable
 private fun AttendanceActivityCard(attendance: Attendance) {
     val occurredAt = remember(attendance.timestamp) {
-        SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("vi", "VN")).format(attendance.timestamp.toDate())
+        SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("vi", "VN")).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+        }.format(attendance.timestamp.toDate())
     }
     val activityLabel = when (attendance.type) {
         "CHECK_IN" -> "Chấm công vào"

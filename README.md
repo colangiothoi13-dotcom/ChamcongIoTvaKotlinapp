@@ -4,7 +4,7 @@
 
 Cập nhật tài liệu ngày **08/10/2026** theo mã nguồn hiện tại. [Báo cáo đồ án](BAO_CAO_DO_AN_CHAM_CONG_IOT.txt) trình bày kiến trúc, thiết kế dữ liệu, Use Case và đánh giá sản phẩm.
 
-**Trạng thái bản cập nhật:** các tiện ích nhân viên đã có màn hình và xử lý đọc/ghi Firebase; Rules mới cho tiện ích và đăng ký ca đã qua kiểm thử trên Firestore Emulator. Bản Rules/indexes này **chưa được triển khai lên Firebase thật** trong lần cập nhật này. Cần thực hiện bước [triển khai Firebase](#firebase) để môi trường online áp dụng đúng quyền.
+**Trạng thái bản cập nhật:** các tiện ích nhân viên đã có màn hình và xử lý đọc/ghi Firebase. Kiểm tra chỉ đọc ngày **08/10/2026** xác nhận Rules đang hoạt động trên `chamcongiot-56ae5` khớp mã nguồn, được cập nhật lúc **09:42:14 giờ Việt Nam**; toàn bộ **22 indexes** khớp cấu hình và index tiện ích đã **READY**. Admin xử lý tại **Đơn từ → Đăng ký tuần / Đơn khác / Tăng ca**, với danh sách gọn, tìm/lọc và chi tiết riêng. Bản giao diện mới đã qua **284 kiểm thử / 45 bộ kiểm thử Android** và build APK debug. Cài APK mới trên **máy Admin** để dùng giao diện mới; luồng Employee và backend giữ nguyên, không cần deploy Firebase thêm. Xem [checklist chức năng và giới hạn kiểm chứng](KIEM_TRA_CHUC_NANG_ADMIN_USER.txt).
 
 ## Mục lục
 
@@ -62,7 +62,7 @@ Thanh dưới của Admin: **Tổng quan · Tác vụ · Đơn từ · Phân ca 
 | `Đã đọc` trên thông báo | Đánh dấu thông báo đã đọc. |
 | Thẻ chức năng trong **Tác vụ** | Mở màn hình tương ứng: **Chấm công, Có mặt, Thiết bị, Phân ca, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Bảng công tháng, Nhật ký, Phòng ban, Thông báo, Tiện ích nhân viên**. |
 
-**Phân ca** trên thanh dưới là trang điều hướng nhanh đến **Ca làm** và **Lịch**. Mục **Cài đặt** chưa có màn hình thao tác trong bản hiện tại.
+**Phân ca** trên thanh dưới là trang điều hướng nhanh đến **Ca làm**, **Lịch** và **Duyệt đăng ký tuần sau**. Mục **Cài đặt** chưa có màn hình thao tác trong bản hiện tại.
 
 ### 2. Nhân viên và đăng ký vân tay
 
@@ -99,22 +99,19 @@ Vào **Tác vụ → Phòng ban**.
 
 ### 4. Lịch và ca làm
 
-Vào **Phân ca** hoặc **Tác vụ → Lịch/Ca làm**. Ca sáng và ca chiều là ca chính; tăng ca cố định **18:00–22:00**.
+Vào **Phân ca → Lịch** hoặc **Tác vụ → Lịch** để xem lịch đã phân và phân ca. Màn hình này giữ lưới tuần/tháng và các thao tác phân lịch. Ca sáng và ca chiều là ca chính; tăng ca cố định **18:00–22:00**. Khu xem và duyệt đăng ký lịch tuần của Admin nằm tại **Đơn từ → Đăng ký tuần**.
 
 | Nút/thao tác ở **Lịch** | Kết quả |
 | --- | --- |
-| `‹ Tuần trước`, `Tuần sau ›`, `Tuần này` | Chọn tuần đang xem và thao tác. |
+| `‹ Tuần trước`, `Tuần sau ›`, `Tuần này` | Chọn tuần của lịch đã phân. |
 | `Tuần` / `Tháng` | Đổi cách xem lịch. |
 | Chạm ô nhân viên/ngày trong lưới tuần hoặc một ngày trong lưới tháng | Mở biểu mẫu phân ca cho đúng ngày; chọn nhân viên hoặc phòng ban, ca và lưu. |
 | `Phân cho nhân viên` → `Lưu phân ca` | Chọn nhân viên, ngày thứ Hai–thứ Bảy, ca chính và giờ nếu cần; lưu lịch cho những lựa chọn đó. |
 | `Phân cho phòng ban` | Mở biểu mẫu phân ca theo phòng ban cho ngày và ca được chọn. |
 | `Sao chép tuần trước` | Sao chép lịch tuần trước sang tuần đang chọn theo quy tắc của màn hình. |
-| `Duyệt hàng loạt N đơn đang chờ` | Duyệt các đăng ký lịch tuần còn chờ và chuyển các ca đăng ký thành lịch làm việc. |
-| `Xử lý đơn` → `Duyệt` | Duyệt một đăng ký lịch tuần. |
-| `Xử lý đơn` → nhập phản hồi → `Yêu cầu sửa` | Gửi lý do cho nhân viên để họ chỉnh sửa và gửi lại. |
 | `Đóng` / `Hủy` | Rời hộp thoại không áp dụng thao tác đang nhập. |
 
-Khi tuần mục tiêu đổi, app cập nhật listener đăng ký lịch; không cần đăng nhập lại để nhìn thấy đơn của tuần mới. Phân cho phòng ban cho phép chọn cả sáng và chiều. Mỗi lịch ngày được đọc và gộp trong transaction: phân thêm chiều giữ ca sáng; phân lại cùng loại thay ca đó, không tạo trùng. Giờ công điều chỉnh và ghi chú cũ được giữ, kể cả khi hai Admin phân hai loại ca đồng thời.
+Phân cho phòng ban cho phép chọn cả sáng và chiều. Mỗi lịch ngày được đọc và gộp trong transaction: phân thêm chiều giữ ca sáng; phân lại cùng loại thay ca đó, không tạo trùng. Giờ công điều chỉnh và ghi chú cũ được giữ, kể cả khi hai Admin phân hai loại ca đồng thời.
 
 | Nút/thao tác ở **Ca làm** | Kết quả |
 | --- | --- |
@@ -124,16 +121,37 @@ Khi tuần mục tiêu đổi, app cập nhật listener đăng ký lịch; khô
 
 Đường **nhân viên đăng ký tăng ca rồi Admin duyệt** nằm ở **Đơn từ**; đường **Admin phân ca tăng ca trực tiếp** nằm ở **Ca làm**. Khi kiểm tra lương, hãy xem ca tăng ca và lượt vào/ra thực tế của đúng ngày.
 
-### 5. Đơn từ và tăng ca
+### 5. Đơn từ: đăng ký tuần, đơn khác và tăng ca
 
-Vào **Đơn từ** trên thanh dưới. Danh sách đơn thông thường và khu **Đăng ký tăng ca** nằm trên cùng màn hình.
+Vào **Đơn từ** trên thanh dưới của Admin. Màn hình có ba nhóm **Đăng ký tuần**, **Đơn khác** và **Tăng ca**; khi mở, mặc định chọn đăng ký tuần sau theo ngày hiện tại ở Việt Nam. Lối tắt **Phân ca → Duyệt đăng ký tuần sau** cũng mở màn hình này và nhóm **Đăng ký tuần**.
+
+Mỗi đơn chiếm một dòng gọn với tên, mã NV/phòng ban, ngày hoặc loại đơn và trạng thái; đơn chờ duyệt xếp trước. Dùng ô **Tìm nhân viên** với gợi ý **Tên, mã NV, phòng ban** để tìm có dấu hoặc không dấu, rồi chọn chip trạng thái. Số lượng và số dòng đang hiển thị giúp đối chiếu kết quả lọc. Chạm một dòng ở bất kỳ trạng thái nào để mở chi tiết cuộn được; lý do, ghi chú và người duyệt vẫn được giữ đầy đủ. Các nút xử lý chỉ có trên đơn chờ duyệt đủ điều kiện.
 
 | Nút/thao tác | Kết quả |
 | --- | --- |
-| `Tất cả`, `Chờ duyệt`, `Đã duyệt`, `Từ chối`, `Đã hủy` | Lọc đơn thông thường theo trạng thái. |
-| `Duyệt` trên đơn đang chờ | Ghi quyết định duyệt; các màn hình lịch/công áp dụng theo loại đơn. |
-| `Từ chối` → nhập `Lý do từ chối` → `Từ chối` | Ghi quyết định và phản hồi cho nhân viên; lý do bắt buộc. |
-| Bộ lọc và `Duyệt`/`Từ chối` trong **Đăng ký tăng ca** | Xử lý riêng đơn tăng ca; từ chối cần lý do. Đơn được duyệt trở thành ca tăng ca hiệu lực 18:00–22:00 trong Android. |
+| `Đăng ký tuần` / `Đơn khác` / `Tăng ca` | Chọn nhóm yêu cầu muốn xử lý. |
+| Ô `Tìm nhân viên` và chip trạng thái | Lọc theo tên, mã NV, phòng ban và trạng thái; không cần nhập dấu tiếng Việt. |
+| Biểu tượng `Xem tuần trước` / `Xem tuần sau`, nút `Tuần kế tiếp` trong **Đăng ký tuần** | Đổi tuần yêu cầu; nút cuối chọn tuần sau của ngày hiện tại theo giờ Việt Nam. Listener cập nhật đúng tuần đang chọn. |
+| `Tất cả`, `Chờ duyệt`, `Đã duyệt`, `Cần sửa` trong **Đăng ký tuần** | Lọc yêu cầu của tuần đang chọn; có số lượng trên từng chip. |
+| `Tổng hợp` / `Thu gọn` | Mở hoặc thu gọn tên nhân viên chưa gửi và số đăng ký theo ngày/ca; lịch sáu ngày của từng người nằm trong chi tiết đơn. |
+| Chạm dòng đăng ký tuần → `Chi tiết đăng ký tuần` | Xem sáu ngày, ca đã chọn, ghi chú, trạng thái và thông tin duyệt. Đơn đã xử lý vẫn xem được. |
+| `Duyệt` / `Yêu cầu sửa` trong chi tiết đăng ký tuần | Duyệt một đơn hoặc nhập phản hồi tối đa 1.000 ký tự để yêu cầu nhân viên sửa và gửi lại. |
+| `Duyệt toàn bộ N đơn chờ của tuần` → `Duyệt toàn bộ` | Mở xác nhận ghi rõ tuần; duyệt toàn bộ đơn chờ đủ điều kiện của tuần đó, kể cả đơn đang bị ẩn bởi tìm kiếm/bộ lọc. `Hủy` không gửi quyết định. |
+| `Tất cả`, `Chờ duyệt`, `Đã duyệt`, `Từ chối`, `Đã hủy` trong **Đơn khác** | Lọc đơn thông thường theo trạng thái. |
+| Chạm dòng đơn khác → `Chi tiết đơn` | Xem ngày, lý do, ca nghỉ, giờ điều chỉnh/ca đề nghị, đính kèm nếu có và người duyệt/phản hồi. |
+| `Duyệt` / `Từ chối` trong chi tiết đơn | Ghi quyết định cho đơn chờ đủ điều kiện; từ chối cần lý do. `Hủy` ở bước nhập lý do quay lại chi tiết. |
+| Chạm dòng tăng ca → `Chi tiết đăng ký tăng ca` | Xem ngày/giờ 18:00–22:00, lý do đăng ký, thời điểm gửi/xử lý, người duyệt và lý do từ chối. |
+| `Tất cả`, `Chờ duyệt`, `Đã duyệt`, `Từ chối` trong **Tăng ca** | Lọc đơn tăng ca theo trạng thái. |
+| `Duyệt` / `Từ chối` trong chi tiết tăng ca | Xử lý đơn chờ đủ điều kiện; từ chối cần lý do, `Quay lại` trở về phần xem. Đơn đã duyệt trở thành ca tăng ca hiệu lực 18:00–22:00 trong Android. |
+| `Đóng` | Đóng chi tiết; khi đang gửi/lưu, các thao tác và việc đóng bị khóa. |
+
+**Chọn đúng tuần yêu cầu:** ngày 08/10/2026, vào **Đơn từ → Đăng ký tuần** sẽ chọn tuần bắt đầu **12/10**, với phạm vi đăng ký từ thứ Hai đến thứ Bảy, hiển thị **Tuần 12/10 – 17/10/2026**. Bộ chọn tuần dùng chung trạng thái tuần với lịch Admin; khi đổi tuần, listener đọc yêu cầu của đúng tuần đó. Chuyển giữa ba nhóm giữ tuần đã chọn; bấm **Tuần kế tiếp** để quay về tuần sau tính từ hôm nay.
+
+Tóm tắt tuần hiển thị số đã gửi/chờ duyệt; khi đã biết danh sách nhân viên hoạt động, dòng này có dạng **N đã gửi • N chờ duyệt • N chưa gửi**. Có thêm số đăng ký đang hiển thị sau lọc. Mở **Tổng hợp** khi cần xem tên còn thiếu và số người theo ca. Nút duyệt toàn bộ áp dụng cho **cả tuần**, không chỉ các dòng sau lọc, nên cần đọc phạm vi trong hộp xác nhận trước khi bấm.
+
+Danh sách duyệt có **Đang tải đăng ký lịch tuần…**, lỗi **Không tải được đăng ký lịch tuần.** và nút **Thử lại** riêng; chỉ báo chưa có đăng ký sau khi snapshot đúng tuần thành công. Yêu cầu vẫn được hiển thị khi danh sách nhân viên chưa tải xong, nhưng thao tác duyệt chỉ bật cho nhân viên đang hoạt động đã được tải và xác minh. Một kiểm tra chỉ đọc ngày 08/10 đã xác nhận yêu cầu tuần **12/10** ở trạng thái `PENDING`, cùng audit `SHIFT_UPDATE` lúc **09:44:56 giờ Việt Nam**; bản app cũ mặc định truy vấn tuần **05/10**, nên có thể không thấy yêu cầu đã lưu.
+
+Khu duyệt phía Admin nằm trong **Đơn từ**, với danh sách gọn và chi tiết tách riêng. Nguồn `weeklyScheduleRequests`, trạng thái `PENDING`/`NEEDS_REVISION`/`APPROVED`, transaction duyệt và audit giữ nguyên; Employee tiếp tục gửi tại **Lịch làm việc → Đăng ký tuần sau**. Không cần deploy Rules/indexes cho thay đổi giao diện này.
 
 Đơn tăng ca **chờ duyệt** có thể vẫn thấy lượt quét nhưng chưa được tính giờ/tiền tăng ca. Đơn đã duyệt chỉ có giờ tăng ca khi có lượt vào và ra hợp lệ.
 
@@ -337,7 +355,7 @@ Admin quản lý nội dung; nhân viên đọc theo người nhận khi tài kh
 1. Tạo hoặc chọn dự án Firebase; `.firebaserc` hiện trỏ mặc định tới `chamcongiot-56ae5`. Bật **Authentication → Email/Password** cho app và **Anonymous** cho ESP8266; tạo Cloud Firestore.
 2. Đặt tệp cấu hình Android tải từ Firebase Console tại `app/google-services.json`.
 3. Tạo tài khoản Admin đầu tiên trong Firebase Authentication, sau đó tạo `users/{uid}` với `role: "ADMIN"` và `active: true` bằng Firebase Console hoặc Admin SDK. Quy tắc Firestore yêu cầu hồ sơ này trước khi app có quyền Admin.
-4. Triển khai Rules và indexes trong thư mục `firebase/` (Firebase CLI đã đăng nhập đúng dự án):
+4. Khi thiết lập dự án mới hoặc thay đổi Rules/indexes, triển khai cấu hình trong thư mục `firebase/` (Firebase CLI đã đăng nhập đúng dự án):
 
    ```powershell
    firebase deploy --only firestore:rules,firestore:indexes --project chamcongiot-56ae5
@@ -345,7 +363,9 @@ Admin quản lý nội dung; nhân viên đọc theo người nhận khi tài kh
 
    Nếu dùng dự án Firebase khác, sửa `.firebaserc`, `app/google-services.json` và `FIRESTORE_BASE_URL` trong cấu hình firmware cho cùng một project. Không chạy lệnh deploy Functions khi giữ gói Spark.
 
-Rules của bản này bổ sung quyền đọc tiện ích theo người nhận, cho phép transaction đọc đơn tuần chưa tồn tại của chính nhân viên và sửa phép tính thời hạn đăng ký bằng timestamp. Hạn gửi giữ nguyên: trước 12:00 thứ Bảy trước tuần đăng ký, theo giờ Việt Nam. Index mới phục vụ truy vấn `employeeResources` theo `audience` và `updatedAt`. Sau deploy, chờ index sẵn sàng rồi chọn **Thử lại** ở màn hình lỗi hoặc mở lại app.
+Rules của bản này bổ sung quyền đọc tiện ích theo người nhận, cho phép transaction đọc đơn tuần chưa tồn tại của chính nhân viên và sửa phép tính thời hạn đăng ký bằng timestamp. Hạn gửi giữ nguyên: trước 12:00 thứ Bảy trước tuần đăng ký, theo giờ Việt Nam. Index tiện ích phục vụ truy vấn `employeeResources` theo `audience` và `updatedAt`.
+
+**Đã xác minh trên dự án hiện tại:** Rules được cập nhật ngày 08/10/2026 lúc **09:42:14 giờ Việt Nam** và khớp source; 22 indexes khớp cấu hình local, không thiếu/thừa index, composite index tiện ích ở trạng thái **READY**. Không cần chạy lại lệnh deploy cho bản sửa UI duyệt tuần sau; hãy build/cài APK mới. Với dự án mới hoặc lần thay đổi cấu hình sau này, chờ index sẵn sàng sau deploy rồi thử lại truy vấn.
 
 | Loại thay đổi | Bước áp dụng |
 | --- | --- |
@@ -353,7 +373,7 @@ Rules của bản này bổ sung quyền đọc tiện ích theo người nhận
 | Firestore Rules hoặc indexes | Deploy `firestore:rules,firestore:indexes` lên đúng dự án Firebase. |
 | Firmware ESP8266 | Biên dịch và nạp firmware lên thiết bị. |
 
-Việc cập nhật tài liệu này chưa thực hiện deploy Firebase hoặc nạp firmware. Các bước trên là hướng dẫn áp dụng bản mã nguồn.
+Lần cập nhật tài liệu này chỉ kiểm tra trạng thái Firebase, không thực hiện deploy hoặc nạp firmware. Lệnh trên là hướng dẫn thiết lập và áp dụng những thay đổi cấu hình sau này.
 
 ### Android
 
@@ -363,7 +383,7 @@ Dự án dùng JDK 17, Gradle Wrapper 8.9 và Android SDK 35; app hỗ trợ t�
 .\gradlew.bat :app:assembleDebug
 ```
 
-APK debug nằm tại `app/build/outputs/apk/debug/app-debug.apk`. Bản app mới cần được cài trên máy Admin **và** nhân viên để hai vai trò dùng cùng cách phân giải trên Spark. Chỉ build/cài app không tự cập nhật Firestore Rules hay firmware trên ESP8266.
+APK debug nằm tại `app/build/outputs/apk/debug/app-debug.apk`. Với bản chuyển khu duyệt đăng ký tuần sang **Đơn từ**, cài APK mới trên **máy Admin**; nhân viên tiếp tục dùng luồng gửi lịch hiện có. Khi thay đổi quy tắc phân giải công, cần cập nhật cả Admin và nhân viên để dùng cùng quy tắc Spark. Chỉ build/cài app không tự cập nhật Firestore Rules hay firmware trên ESP8266.
 
 ### ESP8266 + AS608/R307
 
@@ -395,6 +415,9 @@ Nếu tắt nguồn/reset rồi bật lại khi chưa có Wi-Fi, ESP chưa biế
 | --- | --- |
 | [`app/src/main/java/vn/chamcong/iot/ui/ChamCongApp.kt`](app/src/main/java/vn/chamcong/iot/ui/ChamCongApp.kt) | Đăng nhập, điều hướng và các hộp thoại chung. |
 | [`app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt`](app/src/main/java/vn/chamcong/iot/ui/MainViewModel.kt), [`MainViewModelSubscriptions.kt`](app/src/main/java/vn/chamcong/iot/ui/MainViewModelSubscriptions.kt) | Ý định nghiệp vụ và các listener Firestore theo vai trò/tuần. |
+| [`MainViewModelWeeklyScheduleRequests.kt`](app/src/main/java/vn/chamcong/iot/ui/MainViewModelWeeklyScheduleRequests.kt) | Listener đăng ký tuần của Admin, trạng thái tải/lỗi và thử lại theo đúng tuần đang chọn. |
+| [`AdminWeeklyScheduleRequests.kt`](app/src/main/java/vn/chamcong/iot/ui/requests/AdminWeeklyScheduleRequests.kt) | Danh sách đăng ký tuần gọn, tìm/lọc, tổng hợp thu gọn, chi tiết và xác nhận duyệt toàn tuần của Admin tại Đơn từ. |
+| [`AdminOtherRequestsList.kt`](app/src/main/java/vn/chamcong/iot/ui/requests/AdminOtherRequestsList.kt), [`AdminRequestComponents.kt`](app/src/main/java/vn/chamcong/iot/ui/requests/AdminRequestComponents.kt) | Danh sách/chi tiết Đơn khác và thành phần tìm kiếm, lọc, dòng đơn gọn dùng chung ở các nhóm Admin. |
 | [`app/src/main/java/vn/chamcong/iot/ui`](app/src/main/java/vn/chamcong/iot/ui) | Màn hình Admin và nhân viên theo thư mục chức năng. |
 | [`app/src/main/java/vn/chamcong/iot/domain/AttendanceResolutionRules.kt`](app/src/main/java/vn/chamcong/iot/domain/AttendanceResolutionRules.kt) | Quy tắc phân giải lượt chấm và áp dụng duyệt ngoài lịch trên Spark. |
 | [`app/src/main/java/vn/chamcong/iot/data`](app/src/main/java/vn/chamcong/iot/data) | Repository đọc/ghi Firebase. |
@@ -409,24 +432,27 @@ Nếu tắt nguồn/reset rồi bật lại khi chưa có Wi-Fi, ESP chưa biế
 
 - **Không thấy công sau khi quét:** lượt báo `DA LUU` / `CHO DONG BO` cần có mạng trở lại để tra danh tính và đồng bộ, chưa hiện công ngay. Nếu LCD báo `CHUA LUU CONG`, ESP chưa có giờ hợp lệ nên lượt đó chỉ mở cửa, không được lưu hoặc gửi lại; cần đồng bộ giờ trước các lượt chấm tiếp theo. Kiểm tra đúng ngón tay đã đăng ký, hàng đợi chưa đầy, lịch/ca đã được duyệt và đã có đủ lượt vào/ra. Mở **Thiết bị** và **Chấm công** để xem trạng thái cụ thể.
 - **Duyệt ngoài lịch hoặc tăng ca nhưng giờ vẫn bằng 0:** kiểm tra ca/ngày đã chọn và cặp quét vào/ra hợp lệ. Đơn chờ duyệt chưa tính thành giờ tăng ca.
-- **Không thấy đơn lịch tuần:** kiểm tra tuần đang chọn, tuần mục tiêu của nhân viên, hạn nộp và trạng thái đơn. Listener tự theo tuần mới khi ngày đổi.
+- **Nhân viên đã gửi nhưng Admin không thấy đăng ký tuần:** vào **Đơn từ → Đăng ký tuần**, hoặc **Phân ca → Duyệt đăng ký tuần sau**. Ngày 08/10, màn hình chọn **Tuần 12/10 – 17/10/2026**; đối chiếu tuần nhân viên đã gửi, xóa ô tìm kiếm và chọn **Tất cả** để kiểm tra các dòng bị lọc. Chạm dòng để xem chi tiết, chờ tải xong hoặc **Thử lại** khi có lỗi. Cài APK mới trên Admin để có danh sách gọn; APK cũ có thể dùng giao diện duyệt trước đó, và bản trước khi chuyển màn hình vẫn xem yêu cầu tại **Lịch**. Yêu cầu `PENDING` và audit đã lưu ở server không cần gửi lại khi Admin đổi giao diện.
 - **Gửi đăng ký ca báo chưa có quyền:** kiểm tra `users/{uid}` có `role: "EMPLOYEE"`, `active: true`, `employeeId` khớp hồ sơ nhân viên đang hoạt động và đã triển khai Rules cùng phiên bản app. Bản sửa xử lý quyền đọc đơn tuần chưa tồn tại của chính nhân viên và lỗi tính hạn gửi bằng chuỗi ngày. Khi thao tác gửi thất bại, thông báo có tiền tố **“Không gửi được đăng ký ca”**; nhập sai ghi chú/ca hoặc quá hạn có thông báo riêng theo nguyên nhân.
-- **Khen thưởng, lịch họp hoặc tài liệu báo lỗi quyền:** triển khai Rules/indexes mới, kiểm tra người nhận đã chọn và `departmentId` trong hồ sơ. Nhân viên giữ vai trò `EMPLOYEE`; Admin kiểm tra quyền tài khoản và nội dung chia sẻ tại **Tiện ích nhân viên**.
+- **Khen thưởng, lịch họp hoặc tài liệu báo lỗi quyền:** kiểm tra tài khoản/hồ sơ đang hoạt động, người nhận đã chọn và `departmentId` trong hồ sơ. Rules và index tiện ích trên dự án hiện tại đã được xác minh áp dụng; không đổi vai trò nhân viên để khắc phục lỗi đọc. Admin kiểm tra nội dung chia sẻ tại **Tiện ích nhân viên**; nếu dùng project khác, đối chiếu cấu hình Firebase và Rules/indexes của project đó.
 - **Tổng quan báo không tải được dữ liệu mới từ Firebase:** kiểm tra Internet rồi chọn **Tải lại dữ liệu**. Truy vấn tính công giữ nguồn `SERVER` để kiểm tra dữ liệu đầy đủ; khi tải chưa hoàn tất, số 0 trên màn hình chưa xác nhận rằng không có lượt chấm. App khóa lưu lương/xuất dữ liệu cần đủ kỳ cho đến khi tải thành công.
 - **Không thấy nhân viên đã nghỉ:** bật công tắc ở **Nhân viên**; với báo cáo và bảng công, chọn đúng tháng lịch sử. Không tạo ca mới hoặc phiếu lương cho các tháng sau tháng nghỉ.
 - **Báo cáo CSV thiếu dòng:** nếu màn hình cảnh báo đã chạm giới hạn tải lịch sử, thu hẹp khoảng ngày rồi xuất lại.
 
 ## Kiểm thử hồi quy
 
-Kết quả đã ghi nhận ngày **08/10/2026**:
+Kết quả đã ghi nhận ngày **08/10/2026**; Android được chạy lại sau khi làm gọn ba nhóm **Đơn từ** của Admin:
 
 | Nhóm kiểm chứng | Kết quả | Phạm vi |
 | --- | --- | --- |
-| Android | **255 kiểm thử / 39 bộ kiểm thử đạt**, build APK debug thành công | Nghiệp vụ, điều hướng, dữ liệu, thông báo lỗi và các tiện ích mới. |
-| Firestore Emulator | **46/46 kiểm thử đạt** | Quyền đọc/ghi, transaction, phạm vi nhân viên; gồm 7 kiểm thử đăng ký tuần và 5 kiểm thử tiện ích. |
-| Backend Functions tùy chọn | **32/32 kiểm thử đạt** trong phiên làm việc này | Các bài kiểm thử dưới `firebase/functions`; phần cốt lõi Spark dùng Rules và Android. |
+| Android | **284 kiểm thử / 45 bộ kiểm thử đạt**, không lỗi/thất bại/bỏ qua; build APK debug thành công sau làm gọn ba nhóm Admin | Chạy lại toàn bộ bộ kiểm thử hiện có; không bổ sung test mới cho lần đổi cách trình bày này. |
+| Firestore Emulator | **49/49 kiểm thử đạt** trong đợt rà soát trước | Quyền đọc/ghi, transaction, phạm vi nhân viên; gồm 7 kiểm thử đăng ký tuần, 5 kiểm thử tiện ích và 3 kiểm thử thao tác Admin đồng thời. Rules không đổi; kiểm thử trên demo cục bộ. |
+| Backend Functions tùy chọn | **32/32 kiểm thử đạt** trong đợt rà soát trước | Các bài kiểm thử dưới `firebase/functions`; phần cốt lõi Spark dùng Rules và Android. |
+| Mô phỏng firmware | **69/69 kiểm thử đạt** | Trạng thái lệnh thiết bị, hàng đợi offline và runtime; không thay thế kiểm chứng cảm biến/cửa trên phần cứng thật. |
 
-Đây là kết quả chạy mã nguồn/build và emulator. Việc chụp ảnh, đo phần cứng và thử end-to-end trên điện thoại/ESP8266 được theo dõi riêng trong báo cáo đồ án; lần sửa tài liệu này không chạy lại các bộ kiểm thử.
+Firestore **49/49**, Functions **32/32** và firmware **69/69** là kết quả đợt rà soát trước; không chạy lại ba nhóm này trong lần làm gọn Đơn từ Admin, vì thay đổi chỉ ở UI.
+
+APK debug mới được tạo lúc **12:29:26 giờ Việt Nam ngày 08/10/2026**, dung lượng **23.747.004 byte**. Đây là kết quả kiểm thử/build trên máy phát triển và kiểm tra Firebase chỉ đọc; chưa phải xác nhận bấm toàn bộ UI với hai tài khoản hoặc đo hiệu năng trên điện thoại thật. Việc chụp ảnh, đo phần cứng và thử end-to-end trên điện thoại/ESP8266 được theo dõi riêng trong báo cáo đồ án. [Checklist Admin/nhân viên](KIEM_TRA_CHUC_NANG_ADMIN_USER.txt) ghi từng nhóm đã rà soát, lỗi đã sửa, giới hạn và các kịch bản cần thử trực tiếp.
 
 Chạy build và kiểm thử Android:
 
@@ -437,6 +463,8 @@ Chạy build và kiểm thử Android:
 Các bài kiểm thử bao phủ gộp ca không trùng và bảo toàn điều chỉnh, ca chính 4 giờ + tăng ca 4 giờ, ngày chỉ tăng ca, nghỉ sáng/làm chiều, vừa trễ/về sớm, ca qua đêm ở cuối tháng, điều chỉnh tạo muộn và điều kiện tải đủ trước khi xuất/lưu. Kiểm thử transaction hai Admin trong `firebase/test/departmentScheduleTransactions.test.js` cần Firestore emulator với rules của dự án; chỉ dùng project demo, không chạy trên Firebase thật.
 
 `firebase/test/weeklyScheduleSubmissionRules.test.js` kiểm tra transaction gửi đăng ký ca lần đầu kèm nhật ký, cập nhật đơn đang chờ, quyền đọc/truy vấn theo nhân viên và từ chối sửa đơn đã duyệt trên Firestore emulator.
+
+`firebase/test/adminActionTransactions.test.js` kiểm tra sao chép lịch giữ dữ liệu Admin khác vừa phân, hoàn tác tài khoản giữ hồ sơ khi thiết bị đã nhận đăng ký, đổi tên phòng ban giữ trạng thái và hồ sơ vừa chuyển phòng, cùng điều kiện nhân viên còn hoạt động trước duyệt lịch. Các form được khóa khi gửi/lưu; lỗi hồ sơ đăng nhập có Thử lại/Đăng xuất. Nút điều chỉnh chấm công mở đúng loại đơn, đơn nghỉ tải ca theo khoảng ngày chọn và báo cáo nhận mã hiển thị như `NV0004`.
 
 Chạy kiểm thử Firestore với Firebase CLI, Node.js và **Java 21** trên `PATH`. Từ thư mục gốc dự án, mở terminal thứ nhất:
 

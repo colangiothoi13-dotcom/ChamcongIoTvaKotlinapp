@@ -39,19 +39,24 @@ class FirebaseRepository(
         require(email.trim().isNotBlank()) { "Vui lòng nhập email" }
         auth.sendPasswordResetEmail(email.trim()).await()
     }
-    suspend fun changePassword(newPassword: String) {
+    /** Returns whether the audit was saved; a false result still means Auth changed the password. */
+    suspend fun changePassword(newPassword: String): Boolean {
         require(newPassword.length >= 6) { "Mật khẩu mới phải có ít nhất 6 ký tự" }
         val user = auth.currentUser ?: error("Chưa đăng nhập")
         require(user.providerData.none { it.providerId == "anonymous" }) { "Thiết bị không được đổi mật khẩu" }
-        user.updatePassword(newPassword).await()
-        writeAuditLog(AuditLog(
-            actorId = currentUserId,
-            actorName = currentUserName,
-            action = AuditAction.PASSWORD_CHANGE.name,
-            targetType = "user",
-            targetId = currentUserId,
-            details = "Đổi mật khẩu"
-        ))
+        return performPasswordChange(
+            updatePassword = { user.updatePassword(newPassword).await() },
+            saveAudit = {
+                writeAuditLog(AuditLog(
+                    actorId = user.uid,
+                    actorName = user.email ?: currentUserName,
+                    action = AuditAction.PASSWORD_CHANGE.name,
+                    targetType = "user",
+                    targetId = user.uid,
+                    details = "Đổi mật khẩu"
+                ))
+            }
+        )
     }
 
     suspend fun writeAuditLog(log: AuditLog): String {

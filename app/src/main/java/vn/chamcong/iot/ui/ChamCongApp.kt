@@ -37,6 +37,7 @@ import vn.chamcong.iot.ui.schedule.ScheduleScreen
 import vn.chamcong.iot.ui.shifts.ShiftsScreen
 import vn.chamcong.iot.ui.presence.PresenceScreen
 import vn.chamcong.iot.ui.requests.RequestsScreen
+import vn.chamcong.iot.ui.requests.AdminRequestGroup
 import vn.chamcong.iot.ui.audit.AuditScreen
 import vn.chamcong.iot.ui.reports.ReportsScreen
 import vn.chamcong.iot.ui.admin.AdminTasksScreen
@@ -54,6 +55,7 @@ import vn.chamcong.iot.ui.employee.EmployeeNewsScreen
 import vn.chamcong.iot.ui.employee.EmployeeTenureScreen
 import vn.chamcong.iot.ui.employee.EmployeeSupportScreen
 import vn.chamcong.iot.model.EmployeeResourceType
+import vn.chamcong.iot.model.RequestType
 import vn.chamcong.iot.ui.departments.DepartmentsScreen
 import vn.chamcong.iot.ui.notifications.AnnouncementsScreen
 import vn.chamcong.iot.ui.reports.MonthlyTimesheetScreen
@@ -137,8 +139,8 @@ val employeePrimaryDestinations = listOf(
 fun ChamCongApp(vm: MainViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     ChamCongTheme {
-        if (!state.signedIn) LoginScreen(state.loading, state.error, state.message, vm::signIn, vm::sendPasswordReset)
-        else if (!state.profileResolved) RoleLoading()
+        if (!state.signedIn) LoginScreen(state.loading || state.saving, state.error, state.message, vm::signIn, vm::sendPasswordReset)
+        else if (!state.profileResolved) RoleLoading(state.profileError, vm::retryUserProfile, vm::signOut)
         else if (vm.hasEmployeeAccess()) EmployeeHomeShell(state, vm)
         else if (!vm.hasAdminAccess()) AccessBlocked(vm::signOut)
         else AdminHomeScreen(state, vm)
@@ -146,12 +148,19 @@ fun ChamCongApp(vm: MainViewModel = viewModel()) {
 }
 
 @Composable
-private fun RoleLoading() {
+private fun RoleLoading(error: String?, onRetry: () -> Unit, onSignOut: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
-            Spacer(Modifier.height(AppSpacing.medium))
-            Text("Đang kiểm tra quyền truy cập…")
+            if (error == null) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(AppSpacing.medium))
+                Text("Đang kiểm tra quyền truy cập…")
+            } else {
+                Text("Không tải được hồ sơ đăng nhập", style = MaterialTheme.typography.titleMedium)
+                Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(AppSpacing.large))
+                Button(onClick = onRetry) { Text("Thử lại") }
+            }
+            TextButton(onClick = onSignOut) { Text("Đăng xuất") }
         }
     }
 }
@@ -167,14 +176,14 @@ private fun LoginScreen(loading: Boolean, error: String?, message: String?, onLo
                     Icon(Icons.Default.Fingerprint, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
                     Text("Chấm công IoT", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("Đăng nhập tài khoản của bạn")
-                    OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true)
-                    OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Mật khẩu") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                    OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email") }, singleLine = true, enabled = !loading)
+                    OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Mật khẩu") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), enabled = !loading)
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                     Button({ onLogin(email, password) }, Modifier.fillMaxWidth(), enabled = !loading && email.isNotBlank() && password.isNotBlank()) {
                         if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Đăng nhập")
                     }
-                    TextButton({ onReset(email) }, enabled = !loading) { Text("Quên mật khẩu") }
+                    TextButton({ onReset(email) }, enabled = !loading && email.isNotBlank()) { Text("Quên mật khẩu") }
                 }
             }
         }
@@ -212,7 +221,7 @@ private fun AccessBlocked(onSignOut: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.padding(AppSpacing.xLarge), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Tài khoản chưa được cấp quyền", style = MaterialTheme.typography.titleLarge)
-            Text("Admin cần kiểm tra role, active và employeeId trong users/{uid} trên Firebase.")
+            Text("Tài khoản chưa được kích hoạt hoặc chưa liên kết với hồ sơ nhân viên. Vui lòng liên hệ Admin để kiểm tra.")
             Button(onSignOut) { Text("Đăng xuất") }
         }
     }
@@ -222,6 +231,7 @@ private fun AccessBlocked(onSignOut: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(AppDestination.DASHBOARD) }
+    var initialRequestGroup by remember { mutableStateOf(AdminRequestGroup.WEEKLY_SCHEDULE) }
     val backStack = remember { mutableStateListOf<AppDestination>() }
     var showAdd by remember { mutableStateOf(false) }
     var employeeToEdit by remember { mutableStateOf<Employee?>(null) }
@@ -232,6 +242,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var showChangePassword by remember { mutableStateOf(false) }
     var showAccountMenu by remember { mutableStateOf(false) }
     fun navigate(destination: AppDestination) {
+        if (destination == AppDestination.REQUESTS) initialRequestGroup = AdminRequestGroup.WEEKLY_SCHEDULE
         if (destination != selected) {
             backStack.add(selected)
             selected = destination
@@ -253,17 +264,24 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(
             title = { Text(selected.title) },
+            navigationIcon = {
+                if (backStack.isNotEmpty()) IconButton(onClick = {
+                    selected = backStack.removeAt(backStack.lastIndex)
+                }) { Icon(Icons.Default.ArrowBack, "Quay lại") }
+            },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             actions = {
                 IconButton({ showAccountMenu = true }, enabled = !state.saving) { Icon(Icons.Default.AccountCircle, "Menu cá nhân") }
                 DropdownMenu(expanded = showAccountMenu, onDismissRequest = { showAccountMenu = false }) {
                     DropdownMenuItem(
                         text = { Text("Đổi mật khẩu") },
-                        onClick = { showChangePassword = true; showAccountMenu = false }
+                        onClick = { vm.clearError(); showChangePassword = true; showAccountMenu = false },
+                        enabled = !state.saving
                     )
                     DropdownMenuItem(
                         text = { Text("Đăng xuất") },
-                        onClick = { showAccountMenu = false; vm.signOut() }
+                        onClick = { showAccountMenu = false; vm.signOut() },
+                        enabled = !state.saving
                     )
                 }
             }
@@ -295,9 +313,17 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
             state.message?.let { Text(it, color=MaterialTheme.colorScheme.primary, modifier=Modifier.padding(bottom=AppSpacing.small)) }
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (selected) {
-                AppDestination.DASHBOARD -> DashboardScreen(state, vm, ::navigate)
+                AppDestination.DASHBOARD -> DashboardScreen(state, vm) { destination ->
+                    navigate(destination)
+                    if (destination == AppDestination.REQUESTS) initialRequestGroup = AdminRequestGroup.OTHER_REQUESTS
+                }
                 AppDestination.TASKS -> AdminTasksScreen { destination -> navigate(destination) }
-                AppDestination.SHIFT_MANAGEMENT -> ShiftManagementScreen { destination -> navigate(destination) }
+                AppDestination.SHIFT_MANAGEMENT -> ShiftManagementScreen(
+                    onOpenWeeklyRegistrations = {
+                        vm.selectWeeklyRegistrationWeek()
+                        navigate(AppDestination.REQUESTS)
+                    }
+                ) { destination -> navigate(destination) }
                 AppDestination.EMPLOYEES -> EmployeesScreen(
                     state = state,
                     vm = vm,
@@ -318,7 +344,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 AppDestination.SHIFTS -> ShiftsScreen(state, vm)
                 AppDestination.SCHEDULE -> ScheduleScreen(state, vm)
                 AppDestination.PRESENCE -> PresenceScreen(state, vm)
-                AppDestination.REQUESTS -> RequestsScreen(state, vm)
+                AppDestination.REQUESTS -> RequestsScreen(state, vm, initialGroup = initialRequestGroup)
                 AppDestination.REPORTS -> ReportsScreen(state, vm)
                 AppDestination.MONTHLY_TIMESHEET -> {
                     val month = state.selectedAdminTimesheetMonth
@@ -346,6 +372,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                     onCreateDepartment = { name, done -> vm.saveDepartment(null, name, done) },
                     onRenameDepartment = { id, name, done -> vm.saveDepartment(id, name, done) },
                     onSetDepartmentActive = { id, active -> vm.setDepartmentActive(id, active) },
+                    error = state.error,
                     modifier = Modifier.fillMaxSize()
                 )
                 AppDestination.ANNOUNCEMENTS -> AnnouncementsScreen(
@@ -394,10 +421,12 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
     var selected by remember { mutableStateOf(EmployeeDestination.HOME) }
+    var requestInitialType by remember { mutableStateOf(RequestType.LEAVE) }
     val backStack = remember { mutableStateListOf<EmployeeDestination>() }
     var showAccountMenu by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
     fun navigate(destination: EmployeeDestination) {
+        if (destination == EmployeeDestination.REQUESTS) requestInitialType = RequestType.LEAVE
         if (destination != selected) {
             backStack.add(selected)
             selected = destination
@@ -440,11 +469,13 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                             )
                             DropdownMenuItem(
                                 text = { Text("Đổi mật khẩu") },
-                                onClick = { showChangePassword = true; showAccountMenu = false }
+                                onClick = { vm.clearError(); showChangePassword = true; showAccountMenu = false },
+                                enabled = !state.saving
                             )
                             DropdownMenuItem(
                                 text = { Text("Đăng xuất") },
-                                onClick = { showAccountMenu = false; vm.signOut() }
+                                onClick = { showAccountMenu = false; vm.signOut() },
+                                enabled = !state.saving
                             )
                         }
                     }
@@ -493,12 +524,15 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                     EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(
                         state = state,
                         vm = vm,
-                        onOpenRequests = { navigate(EmployeeDestination.REQUESTS) },
+                        onOpenRequests = {
+                            navigate(EmployeeDestination.REQUESTS)
+                            requestInitialType = RequestType.ATTENDANCE_ADJUSTMENT
+                        },
                         onOpenPayroll = { navigate(EmployeeDestination.PAYROLL) }
                     )
                     EmployeeDestination.SCHEDULE -> EmployeeScheduleScreen(state, vm)
                     EmployeeDestination.SHIFT_REGISTRATION -> EmployeeScheduleScreen(state, vm, startInRegistration = true)
-                    EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)
+                    EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm, initialType = requestInitialType)
                     EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state, vm)
                     EmployeeDestination.UTILITIES -> EmployeeUtilitiesScreen(::navigate)
                     EmployeeDestination.MEETINGS -> EmployeeResourcesScreen(state, vm, EmployeeResourceType.MEETING)
@@ -511,7 +545,7 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                     EmployeeDestination.PROFILE -> EmployeeProfileScreen(
                         state = state,
                         vm = vm,
-                        onChangePassword = { showChangePassword = true },
+                        onChangePassword = { vm.clearError(); showChangePassword = true },
                         onSaveContact = { phone, address -> vm.updateEmployeeContact(phone, address) },
                         onRequestFingerprintSupport = { reason, onSubmitted -> vm.submitFingerprintSupportRequest(reason, onSubmitted) }
                     )
@@ -531,9 +565,10 @@ private fun ChangePasswordDialog(state: MainUiState, vm: MainViewModel, onDismis
         title = { Text("Đổi mật khẩu") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                OutlinedTextField(password, { password = it }, label = { Text("Mật khẩu mới") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
-                OutlinedTextField(confirm, { confirm = it }, label = { Text("Nhập lại mật khẩu") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                OutlinedTextField(password, { password = it }, label = { Text("Mật khẩu mới") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), enabled = !state.saving)
+                OutlinedTextField(confirm, { confirm = it }, label = { Text("Nhập lại mật khẩu") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), enabled = !state.saving)
                 if (confirm.isNotBlank() && confirm != password) Text("Mật khẩu nhập lại chưa khớp", color = MaterialTheme.colorScheme.error)
+                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
@@ -609,7 +644,7 @@ private fun Dashboard(state: MainUiState) {
     var deviceId by remember { mutableStateOf(employee.fingerprintDeviceId) }
     AlertDialog(onDismissRequest=onDismiss,title={ Text("Đăng ký vân tay") },text={ Column(verticalArrangement=Arrangement.spacedBy(AppSpacing.medium)) {
         Text("${employee.code} • ${employee.fullName}")
-        OutlinedTextField(deviceId,{deviceId=it},label={Text("Mã thiết bị")},singleLine=true)
+        OutlinedTextField(deviceId,{deviceId=it},label={Text("Mã thiết bị")},singleLine=true,enabled=!state.saving)
         Text("Sau khi gửi, đặt cùng một ngón tay lên cảm biến 2 lần.")
         state.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
     } },confirmButton={ Button({onConfirm(deviceId)},enabled=!state.saving && deviceId.isNotBlank()) { Text("Gửi lệnh") } },dismissButton={ TextButton(onDismiss,enabled=!state.saving){Text("Hủy")} })
@@ -721,29 +756,30 @@ private fun Dashboard(state: MainUiState) {
         } else {
             Text("M\u00e3 nh\u00e2n vi\u00ean: " + initialEmployee.code)
         }
-        OutlinedTextField(name,{name=it},label={Text("Họ tên")},singleLine=true)
-        OutlinedTextField(email,{email=it},label={Text("Email")},singleLine=true)
-        OutlinedTextField(department,{department=it},label={Text("Phòng ban")},singleLine=true)
+        OutlinedTextField(name,{name=it},label={Text("Họ tên")},singleLine=true,enabled=!state.saving)
+        OutlinedTextField(email,{email=it},label={Text("Email")},singleLine=true,enabled=!state.saving)
+        OutlinedTextField(department,{department=it},label={Text("Phòng ban")},singleLine=true,enabled=!state.saving)
         if (initialEmployee == null) {
-            OutlinedTextField(deviceId,{deviceId=it},label={Text("Mã thiết bị đăng ký")},singleLine=true)
+            OutlinedTextField(deviceId,{deviceId=it},label={Text("Mã thiết bị đăng ký")},singleLine=true,enabled=!state.saving)
         }
-        OutlinedTextField(phone,{phone=it},label={Text("S\u1ed1 \u0111i\u1ec7n tho\u1ea1i")},singleLine=true)
-        OutlinedTextField(address,{address=it},label={Text("\u0110\u1ecba ch\u1ec9")},singleLine=true)
-        OutlinedTextField(position,{position=it},label={Text("Ch\u1ee9c v\u1ee5")},singleLine=true)
-        OutlinedTextField(hireDate,{hireDate=it},label={Text("Ng\u00e0y v\u00e0o l\u00e0m (yyyy-MM-dd)")},singleLine=true)
+        OutlinedTextField(phone,{phone=it},label={Text("S\u1ed1 \u0111i\u1ec7n tho\u1ea1i")},singleLine=true,enabled=!state.saving)
+        OutlinedTextField(address,{address=it},label={Text("\u0110\u1ecba ch\u1ec9")},singleLine=true,enabled=!state.saving)
+        OutlinedTextField(position,{position=it},label={Text("Ch\u1ee9c v\u1ee5")},singleLine=true,enabled=!state.saving)
+        OutlinedTextField(hireDate,{hireDate=it},label={Text("Ng\u00e0y v\u00e0o l\u00e0m (yyyy-MM-dd)")},singleLine=true,enabled=!state.saving)
         if (initialEmployee == null) {
         Row(verticalAlignment=Alignment.CenterVertically) {
-            Checkbox(checked=createAccount, onCheckedChange={ createAccount = it })
+            Checkbox(checked=createAccount, onCheckedChange={ createAccount = it }, enabled=!state.saving)
             Text("Tạo tài khoản đăng nhập cho nhân viên")
         }
         if (createAccount) {
             Text("Nhân viên sẽ đăng nhập bằng email và mật khẩu này.", style=MaterialTheme.typography.bodySmall)
-            OutlinedTextField(password,{password=it},label={Text("Mật khẩu (ít nhất 6 ký tự)")},singleLine=true,visualTransformation=PasswordVisualTransformation())
+            OutlinedTextField(password,{password=it},label={Text("Mật khẩu (ít nhất 6 ký tự)")},singleLine=true,visualTransformation=PasswordVisualTransformation(),enabled=!state.saving)
             OutlinedTextField(
                 passwordConfirmation,
                 {passwordConfirmation=it},
                 label={Text("Nhập lại mật khẩu")},
                 singleLine=true,
+                enabled=!state.saving,
                 isError=passwordConfirmation.isNotBlank() && passwordConfirmation != password,
                 visualTransformation=PasswordVisualTransformation()
             )

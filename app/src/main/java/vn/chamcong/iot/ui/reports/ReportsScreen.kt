@@ -43,8 +43,10 @@ import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.attendanceStatusLabel
 import vn.chamcong.iot.ui.deviceStatusLabel
+import vn.chamcong.iot.ui.userFacingErrorMessage
 import java.io.File
 import java.time.LocalDate
+import java.time.format.DateTimeParseException
 
 @Composable
 fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
@@ -54,15 +56,21 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
     var endText by remember { mutableStateOf(state.selectedWeekStart.plusDays(6).toString()) }
     var employeeId by remember { mutableStateOf("") }
     var department by remember { mutableStateOf("") }
-    val filter = remember(startText, endText, employeeId, department) {
+    var exportError by remember { mutableStateOf<String?>(null) }
+    val filterResult = remember(startText, endText, employeeId, department, state.employees) {
         runCatching {
             ReportFilter(
                 startDate = LocalDate.parse(startText),
                 endDate = LocalDate.parse(endText),
-                employeeId = employeeId.trim().takeIf(String::isNotBlank),
+                employeeId = resolveReportEmployeeId(employeeId, state.employees),
                 department = department.trim().takeIf(String::isNotBlank)
             ).also(::validateReportFilter)
-        }.getOrNull()
+        }
+    }
+    val filter = filterResult.getOrNull()
+    val filterError = filterResult.exceptionOrNull()?.let { error ->
+        if (error is DateTimeParseException) "Ngày báo cáo không hợp lệ. Nhập theo định dạng yyyy-MM-dd."
+        else error.message?.takeIf(String::isNotBlank) ?: "Bộ lọc báo cáo không hợp lệ"
     }
     val attendanceHistoryReady = type == ReportType.DEVICE_ACTIVITY || (
         filter != null && state.hasCompleteCalculationRange(filter.startDate, filter.endDate, filter.employeeId)
@@ -125,16 +133,20 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
             }
         }
         item {
-            val invalid = filter == null
-            if (invalid) Text("Khoảng ngày không hợp lệ", color = MaterialTheme.colorScheme.error)
+            filterError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(
                 onClick = {
-                    val csv = filter?.let { vm.reportCsv(type, it) } ?: return@Button
-                    shareCsv(context, csv, type.name.lowercase())
+                    val selectedFilter = filter ?: return@Button
+                    exportError = null
+                    runCatching {
+                        val csv = vm.reportCsv(type, selectedFilter)
+                        shareCsv(context, csv, type.name.lowercase())
+                    }.onFailure { exportError = "Không xuất được báo cáo. ${userFacingErrorMessage(it)}" }
                 },
                 enabled = filter != null && attendanceHistoryReady,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Xuất CSV và chia sẻ") }
+            exportError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (state.attendanceHistoryLoading && filter != null && type != ReportType.DEVICE_ACTIVITY) {
                 Text("Đang tải dữ liệu chấm công theo khoảng ngày...", style = MaterialTheme.typography.bodySmall)
             }

@@ -5,14 +5,11 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import vn.chamcong.iot.domain.mondayOfWeek
 import vn.chamcong.iot.domain.canAccessAdmin
 import vn.chamcong.iot.domain.canAccessEmployee
 import vn.chamcong.iot.data.*
@@ -25,14 +22,19 @@ internal fun MainViewModel.subscribe() {
     profileSubscription?.cancel()
     cancelDataSubscriptions()
     subscriptionMode = null
-    _state.update { it.copy(profileResolved = false) }
+    _state.update { it.copy(profileResolved = false, profileError = null, error = null) }
     profileSubscription = viewModelScope.launch {
-        repository.observeUserProfile().catch { e -> setError(e) }.collect { profile ->
+        repository.observeUserProfile().catch { error ->
+            if (error is CancellationException) throw error
+            cancelDataSubscriptions()
+            subscriptionMode = null
+            _state.update { it.copy(profileResolved = false, profileError = userFacingErrorMessage(error)) }
+        }.collect { profile ->
             if (profile != _state.value.userProfile) {
                 cancelDataSubscriptions()
                 subscriptionMode = null
             }
-            _state.update { it.copy(userProfile = profile, profileResolved = true) }
+            _state.update { it.copy(userProfile = profile, profileResolved = true, profileError = null) }
             if (profile?.role == "EMPLOYEE") {
                 if (canAccessEmployee("password", profile)) subscribeEmployee(profile)
                 else {
@@ -49,6 +51,10 @@ internal fun MainViewModel.subscribe() {
 }
 
 internal fun MainViewModel.cancelDataSubscriptions() {
+    employeeWeeklyScheduleRequestSubscription?.cancel()
+    employeeWeeklyScheduleRequestSubscription = null
+    weeklyScheduleRequestsSubscription?.cancel()
+    weeklyScheduleRequestsSubscription = null
     employeeResourcesSubscription?.cancel()
     employeeResourcesSubscription = null
     attendanceHistoryJob?.cancel()
@@ -90,7 +96,13 @@ internal fun MainViewModel.cancelDataSubscriptions() {
             shifts = emptyList(),
             schedules = emptyList(),
             weeklyScheduleRequests = emptyList(),
+            weeklyScheduleRequestsLoading = false,
+            weeklyScheduleRequestsError = null,
+            weeklyScheduleRequestsLoadedWeekStart = null,
             employeeWeeklyScheduleRequest = null,
+            employeeWeeklyScheduleRequestLoading = false,
+            employeeWeeklyScheduleRequestError = null,
+            employeeWeeklyScheduleRequestLoadedWeekStart = null,
             leaveRequests = emptyList(),
             overtimeRequests = emptyList(),
             notifications = emptyList(),
@@ -113,6 +125,7 @@ internal fun MainViewModel.subscribeAdmin() {
     cancelDataSubscriptions()
     subscriptionMode = "ADMIN"
     subscribeEmployeeResources()
+    subscribeAdminWeeklyScheduleRequests()
     dataSubscriptions += viewModelScope.launch {
         try {
             repository.ensureDefaultScheduleShifts()
@@ -187,14 +200,6 @@ internal fun MainViewModel.subscribeAdmin() {
         }
     }
     dataSubscriptions += viewModelScope.launch {
-        _state.map { it.selectedWeekStart }.distinctUntilChanged().collectLatest { week ->
-            _state.update { it.copy(weeklyScheduleRequests = emptyList()) }
-            repository.observeWeeklyScheduleRequests(week.toString()).catch { e -> setError(e) }.collect { requests ->
-                _state.update { it.copy(weeklyScheduleRequests = requests) }
-            }
-        }
-    }
-    dataSubscriptions += viewModelScope.launch {
         repository.observeOvertimeRequests().catch { e -> setError(e) }.collect { requests ->
             _state.update { it.copy(overtimeRequests = requests) }
         }
@@ -237,6 +242,7 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
     }
     if (employeeId.isBlank()) return
     subscribeEmployeeResources()
+    subscribeEmployeeWeeklyScheduleRequest()
     dataSubscriptions += viewModelScope.launch {
         repository.observeEmployeeAttendanceAdjustments(employeeId).catch { e -> setError(e) }.collect { rows ->
             _state.update { it.copy(attendanceAdjustments = rows) }
@@ -278,22 +284,6 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
                 repository.observeEmployeeSchedules(employeeId, period.atDay(1).minusDays(7), period.atEndOfMonth().plusDays(14))
             }) { windows -> windows.flatMap { it }.distinctBy { "${it.employeeId}|${it.date}" } }
                 .catch { e -> setError(e) }.collect { rows -> _state.update { it.copy(employeeSchedules = rows) } }
-        }
-    }
-    dataSubscriptions += viewModelScope.launch {
-        flow {
-            while (true) {
-                val now = java.time.ZonedDateTime.now(zoneId)
-                val target = mondayOfWeek(now.toLocalDate()).plusWeeks(1)
-                emit(target)
-                val rollover = target.atStartOfDay(zoneId).toInstant()
-                delay(java.time.Duration.between(now.toInstant(), rollover).toMillis().coerceAtLeast(1L))
-            }
-        }.collectLatest { target ->
-            _state.update { it.copy(employeeWeeklyTargetWeekStart = target, employeeWeeklyScheduleRequest = null) }
-            repository.observeEmployeeWeeklyScheduleRequest(employeeId, target.toString())
-                .catch { e -> setError(e) }
-                .collect { request -> _state.update { it.copy(employeeWeeklyScheduleRequest = request) } }
         }
     }
     dataSubscriptions += viewModelScope.launch {

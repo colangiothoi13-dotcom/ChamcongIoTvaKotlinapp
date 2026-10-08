@@ -8,6 +8,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.CancellationException
+import vn.chamcong.iot.domain.canRollbackNewEmployeeProvisioning
 import vn.chamcong.iot.domain.employeeAccountProfile
 import vn.chamcong.iot.domain.validateEmployeeAccountInput
 import vn.chamcong.iot.domain.validateAuditLog
@@ -25,8 +27,7 @@ suspend fun FirebaseRepository.saveEmployee(employee: Employee, account: Employe
         try {
             createEmployeeAccount(result.id, account)
         } catch (error: Exception) {
-            if (employee.id.isBlank()) runCatching { rollbackNewEmployeeProvisioning(result.id) }
-            throw error
+            handleEmployeeAccountFailure(employee, result, error)
         }
     }
     return result.code
@@ -43,8 +44,7 @@ suspend fun FirebaseRepository.saveAndRequestFingerprint(
         try {
             createEmployeeAccount(result.id, account)
         } catch (error: Exception) {
-            if (employee.id.isBlank()) runCatching { rollbackNewEmployeeProvisioning(result.id) }
-            throw error
+            handleEmployeeAccountFailure(employee, result, error)
         }
     }
     return result.code
@@ -87,24 +87,61 @@ private suspend fun FirebaseRepository.createEmployeeAccount(employeeId: String,
     }
 }
 
-/** Compensates the employee/device writes when account provisioning fails. */
-private suspend fun FirebaseRepository.rollbackNewEmployeeProvisioning(employeeId: String) {
+private suspend fun FirebaseRepository.handleEmployeeAccountFailure(
+    employee: Employee,
+    result: EmployeeSaveResult,
+    error: Exception
+): Nothing {
+    if (error is CancellationException) throw error
+    if (employee.id.isBlank()) {
+        val rolledBack = try {
+            rollbackNewEmployeeProvisioning(result.id)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (rollbackError: Exception) {
+            error.addSuppressed(rollbackError)
+            throw IllegalStateException(
+                "Chưa tạo được tài khoản và chưa xác nhận được hoàn tác hồ sơ ${result.code}. " +
+                    "Kiểm tra Nhân viên và trạng thái thiết bị trước khi tạo lại.",
+                error
+            )
+        }
+        if (!rolledBack) throw IllegalStateException(
+            "Chưa tạo được tài khoản cho ${result.code}. Không thể hoàn tác đăng ký vân tay an toàn; " +
+                "hồ sơ và ánh xạ được giữ lại. Kiểm tra Nhân viên trước khi tạo lại hoặc xóa vân tay.",
+            error
+        )
+    }
+    throw error
+}
+
+/** Compensates only writes whose enrollment command has not been accepted by the device. */
+private suspend fun FirebaseRepository.rollbackNewEmployeeProvisioning(employeeId: String): Boolean {
     val employeeRef = db.collection("employees").document(employeeId)
-    db.runTransaction { tx ->
-        val employee = tx.get(employeeRef)
-        if (!employee.exists()) return@runTransaction
-        val pendingTemplateId = employee.getLong("pendingTemplateId")?.toInt()
-        val deviceId = employee.getString("fingerprintDeviceId").orEmpty().ifBlank { "GATE-01" }
+    return db.runTransaction { tx ->
+        val snapshot = tx.get(employeeRef)
+        if (!snapshot.exists()) return@runTransaction true
+        val employee = snapshot.toObject(Employee::class.java)?.copy(id = employeeId)
+            ?: error("Không đọc được hồ sơ cần hoàn tác")
+        val pendingTemplateId = employee.pendingTemplateId
+        val deviceId = employee.fingerprintDeviceId.ifBlank { "GATE-01" }
         val commandRef = db.collection("deviceCommands").document(deviceId)
         val command = tx.get(commandRef)
         val commandBelongsToEmployee = command.getString("employeeId") == employeeId
+        if (!canRollbackNewEmployeeProvisioning(
+                employee, command.getString("employeeId"), command.getString("status")
+            )) return@runTransaction false
+        val mappingRef = pendingTemplateId?.let { db.collection("fingerprintMappings").document(it.toString()) }
+        val mapping = mappingRef?.let(tx::get)
+        if (mapping != null && mapping.exists() &&
+            (mapping.getString("employeeId") != employeeId || mapping.getBoolean("enabled") == true)
+        ) return@runTransaction false
         if (commandBelongsToEmployee && command.getString("status") == "REQUESTED") {
             tx.delete(commandRef)
         }
-        pendingTemplateId?.let { templateId ->
-            tx.delete(db.collection("fingerprintMappings").document(templateId.toString()))
-        }
+        mappingRef?.let(tx::delete)
         tx.delete(employeeRef)
+        true
     }.await()
 }
 

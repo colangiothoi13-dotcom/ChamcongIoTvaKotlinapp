@@ -42,7 +42,7 @@ internal fun SalaryDialog(e: Employee, state: MainUiState, dismiss: () -> Unit, 
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("${e.code} • ${e.fullName}")
-                MoneyField("Lương cơ bản / giờ (đ)", value) { value = it }
+                MoneyField("Lương cơ bản / giờ (đ)", value, enabled = !state.saving) { value = it }
                 Text("Phiếu lương = lương cơ bản/giờ × số giờ làm + thưởng − khấu trừ.")
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -58,11 +58,12 @@ internal fun SalaryDialog(e: Employee, state: MainUiState, dismiss: () -> Unit, 
 }
 
 @Composable
-private fun MoneyField(label: String, value: String, changed: (String) -> Unit) {
+private fun MoneyField(label: String, value: String, enabled: Boolean, changed: (String) -> Unit) {
     OutlinedTextField(
         value = value,
         onValueChange = { if (it.all { c -> c in '0'..'9' } && it.length <= 13) changed(it) },
         label = { Text(label) },
+        enabled = enabled,
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth()
@@ -192,7 +193,7 @@ internal fun PayrollScreen(state: MainUiState, vm: MainViewModel) {
                     Text("Thưởng theo ca: ${money(breakdown.overtimeBonus)}")
                     Text("Phạt đi muộn trong thưởng: ${money(breakdown.latePenalty)}")
                     Text("Thưởng tự động: ${money(breakdown.totalBonus)}", style = MaterialTheme.typography.titleMedium)
-                    MoneyField("Khấu trừ (đ)", deduction) { deduction = it }
+                    MoneyField("Khấu trừ (đ)", deduction, enabled = !state.saving) { deduction = it }
                     if (basePay != null && d != null) Text("Lương cơ bản: ${money(basePay)} • Thực lĩnh: ${money(basePay + b - d)}")
                     Text("Phiếu lương đã lưu được giữ làm lịch sử. Nhân viên nghỉ việc chỉ có thể lập lương đến tháng nghỉ; từ tháng tiếp theo sẽ ẩn khỏi danh sách.")
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

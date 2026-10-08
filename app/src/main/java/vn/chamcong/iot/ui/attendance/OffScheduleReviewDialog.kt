@@ -66,7 +66,7 @@ internal fun OffScheduleReviewDialog(
     val decisionTitle = if (decision == "APPROVE") "Duyệt ca ngoài lịch" else "Từ chối ca ngoài lịch"
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("Xử lý chấm công ngoài lịch") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
@@ -76,28 +76,30 @@ internal fun OffScheduleReviewDialog(
                 }.ifBlank { "không tìm thấy thêm" }}", style = MaterialTheme.typography.bodySmall)
                 Text("Nếu duyệt, hệ thống gán các lượt phù hợp vào ca đã chọn rồi tự tính công. Thiếu lượt vào hoặc ra vẫn được 0 giờ cho ca đó.", style = MaterialTheme.typography.bodySmall)
                 androidx.compose.foundation.layout.Box {
-                    TextButton(onClick = { menuExpanded = true }, enabled = options.isNotEmpty()) {
+                    TextButton(onClick = { menuExpanded = true }, enabled = !busy && options.isNotEmpty()) {
                         Text(selectedShift?.let { "${it.name} (${it.startTime}–${it.endTime})" } ?: "Chọn ca")
                     }
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenu(expanded = menuExpanded && !busy, onDismissRequest = { menuExpanded = false }) {
                         options.forEach { shift ->
                             DropdownMenuItem(
                                 text = { Text("${shift.name} (${shift.startTime}–${shift.endTime})") },
-                                onClick = { selectedShiftId = shift.id; menuExpanded = false }
+                                onClick = { selectedShiftId = shift.id; menuExpanded = false },
+                                enabled = !busy
                             )
                         }
                     }
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                    FilterChip(selected = decision == "APPROVE", onClick = { decision = "APPROVE" }, label = { Text("Duyệt") })
-                    FilterChip(selected = decision == "REJECT", onClick = { decision = "REJECT" }, label = { Text("Từ chối") })
+                    FilterChip(selected = decision == "APPROVE", onClick = { decision = "APPROVE" }, label = { Text("Duyệt") }, enabled = !busy)
+                    FilterChip(selected = decision == "REJECT", onClick = { decision = "REJECT" }, label = { Text("Từ chối") }, enabled = !busy)
                 }
                 OutlinedTextField(
                     value = reason,
                     onValueChange = { reason = it.take(500) },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Lý do xử lý") },
-                    minLines = 2
+                    minLines = 2,
+                    enabled = !busy
                 )
                 if (error != null) Text(error, color = MaterialTheme.colorScheme.error)
             }
