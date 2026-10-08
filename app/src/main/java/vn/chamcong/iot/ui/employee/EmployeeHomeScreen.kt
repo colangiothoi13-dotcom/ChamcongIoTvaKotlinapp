@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Work
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
@@ -40,12 +39,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +57,7 @@ import vn.chamcong.iot.ui.AppColorTokens
 import vn.chamcong.iot.ui.AppSpacing
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.EmployeeDestination
 import vn.chamcong.iot.ui.CalculationLoadingNotice
 import vn.chamcong.iot.ui.loadAttendanceRange
 import java.time.LocalDate
@@ -76,7 +73,7 @@ private data class HomeUtility(
     val tint: Color,
     val background: Color,
     val badge: String? = null,
-    val onClick: (() -> Unit)? = null
+    val onClick: () -> Unit
 )
 
 @Composable
@@ -86,10 +83,9 @@ fun EmployeeHomeScreen(
     onOpenSchedule: () -> Unit = {},
     onOpenAttendance: () -> Unit = {},
     onOpenRequests: () -> Unit = {},
-    onOpenProfile: () -> Unit = {}
+    onOpenProfile: () -> Unit = {},
+    onOpenUtility: (EmployeeDestination) -> Unit = {}
 ) {
-    var notificationDialog by remember { mutableStateOf(false) }
-    var unavailableUtility by remember { mutableStateOf<String?>(null) }
     val employee = state.currentEmployee
     if (employee == null) {
         EmptyEmployeeLinkState()
@@ -115,6 +111,7 @@ fun EmployeeHomeScreen(
     }
     val lateCount = summaries.count { it.lateMinutes > 0 }
     val pendingRequests = state.employeeRequests.count { it.status == "PENDING" }
+    val unreadNotifications = state.employeeNotifications.count { !it.read }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -155,10 +152,10 @@ fun EmployeeHomeScreen(
                     }
                     BadgedBox(
                         badge = {
-                            if (pendingRequests > 0) Badge { Text(pendingRequests.toString()) }
+                            if (unreadNotifications > 0) Badge { Text(unreadNotifications.toString()) }
                         }
                     ) {
-                        IconButton(onClick = { notificationDialog = true }) {
+                        IconButton(onClick = { onOpenUtility(EmployeeDestination.NOTIFICATIONS) }) {
                             Icon(Icons.Default.Notifications, contentDescription = "Thông báo", tint = Color.White)
                         }
                     }
@@ -200,19 +197,20 @@ fun EmployeeHomeScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Tiện ích", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onOpenAttendance) {
+                    TextButton(onClick = { onOpenUtility(EmployeeDestination.UTILITIES) }) {
                         Text("Xem tất cả", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
                 val utilities = listOf(
+                    HomeUtility("Đăng ký ca", Icons.Default.CalendarMonth, AppColorTokens.green, Color(0xFFDFF3E5), onClick = { onOpenUtility(EmployeeDestination.SHIFT_REGISTRATION) }),
                     HomeUtility("Đơn báo", Icons.Default.Description, AppColorTokens.orange, Color(0xFFFFEAC7), pendingRequests.takeIf { it > 0 }?.toString(), onOpenRequests),
-                    HomeUtility("Lịch họp", Icons.Default.Groups, AppColorTokens.blue, Color(0xFFD9EEFF)),
+                    HomeUtility("Lịch họp", Icons.Default.Groups, AppColorTokens.blue, Color(0xFFD9EEFF), onClick = { onOpenUtility(EmployeeDestination.MEETINGS) }),
                     HomeUtility("Thông tin", Icons.Default.Person, AppColorTokens.green, Color(0xFFDFF3E5), onClick = onOpenProfile),
-                    HomeUtility("Thâm niên", Icons.Default.Work, AppColorTokens.purple, Color(0xFFF0DFF8), onClick = onOpenProfile),
-                    HomeUtility("Tin tức", Icons.Default.Event, AppColorTokens.pink, Color(0xFFF8DDE8)),
-                    HomeUtility("Khen thưởng", Icons.Default.Star, AppColorTokens.orange, Color(0xFFFFF0C8)),
-                    HomeUtility("Tài liệu", Icons.Default.Folder, Color(0xFF557785), Color(0xFFE0EAED)),
-                    HomeUtility("Hỗ trợ", Icons.Default.HeadsetMic, Color(0xFF12AFC1), Color(0xFFD9F3F6), onClick = onOpenRequests)
+                    HomeUtility("Thâm niên", Icons.Default.Work, AppColorTokens.purple, Color(0xFFF0DFF8), onClick = { onOpenUtility(EmployeeDestination.TENURE) }),
+                    HomeUtility("Tin tức", Icons.Default.Event, AppColorTokens.pink, Color(0xFFF8DDE8), onClick = { onOpenUtility(EmployeeDestination.NEWS) }),
+                    HomeUtility("Khen thưởng", Icons.Default.Star, AppColorTokens.orange, Color(0xFFFFF0C8), onClick = { onOpenUtility(EmployeeDestination.REWARDS) }),
+                    HomeUtility("Tài liệu", Icons.Default.Folder, Color(0xFF557785), Color(0xFFE0EAED), onClick = { onOpenUtility(EmployeeDestination.DOCUMENTS) }),
+                    HomeUtility("Hỗ trợ", Icons.Default.HeadsetMic, Color(0xFF12AFC1), Color(0xFFD9F3F6), onClick = { onOpenUtility(EmployeeDestination.SUPPORT) })
                 )
                 utilities.chunked(4).forEach { rowItems ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
@@ -220,7 +218,7 @@ fun EmployeeHomeScreen(
                             HomeUtilityItem(
                                 utility,
                                 Modifier.weight(1f),
-                                onClick = { utility.onClick?.invoke() ?: run { unavailableUtility = utility.label } }
+                                onClick = utility.onClick
                             )
                         }
                         repeat(4 - rowItems.size) { Spacer(Modifier.weight(1f)) }
@@ -265,7 +263,7 @@ fun EmployeeHomeScreen(
                 ) {
                     Text("Thông báo mới", style = MaterialTheme.typography.titleLarge)
                     state.employeeNotifications.take(3).forEach { notification ->
-                        Card(Modifier.fillMaxWidth()) {
+                        Card(onClick = { onOpenUtility(EmployeeDestination.NOTIFICATIONS) }, modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(AppSpacing.large)) {
                                 Text(notification.title, fontWeight = if (notification.read) FontWeight.Normal else FontWeight.Bold)
                                 Text(notification.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -279,41 +277,6 @@ fun EmployeeHomeScreen(
         item { Spacer(Modifier.height(AppSpacing.small)) }
     }
 
-    if (notificationDialog) {
-        AlertDialog(
-            onDismissRequest = { notificationDialog = false },
-            title = { Text("Thông báo") },
-            text = {
-                if (state.employeeNotifications.isEmpty()) {
-                    Text("Chưa có thông báo mới")
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                        state.employeeNotifications.take(8).forEach { notification ->
-                            Text(notification.title, fontWeight = if (notification.read) FontWeight.Normal else FontWeight.Bold)
-                            Text(notification.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { notificationDialog = false }) { Text("Đóng") } }
-        )
-        LaunchedEffect(notificationDialog, state.employeeNotifications) {
-            if (notificationDialog) {
-                state.employeeNotifications.filterNot { it.read }.forEach { notification ->
-                    vm.markEmployeeNotificationRead(notification.id)
-                }
-            }
-        }
-    }
-
-    unavailableUtility?.let { label ->
-        AlertDialog(
-            onDismissRequest = { unavailableUtility = null },
-            title = { Text(label) },
-            text = { Text("Tính năng này đang được phát triển và chưa có dữ liệu trong hệ thống.") },
-            confirmButton = { TextButton(onClick = { unavailableUtility = null }) { Text("Đã hiểu") } }
-        )
-    }
 }
 
 @Composable

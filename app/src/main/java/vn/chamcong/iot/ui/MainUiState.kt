@@ -26,6 +26,7 @@ import vn.chamcong.iot.model.DeviceSnapshot
 import vn.chamcong.iot.model.Department
 import vn.chamcong.iot.model.Announcement
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.EmployeeResource
 import vn.chamcong.iot.model.visibleOutsideRetiredList
 import vn.chamcong.iot.model.AppNotification
 import vn.chamcong.iot.model.AuditLog
@@ -59,6 +60,9 @@ data class MainUiState(
     val devices: List<DeviceSnapshot> = emptyList(),
     val departments: List<Department> = emptyList(),
     val announcements: List<Announcement> = emptyList(),
+    val employeeResources: List<EmployeeResource> = emptyList(),
+    val employeeResourcesLoading: Boolean = false,
+    val employeeResourcesError: String? = null,
     val selectedWeekStart: LocalDate = mondayOfWeek(LocalDate.now()),
     val selectedPresenceDate: LocalDate = LocalDate.now(),
     val shifts: List<WorkShift> = emptyList(),

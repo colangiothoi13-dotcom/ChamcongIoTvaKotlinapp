@@ -101,12 +101,28 @@ internal fun userFacingErrorMessage(error: Throwable): String {
     return if (raw.contains("PERMISSION_DENIED", ignoreCase = true)
         || raw.contains("Missing or insufficient permissions", ignoreCase = true)
     ) {
-        "Tài khoản chưa có quyền đọc dữ liệu. Hãy kiểm tra vai trò ADMIN, trạng thái active và Firestore Rules."
+        "Chưa có quyền truy cập dữ liệu này. Vui lòng nhờ Admin kiểm tra tài khoản và quyền truy cập."
     } else if (error.isFirestoreIndexBuilding()) {
         "Firestore đang tạo chỉ mục dữ liệu. Hãy đợi vài phút rồi chọn Tải lại dữ liệu."
     } else if (error.isFirestoreIndexRequired()) {
         "Truy vấn cần chỉ mục Firestore. Hãy triển khai chỉ mục rồi chọn Tải lại dữ liệu."
+    } else if (error.isFirestoreServerReadUnavailable()) {
+        "Không tải được dữ liệu mới từ Firebase. Hãy kiểm tra kết nối Internet rồi chọn Tải lại dữ liệu."
     } else {
         raw.ifBlank { "Đã xảy ra lỗi, vui lòng thử lại." }
     }
+}
+
+private fun Throwable.isFirestoreServerReadUnavailable(): Boolean {
+    val visited = mutableSetOf<Throwable>()
+    var current: Throwable? = this
+    while (current != null && visited.add(current)) {
+        val message = current.message.orEmpty()
+        if (message.contains("Failed to get documents from server", ignoreCase = true)
+            || message.contains("Failed to get document from server", ignoreCase = true)
+            || message.contains("Could not reach Cloud Firestore backend", ignoreCase = true)
+        ) return true
+        current = current.cause
+    }
+    return false
 }

@@ -30,6 +30,7 @@ import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.model.DeviceCommandType
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.EmployeeResource
 import vn.chamcong.iot.model.EmployeeDaySummary
 import vn.chamcong.iot.model.AttendanceReportRow
 import vn.chamcong.iot.model.DeviceActivityRow
@@ -69,6 +70,7 @@ class MainViewModel private constructor(application: Application, private val pr
     internal val dataSubscriptions = mutableListOf<Job>()
     internal var profileSubscription: Job? = null
     internal var scheduleSubscription: Job? = null
+    internal var employeeResourcesSubscription: Job? = null
     internal var subscriptionMode: String? = null
     internal var attendanceHistoryJob: Job? = null
     internal var attendanceHistoryRequestedKey: String? = null
@@ -86,7 +88,11 @@ class MainViewModel private constructor(application: Application, private val pr
         }
     }
 
-    private fun perform(onSuccess: () -> Unit, block: suspend () -> String) = viewModelScope.launch {
+    private fun perform(
+        onSuccess: () -> Unit,
+        errorContext: String? = null,
+        block: suspend () -> String
+    ) = viewModelScope.launch {
         if (_state.value.saving) return@launch
         _state.update { it.copy(saving=true, error=null, message=null) }
         try {
@@ -94,7 +100,12 @@ class MainViewModel private constructor(application: Application, private val pr
             _state.update { it.copy(saving=false, message=message) }
             onSuccess()
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) { _state.update { it.copy(saving=false, error=userFacingErrorMessage(e)) } }
+        catch (e: Exception) {
+            val error = userFacingErrorMessage(e)
+            _state.update {
+                it.copy(saving=false, error=errorContext?.let { context -> "$context: $error" } ?: error)
+            }
+        }
     }
     fun adjustAttendance(adjustment: AttendanceAdjustment, done: () -> Unit) = perform(done) {
         repository.saveAttendanceAdjustment(adjustment)
@@ -189,7 +200,8 @@ class MainViewModel private constructor(application: Application, private val pr
         repository.requestDeviceCommand(deviceId, type)
         "Đã gửi lệnh ${vn.chamcong.iot.model.deviceCommandLabel(type)}"
     }
-    fun submitWeeklySchedule(shiftsByDate: Map<String, List<String>>, note: String = "", done: () -> Unit = {}) = perform(done) {
+    fun submitWeeklySchedule(shiftsByDate: Map<String, List<String>>, note: String = "", done: () -> Unit = {}) =
+        perform(done, errorContext = "Không gửi được đăng ký ca") {
         val employee = _state.value.currentEmployee ?: error("Chưa tải được hồ sơ nhân viên")
         val weekStart = mondayOfWeek(LocalDate.now(zoneId)).plusWeeks(1)
         val currentShifts = _state.value.shifts.associateBy(WorkShift::id)
@@ -300,6 +312,15 @@ class MainViewModel private constructor(application: Application, private val pr
         repository.updateEmployeeContact(employee.id, phone, address)
         "\u0110\u00e3 c\u1eadp nh\u1eadt th\u00f4ng tin li\u00ean h\u1ec7"
     }
+    fun saveEmployeeResource(resource: EmployeeResource, done: () -> Unit = {}) = perform(done) {
+        repository.saveEmployeeResource(resource)
+        "Đã lưu nội dung tiện ích"
+    }
+    fun deleteEmployeeResource(resourceId: String, done: () -> Unit = {}) = perform(done) {
+        repository.deleteEmployeeResource(resourceId)
+        "Đã xóa nội dung tiện ích"
+    }
+    fun retryEmployeeResources() = subscribeEmployeeResources()
     fun submitFingerprintSupportRequest(reason: String, done: () -> Unit = {}) {
         val today = LocalDate.now(zoneId).toString()
         submitEmployeeRequest(RequestType.FINGERPRINT_SUPPORT, today, today, reason, done = done)

@@ -2,6 +2,10 @@
 
 Ứng dụng Android dành cho **Admin** và **nhân viên**, kết hợp ESP8266 với cảm biến AS608/R307 và Firebase. Tài liệu này mô tả đường đi đến từng màn hình, ý nghĩa các nút và điều gì xảy ra sau khi thao tác. Dự án đang vận hành theo **Firebase Spark**: không cần Cloud Functions để đăng ký vân tay hoặc để Android hiển thị công đã phân giải.
 
+Cập nhật tài liệu ngày **08/10/2026** theo mã nguồn hiện tại. [Báo cáo đồ án](BAO_CAO_DO_AN_CHAM_CONG_IOT.txt) trình bày kiến trúc, thiết kế dữ liệu, Use Case và đánh giá sản phẩm.
+
+**Trạng thái bản cập nhật:** các tiện ích nhân viên đã có màn hình và xử lý đọc/ghi Firebase; Rules mới cho tiện ích và đăng ký ca đã qua kiểm thử trên Firestore Emulator. Bản Rules/indexes này **chưa được triển khai lên Firebase thật** trong lần cập nhật này. Cần thực hiện bước [triển khai Firebase](#firebase) để môi trường online áp dụng đúng quyền.
+
 ## Mục lục
 
 - [Luồng hoạt động chung](#luồng-hoạt-động-chung)
@@ -12,6 +16,7 @@
 - [Cài đặt và triển khai](#cài-đặt-và-triển-khai)
 - [Cấu trúc mã nguồn](#cấu-trúc-mã-nguồn)
 - [Lưu ý khi vận hành](#lưu-ý-khi-vận-hành)
+- [Kiểm thử hồi quy](#kiểm-thử-hồi-quy)
 
 ## Luồng hoạt động chung
 
@@ -55,7 +60,7 @@ Thanh dưới của Admin: **Tổng quan · Tác vụ · Đơn từ · Phân ca 
 | `‹`, `Tuần này`, `›` | Đổi tuần của biểu đồ và số liệu tuần. |
 | `Xem tất cả` ở “Chấm công mới nhất” | Mở màn hình **Chấm công** để lọc và xử lý chi tiết. |
 | `Đã đọc` trên thông báo | Đánh dấu thông báo đã đọc. |
-| Thẻ chức năng trong **Tác vụ** | Mở màn hình tương ứng: **Chấm công, Có mặt, Thiết bị, Phân ca, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Bảng công tháng, Nhật ký, Phòng ban, Thông báo**. |
+| Thẻ chức năng trong **Tác vụ** | Mở màn hình tương ứng: **Chấm công, Có mặt, Thiết bị, Phân ca, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Bảng công tháng, Nhật ký, Phòng ban, Thông báo, Tiện ích nhân viên**. |
 
 **Phân ca** trên thanh dưới là trang điều hướng nhanh đến **Ca làm** và **Lịch**. Mục **Cài đặt** chưa có màn hình thao tác trong bản hiện tại.
 
@@ -71,7 +76,7 @@ Vào **Nhân viên** để quản lý hồ sơ. Mã nhân viên được cấp t
 | Công tắc `Tạo tài khoản đăng nhập cho nhân viên` | Hiện ô mật khẩu; khi lưu, tạo tài khoản Email/Password và hồ sơ `users/{uid}` liên kết với nhân viên. |
 | `Chỉ lưu nhân viên` | Lưu hồ sơ; có thể đăng ký vân tay sau. |
 | `Lưu & đăng ký vân tay` | Lưu hồ sơ và gửi lệnh đăng ký đến mã thiết bị đã nhập. |
-| `Sửa hồ sơ` → `Lưu hồ sơ` | Cập nhật thông tin nhân viên. |
+| `Sửa hồ sơ` → `Lưu hồ sơ` | Cập nhật thông tin nhân viên, gồm chức vụ và **Ngày vào làm** dạng `yyyy-MM-dd`. Ngày này được dùng để tính thâm niên. |
 | `Thiết lập lương` | Nhập đơn giá lương theo giờ và lưu. |
 | `Đăng ký vân tay` → nhập `Mã thiết bị` → `Gửi lệnh` | Tạo lệnh trên Firestore. Đặt **cùng một ngón tay hai lần** trên cảm biến; theo dõi trạng thái lệnh ngay tại thẻ nhân viên. |
 | `Xóa vân tay` → `Xác nhận xóa` | Gửi lệnh xóa mẫu trên thiết bị, giữ hồ sơ và lịch sử lương/công. Có thể đăng ký lại sau khi xóa thành công. |
@@ -190,6 +195,22 @@ Nhân viên đã nghỉ vẫn xuất hiện ở **tháng lịch sử phù hợp*
 | **Tác vụ → Nhật ký** → ô `Lọc hành động/đối tượng` | Tìm theo thao tác, đối tượng, người thực hiện hoặc nội dung. Nhật ký chỉ đọc. |
 | **Tác vụ → Thông báo** → chọn `Tất cả nhân viên` hoặc phòng ban → `Gửi thông báo` | Gửi thông báo có tiêu đề và nội dung; xem lại tại “Lịch sử đã gửi”. |
 
+### 10. Tiện ích nhân viên
+
+Vào **Tác vụ → Tiện ích nhân viên** để quản lý nội dung hiển thị ở **Lịch họp, Khen thưởng, Tài liệu** của nhân viên.
+
+| Nút/thao tác | Kết quả |
+| --- | --- |
+| `Loại nội dung` | Chọn **Lịch họp**, **Khen thưởng** hoặc **Tài liệu**. |
+| `Người nhận` | Với lịch họp và tài liệu, chọn **Tất cả nhân viên**, **Theo phòng ban** hoặc **Một nhân viên**; danh sách chọn dùng phòng ban/nhân viên đang hoạt động. |
+| `Đăng nội dung` | Kiểm tra biểu mẫu rồi lưu nội dung mới lên Firestore. Tiêu đề tối đa 120 ký tự, nội dung tối đa 4.000 ký tự. |
+| `Chỉnh sửa` → `Lưu thay đổi` | Sửa nội dung đã đăng; giữ người tạo và thời điểm tạo ban đầu. |
+| `Hủy chỉnh sửa / Tạo mới` | Rời biểu mẫu sửa để tạo nội dung khác. |
+| `Xóa` → xác nhận `Xóa` | Xóa nội dung đã chọn khỏi danh sách tiện ích. |
+| `Thử lại` | Tải lại danh sách khi đọc dữ liệu bị lỗi. |
+
+**Lịch họp** cần ngày `yyyy-MM-dd`, giờ bắt đầu/kết thúc `HH:mm` trong cùng ngày, giờ kết thúc sau giờ bắt đầu và địa điểm; liên kết họp HTTPS là tùy chọn. **Khen thưởng** cần chọn một nhân viên và ngày khen thưởng; đây là ghi nhận thành tích, khoản thưởng bằng tiền được nhập tại **Lương**. **Tài liệu** cần liên kết HTTPS tới tệp đã được lưu trên hệ thống của đơn vị; app mở liên kết bằng ứng dụng bên ngoài.
+
 ## Chức năng nhân viên
 
 ### 1. Trang chủ
@@ -199,27 +220,40 @@ Trang chủ cho biết ca hôm nay, giờ chấm vào/ra, số giờ làm, tăng
 | Nút/thao tác | Kết quả |
 | --- | --- |
 | Dòng `Ca làm việc` | Mở **Lịch làm việc**. |
-| `Xem thêm` ở “Công việc hôm nay”, dòng `Trạng thái chấm công` hoặc `Xem tất cả` | Mở **Chấm công của tôi**. |
-| Biểu tượng chuông | Xem thông báo. |
-| Tiện ích `Đơn báo` / `Hỗ trợ` | Mở **Đơn từ**. |
-| Tiện ích `Thông tin` / `Thâm niên` | Mở **Cá nhân**. |
-| `Lịch họp`, `Tin tức`, `Khen thưởng`, `Tài liệu` | Hiện thông báo chưa có chức năng tương ứng trong bản hiện tại. |
+| `Xem thêm` ở “Công việc hôm nay”, dòng `Trạng thái chấm công` | Mở **Chấm công của tôi**. |
+| `Xem tất cả` ở “Tiện ích” | Mở danh sách đầy đủ các tiện ích. |
+| Biểu tượng chuông | Mở danh sách thông báo; badge đếm thông báo chưa đọc. `Xem nội dung` đánh dấu đúng thông báo đó đã đọc trên Firebase. |
+| `Đơn báo` | Mở **Đơn từ** để gửi và theo dõi đơn. |
+| `Đăng ký ca` | Mở trực tiếp phần đăng ký ca tuần sau để chọn ca và gửi Admin duyệt. Cũng có thể vào **Lịch làm việc → Đăng ký tuần sau**. |
+| `Thông tin` | Mở **Cá nhân** để xem hồ sơ và lưu thông tin liên hệ. |
+| `Thâm niên` | Tính thời gian làm việc từ ngày vào làm trong hồ sơ. |
+| `Lịch họp` | Xem lịch họp được Admin chia sẻ cho bạn hoặc phòng ban; mở liên kết họp nếu có. |
+| `Tin tức` | Xem nội dung Admin đã gửi qua **Thông báo**. |
+| `Khen thưởng` | Xem ghi nhận Admin gửi cho riêng bạn. |
+| `Tài liệu` | Xem tài liệu được chia sẻ và mở liên kết HTTPS. |
+| `Hỗ trợ` | Gửi yêu cầu hỗ trợ vân tay tới Admin và theo dõi trạng thái, phản hồi. |
+
+Dữ liệu lịch họp, khen thưởng và tài liệu được lưu tại `employeeResources`, theo dõi realtime theo quyền người nhận. Listener tải tối đa **200 mục cập nhật mới nhất, tính chung cả ba loại nội dung**, rồi từng màn hình lọc theo loại. Khi Admin chưa tạo nội dung, màn hình hiển thị danh sách trống; khi tải lỗi, có nút **Thử lại**.
 
 ### 2. Lịch làm việc và đăng ký tuần
 
-Vào **Lịch làm việc**. Phần trên là lịch đã phân và trạng thái tăng ca; phần đăng ký là cho **tuần sau**.
+Vào **Lịch làm việc** để chọn tab **Lịch của tôi** hoặc **Đăng ký tuần sau**. Tab **Lịch của tôi** mặc định xem tháng, hiển thị lịch đã phân và trạng thái tăng ca. Tiện ích **Trang chủ → Đăng ký ca** mở trực tiếp tab đăng ký.
 
 | Nút/thao tác | Kết quả |
 | --- | --- |
-| `Tuần` / `Tháng`, mũi tên `Kỳ trước` / `Kỳ sau` | Đổi khoảng lịch đang xem. |
-| `Ca sáng cả tuần`, `Ca chiều cả tuần`, `Cả ngày` | Chọn nhanh ca cho các ngày thứ Hai–thứ Bảy của tuần đăng ký. |
+| `Tháng` / `Tuần`, mũi tên `Kỳ trước` / `Kỳ sau`, `Hôm nay` | Đổi kỳ xem lịch đã phân hoặc trở về ngày hiện tại. |
+| Chạm một ngày trên lịch | Xem ca của ngày đó; ở tab đăng ký, chọn ca cho ngày thứ Hai–thứ Bảy trong tuần sau. |
+| `Sáng cả tuần`, `Chiều cả tuần`, `Cả ngày cả tuần` | Chọn nhanh ca cho sáu ngày thứ Hai–thứ Bảy của tuần đăng ký. |
 | `Sao chép tuần này` | Lấy lựa chọn ca từ lịch tuần hiện tại làm bản nháp tuần sau. |
 | `Xóa chọn` | Bỏ toàn bộ lựa chọn trong bản nháp. |
-| Chip `Sáng` / `Chiều` từng ngày | Chọn hoặc bỏ ca của ngày đó; có thể nhập ghi chú. |
-| `Gửi đăng ký` | Nộp lịch tuần sau để Admin duyệt. |
-| `Gửi lại / cập nhật đăng ký` | Sửa đơn còn được phép sửa hoặc gửi lại sau khi Admin yêu cầu chỉnh sửa. |
+| Chip `Ca sáng` / `Ca chiều` của ngày đang chọn | Chọn hoặc bỏ ca của ngày đó. Chọn cả hai để làm cả ngày; bỏ cả hai để không đăng ký ca cho ngày đó. |
+| `Ghi chú (không bắt buộc)` | Nhập tối đa 500 ký tự cho đơn đăng ký tuần. |
+| `Gửi đăng ký` | Cuộn xuống cuối biểu mẫu để gửi lịch tuần sau cho Admin duyệt. |
+| `Cập nhật đăng ký` | Sửa đơn đang chờ hoặc gửi lại sau khi Admin yêu cầu chỉnh sửa. |
 
-Chỉ **đơn được duyệt** mới chuyển thành lịch làm việc. App tự chuyển sang listener của tuần mục tiêu mới khi tuần thay đổi; không cần đóng/mở lại app.
+Trạng thái hiển thị là **Chưa đăng ký**, **Chờ Admin duyệt**, **Cần chỉnh sửa** hoặc **Đã duyệt**, kèm phản hồi của Admin nếu có. Hạn gửi là **trước 12:00 thứ Bảy trước tuần đăng ký**, theo giờ Việt Nam. Đơn đã duyệt hiển thị để xem; các nút sửa/gửi được ẩn. Quá hạn, đang lưu hoặc ca đã chọn không còn hoạt động sẽ khóa thao tác tương ứng.
+
+Khi gửi, app kiểm tra tài khoản, hồ sơ và ca từ server, rồi ghi đơn `weeklyScheduleRequests/{employeeId}_{weekStart}` cùng nhật ký `audit_logs` trong một transaction. Đơn được gửi ở trạng thái `PENDING`; đơn `PENDING`/`NEEDS_REVISION` có thể cập nhật trước hạn. Chỉ **đơn được duyệt** mới chuyển thành lịch làm việc. App tự chuyển listener khi tuần mục tiêu đổi.
 
 ### 3. Chấm công của tôi và Bảng lương
 
@@ -254,6 +288,21 @@ Khu tăng ca hiển thị đơn chờ, đã duyệt và bị từ chối cùng p
 | `Đổi mật khẩu` | Mở hộp thoại đặt mật khẩu mới. |
 
 Thông tin chức vụ, mã nhân viên, phòng ban và trạng thái vân tay là phần hiển thị; nhân viên không tự sửa các dữ liệu quản trị này.
+
+**Ngày vào làm và thâm niên:** Admin vào **Nhân viên → Sửa hồ sơ → Ngày vào làm → Lưu hồ sơ**. Nhân viên mở **Thâm niên** để xem ngày vào làm và thời gian làm việc tính theo năm, tháng, ngày; hồ sơ đã nghỉ có ngày nghỉ hợp lệ thì dùng ngày nghỉ làm mốc kết thúc. Ngày trống hoặc sai định dạng sẽ có hướng dẫn nhờ Admin cập nhật.
+
+### 6. Dữ liệu và quyền của tiện ích
+
+| Tiện ích | Dữ liệu và cách xử lý |
+| --- | --- |
+| **Lịch họp** | Đọc `employeeResources` loại `MEETING` dành cho tất cả nhân viên, phòng ban của bạn hoặc riêng bạn; xem thời gian, địa điểm, nội dung và mở liên kết họp nếu có. |
+| **Khen thưởng** | Đọc `employeeResources` loại `REWARD` dành cho riêng bạn; xem ngày trao và nội dung ghi nhận. |
+| **Tài liệu** | Đọc `employeeResources` loại `DOCUMENT` trong phạm vi được chia sẻ; nút mở tài liệu dùng URL HTTPS. Tệp được lưu ngoài app. |
+| **Tin tức / Thông báo** | Đọc thông báo của chính nhân viên tại `notifications`; **Tin tức** lọc loại `ANNOUNCEMENT`. `Xem nội dung` đánh dấu đúng thông báo vừa mở đã đọc; `Thu gọn` đóng phần nội dung. |
+| **Thâm niên** | Đọc `hireDate`/`terminationDate` từ hồ sơ `employees`; Admin cập nhật hồ sơ, app tính khoảng thời gian làm việc. |
+| **Hỗ trợ** | Nhập nội dung hỗ trợ vân tay từ 1 đến 4.000 ký tự, chọn `Gửi yêu cầu hỗ trợ`; lưu đơn `FINGERPRINT_SUPPORT` tại `leaveRequests`. Mục **Yêu cầu đã gửi** hiển thị trạng thái và phản hồi của Admin tại **Đơn từ**. |
+
+Admin quản lý nội dung; nhân viên đọc theo người nhận khi tài khoản và hồ sơ nhân viên đang hoạt động. Phạm vi `employeeResources.audience` là `ALL`, `DEPARTMENT:<departmentId>` hoặc `EMPLOYEE:<employeeId>`. Khi hồ sơ đổi nhân viên/phòng ban hoặc đăng xuất, app cập nhật hoặc hủy listener và xóa danh sách cũ khỏi trạng thái giao diện. Truy vấn người nhận dùng composite index `audience` tăng dần và `updatedAt` giảm dần.
 
 ## Cách hệ thống tính công trên Spark
 
@@ -291,14 +340,24 @@ Thông tin chức vụ, mã nhân viên, phòng ban và trạng thái vân tay l
 4. Triển khai Rules và indexes trong thư mục `firebase/` (Firebase CLI đã đăng nhập đúng dự án):
 
    ```powershell
-   firebase deploy --only firestore --project chamcongiot-56ae5
+   firebase deploy --only firestore:rules,firestore:indexes --project chamcongiot-56ae5
    ```
 
    Nếu dùng dự án Firebase khác, sửa `.firebaserc`, `app/google-services.json` và `FIRESTORE_BASE_URL` trong cấu hình firmware cho cùng một project. Không chạy lệnh deploy Functions khi giữ gói Spark.
 
+Rules của bản này bổ sung quyền đọc tiện ích theo người nhận, cho phép transaction đọc đơn tuần chưa tồn tại của chính nhân viên và sửa phép tính thời hạn đăng ký bằng timestamp. Hạn gửi giữ nguyên: trước 12:00 thứ Bảy trước tuần đăng ký, theo giờ Việt Nam. Index mới phục vụ truy vấn `employeeResources` theo `audience` và `updatedAt`. Sau deploy, chờ index sẵn sàng rồi chọn **Thử lại** ở màn hình lỗi hoặc mở lại app.
+
+| Loại thay đổi | Bước áp dụng |
+| --- | --- |
+| Giao diện hoặc logic Kotlin | Build APK và cài lên máy Admin/nhân viên cần cập nhật. |
+| Firestore Rules hoặc indexes | Deploy `firestore:rules,firestore:indexes` lên đúng dự án Firebase. |
+| Firmware ESP8266 | Biên dịch và nạp firmware lên thiết bị. |
+
+Việc cập nhật tài liệu này chưa thực hiện deploy Firebase hoặc nạp firmware. Các bước trên là hướng dẫn áp dụng bản mã nguồn.
+
 ### Android
 
-Yêu cầu Android SDK/JDK tương thích cấu hình Gradle của dự án. Mở thư mục gốc bằng Android Studio, đồng bộ Gradle, sau đó chạy trên thiết bị Android hoặc tạo APK:
+Dự án dùng JDK 17, Gradle Wrapper 8.9 và Android SDK 35; app hỗ trợ từ Android 8.0 (API 26). Mở thư mục gốc bằng Android Studio, đồng bộ Gradle, sau đó chạy trên thiết bị Android hoặc tạo APK:
 
 ```powershell
 .\gradlew.bat :app:assembleDebug
@@ -339,6 +398,10 @@ Nếu tắt nguồn/reset rồi bật lại khi chưa có Wi-Fi, ESP chưa biế
 | [`app/src/main/java/vn/chamcong/iot/ui`](app/src/main/java/vn/chamcong/iot/ui) | Màn hình Admin và nhân viên theo thư mục chức năng. |
 | [`app/src/main/java/vn/chamcong/iot/domain/AttendanceResolutionRules.kt`](app/src/main/java/vn/chamcong/iot/domain/AttendanceResolutionRules.kt) | Quy tắc phân giải lượt chấm và áp dụng duyệt ngoài lịch trên Spark. |
 | [`app/src/main/java/vn/chamcong/iot/data`](app/src/main/java/vn/chamcong/iot/data) | Repository đọc/ghi Firebase. |
+| [`app/src/main/java/vn/chamcong/iot/data/FirebaseRepositoryWeeklyRequests.kt`](app/src/main/java/vn/chamcong/iot/data/FirebaseRepositoryWeeklyRequests.kt) | Transaction gửi/cập nhật/duyệt đăng ký ca tuần và ghi nhật ký. |
+| [`app/src/main/java/vn/chamcong/iot/model/EmployeeResourceModels.kt`](app/src/main/java/vn/chamcong/iot/model/EmployeeResourceModels.kt), [`EmployeeResourceRules.kt`](app/src/main/java/vn/chamcong/iot/domain/EmployeeResourceRules.kt) | Mô hình lịch họp/khen thưởng/tài liệu và kiểm tra dữ liệu nhập. |
+| [`app/src/main/java/vn/chamcong/iot/data/FirebaseRepositoryEmployeeResources.kt`](app/src/main/java/vn/chamcong/iot/data/FirebaseRepositoryEmployeeResources.kt) | Đọc nội dung theo phạm vi người nhận, lưu và xóa nội dung trên Firestore. |
+| [`app/src/main/java/vn/chamcong/iot/ui/admin/EmployeeResourceManagementScreen.kt`](app/src/main/java/vn/chamcong/iot/ui/admin/EmployeeResourceManagementScreen.kt), [`EmployeeResourcesScreen.kt`](app/src/main/java/vn/chamcong/iot/ui/employee/EmployeeResourcesScreen.kt), [`EmployeeUtilityScreens.kt`](app/src/main/java/vn/chamcong/iot/ui/employee/EmployeeUtilityScreens.kt) | Màn hình quản lý nội dung của Admin và các tiện ích nhân viên. |
 | [`firebase/firestore.rules`](firebase/firestore.rules), [`firebase/firestore.indexes.json`](firebase/firestore.indexes.json) | Phân quyền và indexes Firestore. |
 | [`firmware/esp8266_fingerprint`](firmware/esp8266_fingerprint) | Sketch, xử lý vân tay, lệnh thiết bị và hàng đợi chấm công. |
 
@@ -347,10 +410,23 @@ Nếu tắt nguồn/reset rồi bật lại khi chưa có Wi-Fi, ESP chưa biế
 - **Không thấy công sau khi quét:** lượt báo `DA LUU` / `CHO DONG BO` cần có mạng trở lại để tra danh tính và đồng bộ, chưa hiện công ngay. Nếu LCD báo `CHUA LUU CONG`, ESP chưa có giờ hợp lệ nên lượt đó chỉ mở cửa, không được lưu hoặc gửi lại; cần đồng bộ giờ trước các lượt chấm tiếp theo. Kiểm tra đúng ngón tay đã đăng ký, hàng đợi chưa đầy, lịch/ca đã được duyệt và đã có đủ lượt vào/ra. Mở **Thiết bị** và **Chấm công** để xem trạng thái cụ thể.
 - **Duyệt ngoài lịch hoặc tăng ca nhưng giờ vẫn bằng 0:** kiểm tra ca/ngày đã chọn và cặp quét vào/ra hợp lệ. Đơn chờ duyệt chưa tính thành giờ tăng ca.
 - **Không thấy đơn lịch tuần:** kiểm tra tuần đang chọn, tuần mục tiêu của nhân viên, hạn nộp và trạng thái đơn. Listener tự theo tuần mới khi ngày đổi.
+- **Gửi đăng ký ca báo chưa có quyền:** kiểm tra `users/{uid}` có `role: "EMPLOYEE"`, `active: true`, `employeeId` khớp hồ sơ nhân viên đang hoạt động và đã triển khai Rules cùng phiên bản app. Bản sửa xử lý quyền đọc đơn tuần chưa tồn tại của chính nhân viên và lỗi tính hạn gửi bằng chuỗi ngày. Khi thao tác gửi thất bại, thông báo có tiền tố **“Không gửi được đăng ký ca”**; nhập sai ghi chú/ca hoặc quá hạn có thông báo riêng theo nguyên nhân.
+- **Khen thưởng, lịch họp hoặc tài liệu báo lỗi quyền:** triển khai Rules/indexes mới, kiểm tra người nhận đã chọn và `departmentId` trong hồ sơ. Nhân viên giữ vai trò `EMPLOYEE`; Admin kiểm tra quyền tài khoản và nội dung chia sẻ tại **Tiện ích nhân viên**.
+- **Tổng quan báo không tải được dữ liệu mới từ Firebase:** kiểm tra Internet rồi chọn **Tải lại dữ liệu**. Truy vấn tính công giữ nguồn `SERVER` để kiểm tra dữ liệu đầy đủ; khi tải chưa hoàn tất, số 0 trên màn hình chưa xác nhận rằng không có lượt chấm. App khóa lưu lương/xuất dữ liệu cần đủ kỳ cho đến khi tải thành công.
 - **Không thấy nhân viên đã nghỉ:** bật công tắc ở **Nhân viên**; với báo cáo và bảng công, chọn đúng tháng lịch sử. Không tạo ca mới hoặc phiếu lương cho các tháng sau tháng nghỉ.
 - **Báo cáo CSV thiếu dòng:** nếu màn hình cảnh báo đã chạm giới hạn tải lịch sử, thu hẹp khoảng ngày rồi xuất lại.
 
 ## Kiểm thử hồi quy
+
+Kết quả đã ghi nhận ngày **08/10/2026**:
+
+| Nhóm kiểm chứng | Kết quả | Phạm vi |
+| --- | --- | --- |
+| Android | **255 kiểm thử / 39 bộ kiểm thử đạt**, build APK debug thành công | Nghiệp vụ, điều hướng, dữ liệu, thông báo lỗi và các tiện ích mới. |
+| Firestore Emulator | **46/46 kiểm thử đạt** | Quyền đọc/ghi, transaction, phạm vi nhân viên; gồm 7 kiểm thử đăng ký tuần và 5 kiểm thử tiện ích. |
+| Backend Functions tùy chọn | **32/32 kiểm thử đạt** trong phiên làm việc này | Các bài kiểm thử dưới `firebase/functions`; phần cốt lõi Spark dùng Rules và Android. |
+
+Đây là kết quả chạy mã nguồn/build và emulator. Việc chụp ảnh, đo phần cứng và thử end-to-end trên điện thoại/ESP8266 được theo dõi riêng trong báo cáo đồ án; lần sửa tài liệu này không chạy lại các bộ kiểm thử.
 
 Chạy build và kiểm thử Android:
 
@@ -359,6 +435,31 @@ Chạy build và kiểm thử Android:
 ```
 
 Các bài kiểm thử bao phủ gộp ca không trùng và bảo toàn điều chỉnh, ca chính 4 giờ + tăng ca 4 giờ, ngày chỉ tăng ca, nghỉ sáng/làm chiều, vừa trễ/về sớm, ca qua đêm ở cuối tháng, điều chỉnh tạo muộn và điều kiện tải đủ trước khi xuất/lưu. Kiểm thử transaction hai Admin trong `firebase/test/departmentScheduleTransactions.test.js` cần Firestore emulator với rules của dự án; chỉ dùng project demo, không chạy trên Firebase thật.
+
+`firebase/test/weeklyScheduleSubmissionRules.test.js` kiểm tra transaction gửi đăng ký ca lần đầu kèm nhật ký, cập nhật đơn đang chờ, quyền đọc/truy vấn theo nhân viên và từ chối sửa đơn đã duyệt trên Firestore emulator.
+
+Chạy kiểm thử Firestore với Firebase CLI, Node.js và **Java 21** trên `PATH`. Từ thư mục gốc dự án, mở terminal thứ nhất:
+
+```powershell
+java -version
+firebase emulators:start --only firestore --project demo-chamcong-rules --config firebase.json
+```
+
+Chờ Firestore Emulator sẵn sàng. `firebase.json` hiện dùng cổng CLI mặc định **8080**; mở terminal thứ hai để chạy lần lượt các tệp kiểm thử:
+
+```powershell
+$env:FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
+$rulesTests = (Get-ChildItem -LiteralPath 'firebase/test' -Filter '*.test.js').FullName
+node --test --test-concurrency=1 @rulesTests
+```
+
+Các bài kiểm thử dùng dự án `demo-*` trên emulator. `employeeResourceRules.test.js` kiểm tra phạm vi toàn bộ/phòng ban/cá nhân, chặn nhân viên sửa nội dung, dữ liệu không hợp lệ và bảo toàn người/thời điểm tạo. Kiểm thử đăng ký tuần đã tái hiện hai lỗi trước sửa: GET đơn chưa tồn tại bị từ chối, sau đó commit bị từ chối do cộng chuỗi ngày với duration. Bản cuối cho phép gửi lần đầu kèm audit, cập nhật trước hạn và vẫn chặn đơn quá hạn/đã duyệt hoặc truy cập đơn người khác.
+
+Kiểm thử backend tùy chọn:
+
+```powershell
+npm test --prefix firebase/functions
+```
 
 Chạy kiểm thử firmware trên máy phát triển (cần Node.js):
 

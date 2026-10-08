@@ -40,6 +40,7 @@ import vn.chamcong.iot.ui.requests.RequestsScreen
 import vn.chamcong.iot.ui.audit.AuditScreen
 import vn.chamcong.iot.ui.reports.ReportsScreen
 import vn.chamcong.iot.ui.admin.AdminTasksScreen
+import vn.chamcong.iot.ui.admin.EmployeeResourceManagementScreen
 import vn.chamcong.iot.ui.admin.ShiftManagementScreen
 import vn.chamcong.iot.ui.employee.EmployeeHomeScreen
 import vn.chamcong.iot.ui.employee.EmployeeAttendanceScreen
@@ -47,6 +48,12 @@ import vn.chamcong.iot.ui.employee.EmployeeRequestsScreen
 import vn.chamcong.iot.ui.employee.EmployeeProfileScreen
 import vn.chamcong.iot.ui.employee.EmployeePayrollScreen
 import vn.chamcong.iot.ui.employee.EmployeeScheduleScreen
+import vn.chamcong.iot.ui.employee.EmployeeResourcesScreen
+import vn.chamcong.iot.ui.employee.EmployeeUtilitiesScreen
+import vn.chamcong.iot.ui.employee.EmployeeNewsScreen
+import vn.chamcong.iot.ui.employee.EmployeeTenureScreen
+import vn.chamcong.iot.ui.employee.EmployeeSupportScreen
+import vn.chamcong.iot.model.EmployeeResourceType
 import vn.chamcong.iot.ui.departments.DepartmentsScreen
 import vn.chamcong.iot.ui.notifications.AnnouncementsScreen
 import vn.chamcong.iot.ui.reports.MonthlyTimesheetScreen
@@ -69,7 +76,8 @@ enum class AppDestination(val title: String) {
     SETTINGS("Cài đặt"),
     MONTHLY_TIMESHEET("B\u1ea3ng c\u00f4ng th\u00e1ng"),
     DEPARTMENTS("Ph\u00f2ng ban"),
-    ANNOUNCEMENTS("Th\u00f4ng b\u00e1o")
+    ANNOUNCEMENTS("Th\u00f4ng b\u00e1o"),
+    EMPLOYEE_RESOURCES("Tiện ích nhân viên")
 }
 
 enum class EmployeeDestination(val title: String) {
@@ -79,6 +87,15 @@ enum class EmployeeDestination(val title: String) {
     PAYROLL("Bảng lương"),
     PROFILE("Cá nhân"),
     SCHEDULE("Lịch làm việc"),
+    SHIFT_REGISTRATION("Đăng ký ca"),
+    UTILITIES("Tiện ích"),
+    MEETINGS("Lịch họp"),
+    NEWS("Tin tức"),
+    REWARDS("Khen thưởng"),
+    DOCUMENTS("Tài liệu"),
+    TENURE("Thâm niên"),
+    SUPPORT("Hỗ trợ"),
+    NOTIFICATIONS("Thông báo"),
 }
 
 private val employeeTerminationDateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale("vi", "VN"))
@@ -104,7 +121,8 @@ val adminTaskDestinations = listOf(
     AppDestination.MONTHLY_TIMESHEET,
     AppDestination.AUDIT,
     AppDestination.DEPARTMENTS,
-    AppDestination.ANNOUNCEMENTS
+    AppDestination.ANNOUNCEMENTS,
+    AppDestination.EMPLOYEE_RESOURCES
 )
 
 val employeePrimaryDestinations = listOf(
@@ -338,6 +356,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                     modifier = Modifier.fillMaxSize()
                 )
                 AppDestination.AUDIT -> AuditScreen(state)
+                AppDestination.EMPLOYEE_RESOURCES -> EmployeeResourceManagementScreen(state, vm)
                 AppDestination.SETTINGS -> Placeholder("Cài đặt đang phát triển", "Mục này chưa được mở trong menu Admin để tránh tạo kỳ vọng về các cấu hình chưa có chức năng.", Icons.Default.Settings)
             }
         }
@@ -400,6 +419,11 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
             if (selected != EmployeeDestination.HOME) {
                 TopAppBar(
                     title = { Text(selected.title) },
+                    navigationIcon = {
+                        if (backStack.isNotEmpty()) IconButton(onClick = {
+                            selected = backStack.removeAt(backStack.lastIndex)
+                        }) { Icon(Icons.Default.ArrowBack, "Quay lại") }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                     actions = {
                         IconButton({ showAccountMenu = true }, enabled = !state.saving) {
@@ -463,7 +487,8 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                         onOpenSchedule = { navigate(EmployeeDestination.SCHEDULE) },
                         onOpenAttendance = { navigate(EmployeeDestination.ATTENDANCE) },
                         onOpenRequests = { navigate(EmployeeDestination.REQUESTS) },
-                        onOpenProfile = { navigate(EmployeeDestination.PROFILE) }
+                        onOpenProfile = { navigate(EmployeeDestination.PROFILE) },
+                        onOpenUtility = ::navigate
                     )
                     EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(
                         state = state,
@@ -472,8 +497,17 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                         onOpenPayroll = { navigate(EmployeeDestination.PAYROLL) }
                     )
                     EmployeeDestination.SCHEDULE -> EmployeeScheduleScreen(state, vm)
+                    EmployeeDestination.SHIFT_REGISTRATION -> EmployeeScheduleScreen(state, vm, startInRegistration = true)
                     EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm)
                     EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state, vm)
+                    EmployeeDestination.UTILITIES -> EmployeeUtilitiesScreen(::navigate)
+                    EmployeeDestination.MEETINGS -> EmployeeResourcesScreen(state, vm, EmployeeResourceType.MEETING)
+                    EmployeeDestination.REWARDS -> EmployeeResourcesScreen(state, vm, EmployeeResourceType.REWARD)
+                    EmployeeDestination.DOCUMENTS -> EmployeeResourcesScreen(state, vm, EmployeeResourceType.DOCUMENT)
+                    EmployeeDestination.NEWS -> EmployeeNewsScreen(state, vm, announcementsOnly = true)
+                    EmployeeDestination.NOTIFICATIONS -> EmployeeNewsScreen(state, vm, announcementsOnly = false)
+                    EmployeeDestination.TENURE -> EmployeeTenureScreen(state)
+                    EmployeeDestination.SUPPORT -> EmployeeSupportScreen(state, vm)
                     EmployeeDestination.PROFILE -> EmployeeProfileScreen(
                         state = state,
                         vm = vm,

@@ -420,7 +420,7 @@ service cloud.firestore {
     function weeklyScheduleSubmissionIsOpen(weekStart) {
       // weekStart is Monday; the employee deadline is the previous Saturday
       // at 12:00 Asia/Ho_Chi_Minh, which is 05:00 UTC.
-      return request.time < isoDateAfter(weekStart, -2) + duration.value(5, 'h');
+      return request.time < isoDate(weekStart) - duration.value(2, 'd') + duration.value(5, 'h');
     }
     function matchesActiveWeeklyEmployeeSnapshot(data) {
       let employee = employeePath(data.employeeId);
@@ -542,6 +542,65 @@ service cloud.firestore {
         && exists(employee) && get(employee).data.active == true
         && get(employee).data.fullName == data.employeeName
         && activeOffScheduleReviewShift(data);
+    }
+
+    function employeeCanReadResource(data) {
+      let employeeId = get(userProfilePath()).data.employeeId;
+      let employee = employeePath(employeeId);
+      return isEmployee() && exists(employee) && get(employee).data.active == true
+        && (data.audience == 'ALL' || data.audience == 'EMPLOYEE:' + employeeId
+          || ('departmentId' in get(employee).data && nonBlank(get(employee).data.departmentId)
+            && data.audience == 'DEPARTMENT:' + get(employee).data.departmentId));
+    }
+    function validResourceAudience(audience) {
+      return audience is string && (audience == 'ALL'
+        || (audience.matches('EMPLOYEE:[^/\\s:]+')
+          && exists(employeePath(audience.split(':')[1])))
+        || (audience.matches('DEPARTMENT:[^/\\s:]+')
+          && exists(/databases/$(database)/documents/departments/$(audience.split(':')[1]))));
+    }
+    function validResourceDate(value) {
+      let parts = value.split('-');
+      let year = int(parts[0]);
+      let month = int(parts[1]);
+      let day = int(parts[2]);
+      let leap = year % 400 == 0 || (year % 4 == 0 && year % 100 != 0);
+      return value.matches('[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])')
+        && (month == 2 ? day <= (leap ? 29 : 28)
+          : (month in [4, 6, 9, 11] ? day <= 30 : day <= 31));
+    }
+    function validEmployeeResource(data) {
+      return data.keys().hasOnly(['type', 'title', 'body', 'audience', 'eventDate',
+          'startTime', 'endTime', 'location', 'url', 'createdAt', 'updatedAt', 'createdBy'])
+        && data.keys().hasAll(['type', 'title', 'body', 'audience', 'eventDate',
+          'startTime', 'endTime', 'location', 'url', 'createdAt', 'updatedAt', 'createdBy'])
+        && data.type in ['MEETING', 'REWARD', 'DOCUMENT']
+        && nonBlank(data.title) && data.title.size() <= 120
+        && nonBlank(data.body) && data.body.size() <= 4000
+        && validResourceAudience(data.audience)
+        && data.eventDate is string && (data.eventDate == '' || validResourceDate(data.eventDate))
+        && data.startTime is string && data.endTime is string
+        && data.location is string && data.location.size() <= 200
+        && data.url is string && data.url.size() <= 2048
+        && (data.url == '' || data.url.matches('https://[^/@?#\\s]+([/?#][^\\s]*)?'))
+        && data.createdAt is timestamp && data.updatedAt == request.time
+        && nonBlank(data.createdBy)
+        && (data.type != 'MEETING' || (data.eventDate != ''
+          && data.startTime.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+          && data.endTime.matches('([01][0-9]|2[0-3]):[0-5][0-9]')
+          && data.endTime > data.startTime && nonBlank(data.location)))
+        && (data.type != 'REWARD' || (data.eventDate != '' && data.audience.matches('EMPLOYEE:[^/\\s:]+')))
+        && (data.type != 'DOCUMENT' || data.url != '');
+    }
+    match /employeeResources/{id} {
+      allow read: if isAdmin() || employeeCanReadResource(resource.data);
+      allow create: if isAdmin() && validEmployeeResource(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isAdmin() && validEmployeeResource(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if isAdmin();
     }
 
     match /employees/{id} {
@@ -760,8 +819,24 @@ service cloud.firestore {
               && data.shiftIds[1] != data.shiftIds[0]
               && distinctAssignableScheduleCategories(data.shiftIds[0], data.shiftIds[1]))));
     }
+    function isOwnMissingWeeklyScheduleRequest(id) {
+      let parts = id.split('_');
+      let weekStart = parts[parts.size() - 1];
+      let requestPath = /databases/$(database)/documents/weeklyScheduleRequests/$(id);
+      // Transactions read the canonical slot before its first creation. Match
+      // the employee ID exactly; employee IDs can contain underscores/regex characters.
+      return isEmployee()
+        && nonBlank(get(userProfilePath()).data.employeeId)
+        && !exists(requestPath)
+        && id == get(userProfilePath()).data.employeeId + '_' + weekStart
+        && weekStart.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && isoDateAfter(weekStart, 0) == weekStart
+        && isoDate(weekStart).dayOfWeek() == 1;
+    }
     match /weeklyScheduleRequests/{id} {
-      allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
+      allow get: if isAdmin() || isOwnMissingWeeklyScheduleRequest(id)
+        || isOwnEmployee(resource.data.employeeId);
+      allow list: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create: if validWeeklyScheduleEmployeeCreate(id, request.resource.data);
       allow update: if validWeeklyScheduleEmployeeUpdate(id) || validWeeklyScheduleAdminReview(id);
       allow delete: if false;

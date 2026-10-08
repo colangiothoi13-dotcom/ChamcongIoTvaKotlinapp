@@ -2,6 +2,7 @@
 package vn.chamcong.iot.ui
 
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flow
@@ -48,6 +49,8 @@ internal fun MainViewModel.subscribe() {
 }
 
 internal fun MainViewModel.cancelDataSubscriptions() {
+    employeeResourcesSubscription?.cancel()
+    employeeResourcesSubscription = null
     attendanceHistoryJob?.cancel()
     attendanceHistoryJob = null
     attendanceHistoryRequestedKey = null
@@ -81,6 +84,9 @@ internal fun MainViewModel.cancelDataSubscriptions() {
             devices = emptyList(),
             departments = emptyList(),
             announcements = emptyList(),
+            employeeResources = emptyList(),
+            employeeResourcesLoading = false,
+            employeeResourcesError = null,
             shifts = emptyList(),
             schedules = emptyList(),
             weeklyScheduleRequests = emptyList(),
@@ -106,6 +112,16 @@ internal fun MainViewModel.subscribeAdmin() {
     if (subscriptionMode == "ADMIN") return
     cancelDataSubscriptions()
     subscriptionMode = "ADMIN"
+    subscribeEmployeeResources()
+    dataSubscriptions += viewModelScope.launch {
+        try {
+            repository.ensureDefaultScheduleShifts()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            setError(error)
+        }
+    }
     dataSubscriptions += viewModelScope.launch {
         repository.observeAttendanceAdjustments().catch { e -> setError(e) }.collect { rows ->
             _state.update { it.copy(attendanceAdjustments = rows) }
@@ -220,6 +236,7 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
         )
     }
     if (employeeId.isBlank()) return
+    subscribeEmployeeResources()
     dataSubscriptions += viewModelScope.launch {
         repository.observeEmployeeAttendanceAdjustments(employeeId).catch { e -> setError(e) }.collect { rows ->
             _state.update { it.copy(attendanceAdjustments = rows) }
@@ -297,6 +314,38 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
     dataSubscriptions += viewModelScope.launch {
         repository.observeEmployeeNotifications(employeeId).catch { e -> setError(e) }.collect { rows ->
             _state.update { it.copy(employeeNotifications = rows) }
+        }
+    }
+}
+
+internal fun MainViewModel.subscribeEmployeeResources() {
+    employeeResourcesSubscription?.cancel()
+    employeeResourcesSubscription = viewModelScope.launch {
+        if (subscriptionMode == "ADMIN") {
+            _state.update { it.copy(employeeResources = emptyList(), employeeResourcesLoading = true, employeeResourcesError = null) }
+            repository.observeEmployeeResources()
+                .catch { error ->
+                    _state.update { it.copy(employeeResourcesLoading = false, employeeResourcesError = userFacingErrorMessage(error)) }
+                }.collect { rows ->
+                    _state.update { it.copy(employeeResources = rows, employeeResourcesLoading = false, employeeResourcesError = null) }
+                }
+        } else if (subscriptionMode?.startsWith("EMPLOYEE:") == true) {
+            // A department change must replace the query before exposing the new audience.
+            _state.map { state ->
+                state.currentEmployee?.takeIf { it.active }?.let { it.id to it.departmentId }
+            }.distinctUntilChanged().collectLatest { scope ->
+                _state.update {
+                    it.copy(employeeResources = emptyList(), employeeResourcesLoading = scope != null, employeeResourcesError = null)
+                }
+                if (scope != null) {
+                    repository.observeEmployeeResources(scope.first, scope.second)
+                        .catch { error ->
+                            _state.update { it.copy(employeeResourcesLoading = false, employeeResourcesError = userFacingErrorMessage(error)) }
+                        }.collect { rows ->
+                            _state.update { it.copy(employeeResources = rows, employeeResourcesLoading = false, employeeResourcesError = null) }
+                        }
+                }
+            }
         }
     }
 }

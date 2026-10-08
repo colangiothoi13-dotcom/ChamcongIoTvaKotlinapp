@@ -36,9 +36,9 @@ class UiLabelsTest {
     }
 
     @Test
-    fun permissionErrorsAreTranslatedForTheAdminScreen() {
+    fun permissionErrorsExplainAccessWithoutRequiringEmployeesToBecomeAdmins() {
         assertEquals(
-            "Tài khoản chưa có quyền đọc dữ liệu. Hãy kiểm tra vai trò ADMIN, trạng thái active và Firestore Rules.",
+            "Chưa có quyền truy cập dữ liệu này. Vui lòng nhờ Admin kiểm tra tài khoản và quyền truy cập.",
             userFacingErrorMessage(Throwable("PERMISSION_DENIED: Missing or insufficient permissions."))
         )
     }
@@ -66,6 +66,26 @@ class UiLabelsTest {
 
         assertEquals(expected, userFacingErrorMessage(error))
         assertEquals(expected, userFacingErrorMessage(IllegalStateException("Không tải được tổng quan", error)))
+    }
+
+    @Test
+    fun serverOnlyReadFailureExplainsHowToRetryWithoutDisplayingSdkCacheInstructions() {
+        val error = Throwable(
+            "Failed to get documents from server. (However, these documents may exist in the local cache. " +
+                "Run again without setting source to SERVER to retrieve the cached documents.)"
+        )
+        val expected = "Không tải được dữ liệu mới từ Firebase. Hãy kiểm tra kết nối Internet rồi chọn Tải lại dữ liệu."
+        assertEquals(expected, userFacingErrorMessage(error))
+        assertEquals(expected, userFacingErrorMessage(IllegalStateException("Không tải được tổng quan", error)))
+        assertEquals(expected, userFacingErrorMessage(Throwable("Failed to get document from server.")))
+    }
+
+    @Test
+    fun unreachableFirestoreBackendExplainsHowToRetry() {
+        assertEquals(
+            "Không tải được dữ liệu mới từ Firebase. Hãy kiểm tra kết nối Internet rồi chọn Tải lại dữ liệu.",
+            userFacingErrorMessage(Throwable("Could not reach Cloud Firestore backend. Backend didn't respond."))
+        )
     }
 
     @Test

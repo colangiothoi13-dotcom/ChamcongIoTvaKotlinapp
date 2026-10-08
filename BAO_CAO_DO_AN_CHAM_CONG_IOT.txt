@@ -1,9 +1,10 @@
 ﻿BÁO CÁO ĐỒ ÁN
 HỆ THỐNG CHẤM CÔNG IoT BẰNG VÂN TAY
 
-Phiên bản tài liệu: 1.0
+Phiên bản tài liệu: 1.1
 Ngày biên soạn: 27/09/2026
-Ghi chú: Nội dung được viết theo trạng thái mã nguồn và firmware hiện tại của dự án. Các vị trí có ký hiệu [CẦN BỔ SUNG] là phần nhóm tự điền thêm sau khi đo đạc, chụp ảnh hoặc hoàn thiện sơ đồ.
+Ngày cập nhật: 08/10/2026
+Ghi chú: Nội dung mô tả trạng thái mã nguồn hiện tại; các thay đổi Firestore Rules và index nêu trong báo cáo chưa được triển khai lên Firebase online. Kết quả kiểm thử mới, kết quả lịch sử và các phép đo phần cứng còn thiếu được phân biệt ở mục 3.7. Các vị trí có ký hiệu [CẦN BỔ SUNG] là phần nhóm tự điền thêm sau khi đo đạc, chụp ảnh hoặc hoàn thiện sơ đồ.
 
 
 MỤC LỤC
@@ -48,7 +49,7 @@ LỜI MỞ ĐẦU
 
 Trong doanh nghiệp, việc ghi nhận thời gian làm việc là cơ sở để quản lý nhân sự, tính lương, theo dõi tình trạng đi trễ về sớm và đánh giá mức độ tuân thủ lịch làm việc. Cách chấm công thủ công bằng giấy, bảng tính hoặc việc nhập dữ liệu bằng tay thường gây tốn thời gian, dễ sai lệch và khó truy vết khi có khiếu nại.
 
-Đề tài “Hệ thống chấm công IoT bằng vân tay” được thực hiện nhằm xây dựng một mô hình có khả năng nhận dạng người dùng bằng cảm biến vân tay, ghi nhận sự kiện chấm công trên thiết bị ESP8266, đồng bộ dữ liệu lên Firebase và cung cấp ứng dụng Android để nhân viên, quản trị viên theo dõi cũng như xử lý dữ liệu. Ngoài chức năng chấm công, hệ thống còn có các chức năng quản lý nhân viên, thiết bị, ca làm, lịch làm việc, đơn từ, tăng ca, bảng công, bảng lương, thông báo và nhật ký thao tác.
+Đề tài “Hệ thống chấm công IoT bằng vân tay” được thực hiện nhằm xây dựng một mô hình có khả năng nhận dạng người dùng bằng cảm biến vân tay, ghi nhận sự kiện chấm công trên thiết bị ESP8266, đồng bộ dữ liệu lên Firebase và cung cấp ứng dụng Android để nhân viên, quản trị viên theo dõi cũng như xử lý dữ liệu. Ngoài chức năng chấm công, hệ thống còn có các chức năng quản lý nhân viên, thiết bị, ca làm, lịch làm việc, đơn từ, tăng ca, bảng công, bảng lương, thông báo và nhật ký thao tác. Các tiện ích nhân viên đã có màn hình và luồng Firestore cho lịch họp, ghi nhận khen thưởng, tài liệu, tin tức và hỗ trợ vân tay; thâm niên được tính từ hồ sơ do Admin quản lý.
 
 Điểm được chú trọng trong quá trình xây dựng là tách sự kiện chấm công gốc khỏi kết quả diễn giải. Thiết bị ghi nhận sự kiện trước; ứng dụng dựa trên ca làm, lịch làm và các quy tắc nghiệp vụ để xác định đi đúng giờ, đi trễ, về sớm, tăng ca hoặc cần xem xét. Cách làm này giúp hạn chế việc sửa trực tiếp dữ liệu gốc và hỗ trợ truy vết khi cần kiểm tra.
 
@@ -243,6 +244,7 @@ Mục tiêu cụ thể:
 6. Phân loại dữ liệu theo đúng giờ, đi trễ, về sớm, tăng ca hoặc cần xem xét.
 7. Cung cấp bảng công, bảng lương, báo cáo và audit log.
 8. Điều khiển servo cửa mô hình và hiển thị trạng thái tại thiết bị.
+9. Kết nối các tiện ích nhân viên với dữ liệu và quyền truy cập Firestore, hỗ trợ chia sẻ nội dung đúng người nhận và theo dõi phản hồi hỗ trợ.
 
 Phạm vi thực hiện:
 
@@ -277,6 +279,11 @@ CHƯƠNG 2. PHÂN TÍCH VÀ THIẾT KẾ HỆ THỐNG
 - Theo dõi trạng thái các đơn đã gửi.
 - Xem thông tin bảng công/bảng lương được công khai.
 - Nhận thông báo nghiệp vụ.
+- Xem lịch họp, khen thưởng cá nhân và tài liệu trong phạm vi được Admin chia sẻ.
+- Xem Tin tức từ các thông báo ANNOUNCEMENT của bản thân; đánh dấu đã đọc khi mở nội dung cụ thể.
+- Xem ngày vào làm và thâm niên; cập nhật thông tin liên hệ trong phạm vi được cho phép.
+- Gửi yêu cầu hỗ trợ vân tay và theo dõi trạng thái, phản hồi của Admin.
+- Mở trực tiếp đăng ký tuần sau từ tiện ích Đăng ký ca trên Trang chủ.
 - Dùng nút Back vật lý hoặc cử chỉ Back của Android để quay về màn hình trước.
 
 Đối với quản trị viên:
@@ -291,6 +298,8 @@ CHƯƠNG 2. PHÂN TÍCH VÀ THIẾT KẾ HỆ THỐNG
 - Xem bảng công, bảng lương, KPI, báo cáo và xuất CSV.
 - Quản lý phòng ban, thông báo và nhật ký audit.
 - Gửi lệnh phù hợp đến thiết bị.
+- Cập nhật ngày vào làm trong hồ sơ nhân viên và quản lý lịch họp, khen thưởng, tài liệu tại Tác vụ → Quản trị → Tiện ích nhân viên.
+- Tạo, sửa, xóa nội dung tiện ích và chọn người nhận toàn bộ, phòng ban hoặc một nhân viên; khen thưởng luôn dành cho một nhân viên.
 
 Đối với thiết bị ESP8266:
 
@@ -451,7 +460,7 @@ N, điều kiện thử, số người thử và mã cảm biến phải ghi rõ
     Domain rules: AttendanceResolutionRules, SchedulingRules,
     WeeklyScheduling, DashboardRules, EmployeeRules, PresenceRules,
     ReportRules, OvertimeRules, KpiBonusRules, RequestRules,
-    AuditRules, OfflineQueueRules.
+    AuditRules, OfflineQueueRules, EmployeeResourceRules.
 
 [HÌNH 2.2 - Sơ đồ kiến trúc MVVM. Hình cần thể hiện mũi tên UI -> ViewModel -> Repository -> Firebase và các Domain Rules được gọi để xử lý nghiệp vụ.]
 
@@ -462,11 +471,11 @@ Các thành phần chính:
 - MainViewModel: quản lý state, tải dữ liệu và thực hiện hành động từ UI.
 - FirebaseRepository: lớp giao tiếp Firebase Authentication, Firestore, FCM và các luồng dữ liệu.
 - Domain rules: các hàm thuần hoặc gần thuần để tính toán lịch, trạng thái, báo cáo và phân loại chấm công.
-- Model: các lớp dữ liệu như Employee, Attendance, WorkShift, WorkSchedule, LeaveRequest, OvertimeRequest, Payroll, DeviceSnapshot.
+- Model: các lớp dữ liệu như Employee, Attendance, WorkShift, WorkSchedule, WeeklyScheduleRequest, LeaveRequest, OvertimeRequest, Payroll, DeviceSnapshot và EmployeeResource.
 
 2.4.2. Phân tách dữ liệu gốc và dữ liệu diễn giải
 
-Mỗi lần quét tạo một attendance event gốc. Event có thể mang các trường như eventId, deviceId, fingerprintId, employeeId nếu ánh xạ được, timestamp, type, resolutionStatus và status.
+Mỗi lượt chấm công có giờ hợp lệ và được lưu thành công tạo một attendance event gốc, có mã duy nhất là document ID. Nhánh chỉ mở cửa khi thiếu giờ không tạo event. Event từ thiết bị dùng templateId để chỉ mã mẫu vân tay, cùng deviceId, employeeId nếu ánh xạ được, timestamp, type, resolutionStatus và status. fingerprintId trong sơ đồ phần cứng là cách gọi mã mẫu; tên trường lưu trên Firestore hiện tại là templateId.
 
 Ứng dụng không nên sửa nội dung gốc chỉ để làm cho bảng công hiển thị đẹp hơn. Thay vào đó, AttendanceResolutionRules đọc event, đối chiếu lịch làm và ca làm, sau đó sinh kết quả diễn giải. Nếu nhân viên gửi yêu cầu điều chỉnh hoặc quản trị viên phê duyệt, hệ thống lưu một bản ghi điều chỉnh/ghi đè có lý do và người thực hiện.
 
@@ -487,6 +496,9 @@ Mô hình này giúp trả lời ba câu hỏi khi kiểm tra:
 - Nếu có chấm công vào nhưng chưa có chấm công ra, hệ thống vẫn phải đánh giá phần đi trễ theo thời điểm vào; không được bỏ qua hoàn toàn bản ghi.
 - Dữ liệu Chủ nhật vẫn có thể hiển thị trên dashboard nếu có sự kiện thực tế, dù Chủ nhật không nằm trong lịch phân công chuẩn.
 - Nghỉ phép đã được duyệt cần được ưu tiên khi phân loại trạng thái ngày làm việc.
+- Đăng ký tuần sau chỉ chọn ca sáng, ca chiều hoặc cả hai trong sáu ngày thứ Hai đến thứ Bảy; tăng ca là luồng riêng.
+- Khen thưởng trong tiện ích là nội dung ghi nhận cá nhân, không tự tạo tiền thưởng hoặc thay đổi bảng lương.
+- Lịch họp và tài liệu được chia sẻ theo toàn bộ nhân viên, phòng ban hoặc cá nhân. Tài liệu dùng liên kết HTTPS bên ngoài; ứng dụng chưa tải tệp lên kho lưu trữ.
 
 2.5. Thiết kế cơ sở dữ liệu Firestore
 
@@ -495,62 +507,79 @@ Firestore là cơ sở dữ liệu NoSQL dạng document. Các collection dướ
 Collection                    Mục đích
 ---------------------------  --------------------------------------------------------
 users                        Tài khoản, vai trò ADMIN/EMPLOYEE, liên kết employeeId
-employees                    Hồ sơ nhân viên, mã nhân viên, phòng ban, trạng thái
+employees                    Hồ sơ nhân viên, mã, phòng ban, hireDate/terminationDate, trạng thái
 departments                  Danh sách phòng ban
 devices                      Thông tin thiết bị, deviceId, trạng thái, heartbeat
 deviceCommands               Lệnh gửi tới thiết bị và trạng thái xử lý
-fingerprintMappings         Ánh xạ deviceId/fingerprintId với employeeId
+fingerprintMappings         Ánh xạ templateId với employeeId và deviceId
 attendance                   Sự kiện chấm công gốc từ thiết bị
 attendanceSessions           Phiên xử lý tùy chọn, chủ yếu mở rộng khi dùng Blaze
 workSchedules                Lịch làm việc theo nhân viên/ngày/ca
 shifts                       Cấu hình ca, giờ bắt đầu/kết thúc, ngưỡng cho phép
 weeklyScheduleRequests       Đăng ký lịch tuần của nhân viên và trạng thái duyệt
-leaveRequests                Đơn nghỉ phép và trạng thái phê duyệt
+leaveRequests                Đơn nghỉ phép, điều chỉnh, FINGERPRINT_SUPPORT và trạng thái duyệt
 overtimeRequests             Đơn tăng ca và trạng thái phê duyệt
-attendanceAdjustments        Yêu cầu điều chỉnh chấm công
+attendanceAdjustments        Bản ghi điều chỉnh chấm công sau xử lý/phê duyệt
 attendanceClassificationOverrides Ghi đè phân loại kèm lý do và người thực hiện
-offScheduleAttendanceReviews Sự kiện ngoài lịch cần người quản trị xem xét
+offScheduleReviews           Sự kiện ngoài lịch cần người quản trị xem xét
 payroll                      Kết quả bảng công/bảng lương theo kỳ
 notifications                Thông báo theo người dùng
 announcements                Thông báo chung
+employeeResources            Lịch họp, khen thưởng, tài liệu và phạm vi người nhận
 audit_logs                   Nhật ký thao tác quan trọng
 settings                     Cấu hình hệ thống
 system/employeeCounter       Bộ đếm mã nhân viên hoặc dữ liệu hệ thống
 
 Quan hệ logic chính:
 
-    users.employeeId --------> employees.employeeId
-    employees.employeeId ----> workSchedules.employeeId
-    workSchedules.shiftId ---> shifts.shiftId
-    attendance.fingerprintId -> fingerprintMappings.fingerprintId
-    fingerprintMappings.employeeId -> employees.employeeId
-    attendance.employeeId ----> employees.employeeId
-    leaveRequests.employeeId -> employees.employeeId
-    overtimeRequests.employeeId -> employees.employeeId
-    payroll.employeeId -------> employees.employeeId
-    audit_logs.actorUid ------> users.uid
+    users.employeeId --------> employees/{id}
+    workSchedules.employeeId -> employees/{id}
+    workSchedules.shiftId ---> shifts/{id}
+    attendance.templateId ---> fingerprintMappings/{templateId}
+    fingerprintMappings.employeeId -> employees/{id}
+    attendance.employeeId ---> employees/{id}
+    leaveRequests.employeeId -> employees/{id}
+    overtimeRequests.employeeId -> employees/{id}
+    payroll.employeeId ------> employees/{id}
+    audit_logs.actorId ------> users/{uid}
+    employeeResources.audience -> ALL / departments/{id} / employees/{id}
 
 [HÌNH 2.3 - Sơ đồ dữ liệu Firestore/quan hệ logic. Nhóm có thể chuyển phần trên thành sơ đồ collection và mũi tên liên kết.]
 
 Các trường quan trọng của attendance nên được trình bày trong báo cáo:
 
-- eventId: mã duy nhất của sự kiện.
+- id: mã duy nhất lấy từ document ID của sự kiện.
 - deviceId: mã thiết bị phát sinh sự kiện.
-- fingerprintId: mã mẫu vân tay trên cảm biến.
+- templateId: mã mẫu vân tay trên cảm biến, được lưu trong sự kiện thiết bị.
 - employeeId: nhân viên sau khi ánh xạ, nếu xác định được.
 - timestamp: thời điểm thiết bị hoặc server ghi nhận.
 - type: loại sự kiện, ví dụ SCAN.
-- resolutionStatus: trạng thái diễn giải, ví dụ PENDING hoặc RESOLVED.
+- resolutionStatus: trạng thái xử lý sự kiện, ví dụ PENDING đối với sự kiện thiết bị mới gửi hoặc ACCEPTED đối với dữ liệu đã được chấp nhận.
 - status: trạng thái nghiệp vụ/lưu trữ.
 - createdAt/updatedAt nếu có.
+
+Schema employeeResources/{id}:
+
+- type: MEETING, REWARD hoặc DOCUMENT.
+- title, body: tiêu đề và nội dung; giới hạn lần lượt 120 và 4.000 ký tự sau chuẩn hóa.
+- audience: ALL, DEPARTMENT:<departmentId> hoặc EMPLOYEE:<employeeId>.
+- eventDate: ngày họp hoặc ngày khen thưởng theo yyyy-MM-dd.
+- startTime, endTime, location: thông tin cuộc họp; giờ theo HH:mm, kết thúc sau bắt đầu trong cùng ngày.
+- url: liên kết HTTPS tùy chọn cho cuộc họp, bắt buộc cho tài liệu.
+- createdAt, updatedAt: timestamp do server ghi; createdBy: UID người tạo, được giữ khi sửa.
+- id được ứng dụng lấy từ document ID. REWARD bắt buộc audience dạng EMPLOYEE và có ngày ghi nhận.
+
+Admin đọc danh sách và ghi nội dung; nhân viên đang hoạt động chỉ đọc ALL, EMPLOYEE:<id của mình> và DEPARTMENT:<departmentId hiện tại>. Biểu mẫu Admin chỉ cho chọn nhân viên/phòng ban đang hoạt động; Rules kiểm tra đối tượng nhận riêng tồn tại và kiểm tra trạng thái hoạt động của Employee khi đọc. Listener lấy tối đa 200 nội dung được cập nhật gần nhất, dùng chung giới hạn cho cả ba loại; khi đổi phòng ban hoặc tài khoản, dữ liệu cũ được xóa và listener tạo lại theo phạm vi mới.
+
+Truy vấn nhân viên dùng whereIn(audience) và orderBy(updatedAt, DESC), cần composite index employeeResources: audience ASC, updatedAt DESC. Tin tức không đọc trực tiếp announcements; màn hình dùng notifications của chính nhân viên có type = ANNOUNCEMENT. Các collection và index trong mã nguồn không tự được áp dụng lên Firebase online nếu chưa deploy.
 
 2.6. Mô hình tác nhân và các sơ đồ Use Case
 
 2.6.1. Danh sách đầy đủ tác nhân
 
-Tác nhân 1 - Quản trị viên (Admin): người quản lý nhân viên, thiết bị, ca làm, lịch, đơn từ, bảng công, báo cáo và audit.
+Tác nhân 1 - Quản trị viên (Admin): người quản lý nhân viên, thiết bị, ca làm, lịch, đơn từ, bảng công, báo cáo, audit và nội dung tiện ích theo phạm vi người nhận.
 
-Tác nhân 2 - Nhân viên (Employee): người đăng nhập để xem dữ liệu cá nhân, đăng ký lịch, gửi đơn và theo dõi chấm công.
+Tác nhân 2 - Nhân viên (Employee): người đăng nhập để xem dữ liệu cá nhân, đăng ký lịch, gửi đơn, theo dõi chấm công và đọc nội dung được chia sẻ cho mình.
 
 Tác nhân 3 - Thiết bị ESP8266: tác nhân bên ngoài gửi sự kiện chấm công, heartbeat và nhận lệnh từ hệ thống.
 
@@ -574,6 +603,8 @@ Tác nhân 6 - Cloud Functions: dịch vụ mở rộng tùy chọn, chỉ đưa
        |-- Xem và xử lý chấm công
        |-- Xem bảng công/bảng lương/báo cáo
        |-- Quản lý thông báo
+       |-- Quản lý lịch họp/khen thưởng/tài liệu
+       |-- Tiếp nhận hỗ trợ vân tay
        |-- Xem audit log
        |
        +--------------------[ HỆ THỐNG CHẤM CÔNG IoT ]-------------------+
@@ -584,6 +615,8 @@ Tác nhân 6 - Cloud Functions: dịch vụ mở rộng tùy chọn, chỉ đưa
        |-- Xem lịch và chấm công                                         |
        |-- Gửi lịch tuần/đơn từ                                          |
        |-- Theo dõi trạng thái                                           |
+       |-- Đọc tiện ích/tin tức, xem thâm niên                            |
+       |-- Gửi và theo dõi yêu cầu hỗ trợ vân tay                         |
        |                                                                  |
     [ESP8266] --> Gửi sự kiện / heartbeat / nhận lệnh                   |
     [Cloud Functions] --> Xử lý mở rộng, nếu được triển khai             |
@@ -635,6 +668,8 @@ Sơ đồ lớp khái quát:
 
 [HÌNH 2.5 - Sơ đồ lớp khái quát. Nhóm cần chuyển thành UML có thuộc tính, phương thức quan trọng và quan hệ rõ ràng.]
 
+Bổ sung vào sơ đồ lớp: EmployeeResource(type, title, body, audience, eventDate, startTime, endTime, location, url, createdAt, updatedAt, createdBy). Audience liên kết logic đến toàn bộ nhân viên, một Department hoặc một Employee; EmployeeResourceRules kiểm tra dữ liệu trước khi Repository ghi, Firestore Rules kiểm tra lại quyền và schema tại server.
+
 Các lớp luật nghiệp vụ không nên phụ thuộc trực tiếp vào composable hoặc Firebase SDK nếu không cần thiết. Việc tách các lớp như AttendanceResolutionRules, DashboardRules, AuditRules và ReportRules giúp viết unit test và kiểm tra từng trường hợp biên.
 
 2.8. Thiết kế bảo mật và phân quyền
@@ -644,7 +679,9 @@ Các lớp luật nghiệp vụ không nên phụ thuộc trực tiếp vào com
 - Role được lưu và kiểm tra cho Admin/Employee.
 - Firestore Rules hạn chế document nào được đọc/ghi.
 - Dữ liệu gốc attendance cần hạn chế chỉnh sửa sau khi thiết bị gửi lên.
-- Các thao tác duyệt, sửa, xóa, khóa tài khoản và thay đổi cấu hình cần tạo audit log.
+- Các luồng duyệt, điều chỉnh và đăng ký lịch dùng audit log theo phần đã triển khai; đăng ký lịch tuần ghi yêu cầu và audit trong cùng transaction. Nội dung tiện ích hiện lưu createdBy/createdAt/updatedAt, chưa có audit log riêng cho mọi thao tác sửa/xóa tài nguyên.
+- Employee chỉ đọc tiện ích trong phạm vi của mình; chỉ Admin được tạo, sửa, xóa employeeResources. Đổi audience không mở rộng quyền đọc dữ liệu cá nhân khác.
+- Employee có thể đọc một slot đăng ký tuần của chính mình chưa tồn tại để transaction khởi tạo; quyền list vẫn bị giới hạn theo employeeId và không cho truy vấn toàn bộ đăng ký.
 - Không đưa Wi-Fi password hoặc thông tin bí mật thật vào file mã nguồn chia sẻ. Dùng secrets.h hoặc file cấu hình không commit.
 - Khi triển khai production, cần thay Anonymous bằng danh tính thiết bị có khả năng thu hồi, xoay vòng token hoặc một gateway an toàn hơn.
 - Không lưu mẫu ảnh vân tay thô trong Firestore nếu không cần thiết. Module vân tay giữ template; hệ thống chỉ lưu mã ánh xạ và metadata cần cho nghiệp vụ.
@@ -678,7 +715,7 @@ Phần backend:
 
 3.2. Triển khai firmware trên ESP8266
 
-Firmware được chia thành các tab/chức năng để dễ bảo trì:
+Firmware hiện tại có phiên bản spark-anonymous-v14-command-status, được chia thành các tab/chức năng để dễ bảo trì:
 
 - esp8266_fingerprint.ino: cấu hình và phần chính.
 - 10_helpers.ino: hàm hỗ trợ.
@@ -704,6 +741,10 @@ Các chu kỳ chính trong firmware hiện tại:
 
 Hàng đợi offline được lưu trên LittleFS, với giới hạn dung lượng được cấu hình khoảng 12.288 byte trong firmware. Việc này giúp hạn chế mất sự kiện khi mạng tạm thời lỗi; khi mạng trở lại, firmware sẽ gửi dần các sự kiện đang chờ.
 
+Firmware hiện tại tạo sự kiện khi có giờ hợp lệ từ NTP và ghi/flush vào LittleFS trước khi cho mở cửa theo lượt chấm công. Nếu lượt được tạo offline, sau khi lưu thành công thiết bị có thể mở một lần theo mẫu AS608 đã nhận dạng, trong khi dữ liệu vẫn chờ đồng bộ. Nếu lượt được tạo online, thiết bị chờ xác nhận thành công của đúng lượt hiện tại trong thời hạn mở cửa; xác nhận đến muộn chỉ đồng bộ dữ liệu, không mở lại servo. Hàng đợi đầy hoặc ghi LittleFS thất bại thì không mở cửa theo lượt đó.
+
+Khi chưa có giờ hợp lệ, cấu hình OFFLINE_AS608_ACCESS_ENABLED hiện tại cho phép nhánh chỉ mở cửa theo nhận dạng AS608 và hiển thị CHUA LUU CONG; nhánh này không tạo attendance, không lưu bản ghi có thời gian giả và không bổ sung ngược lượt đó sau khi có NTP. Đây là chính sách truy cập cửa mô hình, cần phân biệt với một lượt chấm công đã được lưu.
+
 Luồng trạng thái thiết bị:
 
     BOOT
@@ -715,10 +756,14 @@ Luồng trạng thái thiết bị:
       -> READY
           -> chờ vân tay
           -> nhận dạng thành công/thất bại
-          -> báo LED/còi/LCD
-          -> mở servo nếu hợp lệ
-          -> tạo attendance event
-          -> gửi Firestore hoặc lưu outbox
+          -> nếu giờ hợp lệ: tạo event -> ghi/flush LittleFS
+               -> offline: báo đã lưu -> mở servo một lần
+               -> online: đồng bộ Firestore -> xác nhận đúng lượt còn hạn
+                    -> báo thành công -> mở servo một lần
+               -> xác nhận muộn: chỉ đồng bộ, không mở lại
+          -> nếu chưa có giờ: chỉ mở theo chính sách AS608
+               -> LCD CHUA LUU CONG, không tạo attendance
+          -> lỗi nhận dạng/quyền/lưu trữ: báo lỗi, không mở theo lượt chấm công
 
 [HÌNH 3.1 - Sơ đồ trạng thái firmware. Nhóm cần vẽ lại dạng state machine và chụp ảnh thiết bị ở mỗi trạng thái quan trọng.]
 
@@ -734,7 +779,7 @@ Admin shell có các khu vực chính:
 - Phân ca.
 - Nhân viên.
 
-Các module quản trị được mở từ các luồng tương ứng gồm thiết bị, ca làm, lịch, bảng công, bảng lương, hiệu suất, báo cáo, tháng công, audit, phòng ban và thông báo.
+Các module quản trị được mở từ các luồng tương ứng gồm thiết bị, ca làm, lịch, bảng công, bảng lương, hiệu suất, báo cáo, tháng công, audit, phòng ban, thông báo và Tiện ích nhân viên. Admin mở Tác vụ → Quản trị → Tiện ích nhân viên để đăng lịch họp, khen thưởng hoặc tài liệu; các thao tác gồm Đăng nội dung, Chỉnh sửa → Lưu thay đổi, Hủy chỉnh sửa/Tạo mới và Xóa có xác nhận.
 
 Employee shell có các khu vực chính:
 
@@ -743,6 +788,21 @@ Employee shell có các khu vực chính:
 - Chấm công của tôi.
 - Đơn từ.
 - Cá nhân.
+
+Trang chủ có lối tắt Đăng ký ca mở trực tiếp tab Đăng ký tuần sau. Màn hình Lịch làm việc tách hai tab: Lịch của tôi mặc định xem tháng và Đăng ký tuần sau để gửi yêu cầu. Lịch của tôi có chuyển Tháng/Tuần, Hôm nay, Kỳ trước/Kỳ sau và chọn ngày để xem chi tiết. Tab đăng ký hiển thị sáu ngày thứ Hai đến thứ Bảy; chọn ngày rồi bật Ca sáng/Ca chiều, chọn cả hai là cả ngày, không chọn là ngày nghỉ. Các nút chọn nhanh gồm Sáng cả tuần, Chiều cả tuần, Cả ngày cả tuần, Sao chép tuần này và Xóa chọn. Nhân viên bấm Gửi đăng ký hoặc Cập nhật đăng ký tùy trạng thái yêu cầu.
+
+Danh sách Tiện ích có các màn hình cụ thể, liên kết tới dữ liệu hoặc xử lý nghiệp vụ:
+
+- Lịch họp: đọc MEETING trong phạm vi người nhận; xem ngày, giờ, địa điểm, nội dung và mở liên kết tham gia HTTPS nếu có.
+- Khen thưởng: đọc REWARD của chính nhân viên; hiển thị ngày và nội dung ghi nhận, không cộng tiền vào bảng lương.
+- Tài liệu: đọc DOCUMENT trong phạm vi được chia sẻ và mở liên kết HTTPS bằng ứng dụng bên ngoài; không có tải tệp lên Firebase Storage.
+- Tin tức: lọc notifications của bản thân theo ANNOUNCEMENT; chuông thông báo hiển thị toàn bộ thông báo của bản thân. Bấm Xem nội dung mới ghi read = true cho thông báo đó, Thu gọn chỉ đóng nội dung.
+- Thông tin: mở hồ sơ và cập nhật thông tin liên hệ theo quyền nhân viên.
+- Thâm niên: lấy hireDate từ hồ sơ do Admin quản lý, tính đến ngày hiện tại theo giờ Việt Nam hoặc terminationDate đối với nhân viên đã nghỉ. Ngày vào làm không phải nút nhập ở Trang chủ; Admin cập nhật tại Nhân viên → Sửa hồ sơ → Ngày vào làm (yyyy-MM-dd) → Lưu hồ sơ.
+- Hỗ trợ: nhập nội dung 1-4.000 ký tự để gửi FINGERPRINT_SUPPORT vào leaveRequests, xem trạng thái và reviewNote của Admin. Yêu cầu này không tự đăng ký lại vân tay hoặc mở cuộc trò chuyện.
+- Đơn báo và Đăng ký ca: mở các luồng Đơn từ và đăng ký lịch tuần hiện có.
+
+Luồng tài nguyên là Compose → MainViewModel → validateEmployeeResource → FirebaseRepository → Firestore Rules → employeeResources; listener đưa nội dung về MainUiState rồi màn hình lọc theo loại. Các màn hình tài nguyên có trạng thái đang tải, trống, lỗi và nút Thử lại. Form giữ nội dung khi lưu thất bại và chỉ xóa bản nháp sau khi lưu thành công. Quyền server không phụ thuộc vào việc người dùng có nhìn thấy nút quản trị trong UI.
 
 Trong shell, back stack nội bộ được duy trì cho các màn hình con. Khi người dùng bấm nút Back vật lý hoặc cử chỉ Back của Android ở màn hình con, ứng dụng quay về màn hình trước. Khi đã ở màn hình gốc và không còn màn hình nội bộ để quay lại, hành vi mặc định của Android được giữ lại.
 
@@ -763,9 +823,18 @@ Phân biệt các loại thay đổi khi triển khai:
 
 - Thay đổi giao diện hoặc logic Android: build và cài APK mới lên điện thoại; không cần Firebase deploy.
 - Thay đổi Firestore Rules: cần deploy Rules nếu muốn môi trường Firebase online dùng Rules mới.
+- Thay đổi composite index: cần deploy index và chờ index sẵn sàng trước khi truy vấn mới hoạt động đầy đủ.
 - Thay đổi Cloud Functions: cần deploy Functions và thường phải dùng gói phù hợp; không áp dụng cho luồng Spark cốt lõi hiện tại.
 - Thay đổi firmware: nạp lại chương trình vào ESP8266.
 - Thay đổi cấu hình Wi-Fi/secret: cập nhật secrets.h hoặc cấu hình tương ứng, không đưa bí mật thật vào Git.
+
+Trạng thái ngày 08/10/2026: các Rules và index mới đã kiểm thử ở Emulator, nhưng CHƯA deploy lên Firebase online vì chưa có xác nhận triển khai. Đối chiếu chỉ đọc với Rules đang hoạt động cho thấy thay đổi gồm thêm employeeResources, cho phép GET slot đăng ký tuần của chính nhân viên khi document chưa tồn tại và sửa phép tính deadline; các quyền list, create/update của đăng ký tuần vẫn giữ giới hạn hiện có. Index mới chỉ thêm một composite index audience/updatedAt; giữ nguyên 21 index hiện có và không xóa index.
+
+Sau khi được xác nhận triển khai, lệnh dành riêng cho phần thay đổi này là:
+
+    firebase deploy --only firestore:rules,firestore:indexes --project chamcongiot-56ae5 --non-interactive
+
+Lệnh trên được ghi để hướng dẫn, chưa được thực thi trong lần cập nhật này. Không cần deploy Functions hoặc nạp lại firmware cho thay đổi tiện ích/Rules này; APK mới vẫn cần được cài trên điện thoại. Khi Firebase online còn dùng Rules cũ, employeeResources có thể trả PERMISSION_DENIED; cập nhật giao diện đơn thuần không áp dụng quyền server mới.
 
 3.5. Mô tả chi tiết các Use Case
 
@@ -801,7 +870,7 @@ Luồng chính:
 
 1. Admin mở màn hình Nhân viên.
 2. Hệ thống tải danh sách và bộ lọc.
-3. Admin nhập hoặc chỉnh sửa thông tin.
+3. Admin nhập hoặc chỉnh sửa thông tin, gồm Ngày vào làm theo yyyy-MM-dd khi cần tính thâm niên.
 4. Hệ thống kiểm tra mã nhân viên, email, phòng ban và trạng thái.
 5. Firestore lưu dữ liệu.
 6. Audit log ghi lại người thao tác.
@@ -809,6 +878,8 @@ Luồng chính:
 Luồng thay thế: Mã trùng, dữ liệu thiếu, tài khoản không thể tạo hoặc Rules từ chối.
 
 Kết quả: Hồ sơ được tạo/cập nhật hoặc giao diện hiển thị lý do thất bại.
+
+Employee chỉ được cập nhật các thông tin liên hệ được cho phép; không tự sửa hireDate. Màn hình Thâm niên đọc trường này từ hồ sơ và hướng dẫn nhờ Admin cập nhật nếu thiếu hoặc sai ngày.
 
 UC-03 - Đăng ký vân tay
 
@@ -834,7 +905,7 @@ Kết quả: Mẫu được gắn với nhân viên hoặc trạng thái thất 
 UC-04 - Chấm công bằng vân tay
 
 Tác nhân chính: Nhân viên.
-Tác nhân phụ: Cảm biến, ESP8266, Firebase, Android.
+Tác nhân phụ: Cảm biến, ESP8266, Firebase. Android là biên ứng dụng hiển thị kết quả, không phải tác nhân bên ngoài.
 
 Mục tiêu: Ghi nhận một sự kiện chấm công.
 
@@ -842,21 +913,21 @@ Luồng chính:
 
 1. Nhân viên đặt ngón tay lên cảm biến.
 2. Cảm biến trả về fingerprintId.
-3. ESP8266 tra mapping cục bộ hoặc metadata phù hợp.
-4. Thiết bị hiển thị tên/mã hoặc thông báo xác nhận.
-5. Servo mở cửa mô hình nếu điều kiện cho phép; LED xanh và buzzer báo thành công.
-6. ESP8266 tạo attendance event với timestamp, deviceId, fingerprintId và trạng thái chờ xử lý.
-7. Event được gửi lên Firestore.
-8. Android đọc event, đối chiếu lịch/ca và hiển thị trạng thái.
+3. Khi online, ESP8266 tra fingerprintMappings trên Firestore để xác định nhân viên. Khi offline có giờ hợp lệ, thiết bị lưu templateId/thời gian gốc rồi tra ánh xạ sau khi kết nối lại; firmware không cache hồ sơ hoặc mapping nhân viên và không thay timestamp gốc lúc đồng bộ.
+4. Nếu có giờ hợp lệ, ESP8266 tạo event với timestamp, deviceId, templateId và trạng thái chờ xử lý, rồi ghi/flush vào LittleFS trước khi mở cửa.
+5. Lượt tạo offline đã lưu có thể mở cửa một lần theo chính sách AS608; lượt online chờ xác nhận đúng lượt hiện tại còn thời hạn. LED, buzzer và LCD báo trạng thái tương ứng.
+6. Event trong outbox được đồng bộ lên Firestore; xác nhận muộn không mở lại servo.
+7. Android đọc event, đối chiếu lịch/ca và hiển thị trạng thái.
 
 Luồng thay thế:
 
 - Không nhận dạng: LED đỏ/buzzer báo lỗi, không mở cửa.
 - Mất mạng: event được lưu vào LittleFS outbox rồi gửi lại sau.
-- Chưa có NTP hợp lệ: thiết bị không nên ghi thời gian giả mà không đánh dấu; xử lý theo chính sách firmware hiện tại.
+- Chưa có giờ NTP hợp lệ: nhánh truy cập AS608 hiện tại có thể chỉ mở cửa với thông báo CHUA LUU CONG; không tạo attendance hoặc bản ghi chờ có thời gian giả.
+- LittleFS lỗi/hàng đợi đầy: không lưu được event và không mở cửa theo lượt chấm công; cần xử lý lỗi trước khi nhận lượt mới.
 - Không có lịch hoặc sự kiện ngoài lịch: chuyển sang trạng thái cần xem xét theo quy tắc.
 
-Kết quả: Có một event gốc không bị sửa trực tiếp; kết quả phân loại có thể là đúng giờ, đi trễ, về sớm, tăng ca, ngoài lịch hoặc cần xử lý.
+Kết quả: Luồng chấm công đã lưu tạo một event gốc không bị sửa trực tiếp; kết quả phân loại có thể là đúng giờ, đi trễ, về sớm, tăng ca, ngoài lịch hoặc cần xử lý. Nhánh chỉ mở cửa khi thiếu giờ không được tính là lượt chấm công.
 
 UC-05 - Gửi lệnh đến thiết bị
 
@@ -886,16 +957,16 @@ Mục tiêu: Nhân viên gửi lịch làm việc mong muốn cho tuần kế ti
 
 Luồng chính:
 
-1. Employee mở Lịch làm việc.
-2. Chọn tuần và các ngày/ca phù hợp.
-3. Hệ thống loại ngày Chủ nhật khỏi lịch phân công chuẩn nếu không được cấu hình đặc biệt.
-4. Employee gửi yêu cầu trước hạn thứ Bảy 12:00 giờ Việt Nam.
-5. Firestore lưu weeklyScheduleRequest ở trạng thái chờ duyệt.
-6. Admin xem và duyệt/chỉnh sửa trước hạn xử lý.
+1. Employee mở Lịch làm việc → Đăng ký tuần sau hoặc lối tắt Đăng ký ca trên Trang chủ/Tiện ích.
+2. Chọn ngày trong tuần kế tiếp, bật Ca sáng/Ca chiều hoặc dùng các nút chọn nhanh; chỉ có ca chính, từ thứ Hai đến thứ Bảy.
+3. Ứng dụng kiểm tra lịch hợp lệ và thời hạn gửi trước 12:00 thứ Bảy liền trước tuần đăng ký theo Asia/Ho_Chi_Minh. Đúng 12:00 đã hết hạn.
+4. Repository xác minh người dùng và hồ sơ nhân viên, mở transaction, đọc weeklyScheduleRequests/{employeeId}_{weekStart}; một slot hợp lệ chưa tồn tại là trạng thái có thể khởi tạo.
+5. Transaction tạo hoặc cập nhật yêu cầu cùng audit_logs một cách nguyên tử; yêu cầu được gửi với trạng thái PENDING.
+6. Admin duyệt thành APPROVED hoặc yêu cầu sửa với trạng thái NEEDS_REVISION. Employee có thể cập nhật yêu cầu PENDING/NEEDS_REVISION còn hạn, không sửa yêu cầu đã APPROVED.
 
-Luồng thay thế: Gửi quá hạn, thiếu ca, trùng lịch hoặc tuần đã khóa.
+Luồng thay thế: Quá hạn, ngày/ca không hợp lệ, tài khoản hoặc hồ sơ không hoạt động, yêu cầu đã duyệt, mạng lỗi hoặc Rules từ chối. UI giữ lựa chọn và hiển thị lỗi trong luồng đăng ký; chỉ báo thành công sau khi transaction commit.
 
-Kết quả: Yêu cầu được gửi, từ chối hoặc chờ xử lý.
+Kết quả: Yêu cầu chờ duyệt và audit được lưu đồng thời, hoặc không có ghi một phần khi transaction thất bại.
 
 UC-07 - Duyệt lịch và phân ca
 
@@ -908,14 +979,14 @@ Luồng chính:
 
 1. Admin mở danh sách yêu cầu.
 2. Kiểm tra ngày, ca, số lượng nhân viên và điều kiện nghiệp vụ.
-3. Duyệt, từ chối hoặc chỉnh sửa.
-4. Hệ thống tạo/cập nhật workSchedules.
-5. Employee nhận thông báo hoặc thấy trạng thái mới.
+3. Duyệt thành APPROVED hoặc trả lại NEEDS_REVISION kèm yêu cầu sửa; theo dõi mốc xử lý 17:00 thứ Bảy theo giờ Việt Nam.
+4. Khi duyệt, hệ thống tạo/cập nhật workSchedules theo các ca đã chấp thuận và ghi nhật ký theo luồng nghiệp vụ.
+5. Employee nhận thông báo hoặc thấy trạng thái mới. Yêu cầu cần sửa vẫn phải tuân thủ hạn gửi của Employee.
 
 UC-08 - Gửi và duyệt đơn nghỉ phép/điều chỉnh chấm công
 
 Tác nhân chính: Employee; người duyệt là Admin.
-Tác nhân phụ: Firestore, Notifications.
+Tác nhân phụ: Firestore. Thông báo là dữ liệu nghiệp vụ được ứng dụng tạo/đọc, không phải tác nhân bên ngoài.
 
 Luồng chính:
 
@@ -944,15 +1015,17 @@ Không được coi mọi hoạt động ngoài ca là tăng ca tự động n�
 UC-10 - Xem chấm công, bảng công, bảng lương và báo cáo
 
 Tác nhân chính: Admin hoặc Employee tùy phạm vi dữ liệu.
-Tác nhân phụ: AttendanceResolutionRules, ReportRules, Firestore, CsvReportExporter.
+Tác nhân phụ: Firestore. AttendanceResolutionRules, ReportRules và CsvReportExporter là các thành phần xử lý bên trong ứng dụng, không phải tác nhân UML bên ngoài.
 
 Admin có thể xem dữ liệu toàn hệ thống theo quyền; Employee chỉ xem phạm vi của mình. Hệ thống cho phép lọc thời gian, trạng thái và nhân viên, sau đó tổng hợp thành bảng công, KPI, bảng lương hoặc file CSV. Các bộ lọc cần phân biệt dữ liệu raw/resolved/legacy để tránh đếm trùng hoặc bỏ sót.
+
+Dữ liệu tính toán theo khoảng ngày phải được tải đủ từ server, đúng bộ lọc và không vượt giới hạn. Khi Source.SERVER thất bại, ứng dụng hiển thị lỗi và Tải lại dữ liệu, xóa kết quả kỳ cũ và không xem số 0 là một kết quả tính công hoàn chỉnh. Nút lưu bảng lương, báo cáo và xuất CSV vẫn bị chặn khi dữ liệu tính toán chưa sẵn sàng. Không chuyển sang cache để kết luận một kỳ công đã tải đầy đủ.
 
 UC-11 - Xem audit và thông báo
 
 Tác nhân chính: Admin hoặc Employee.
 
-Admin xem các thao tác quan trọng; Employee xem thông báo dành cho mình. Audit phải thể hiện actor, thời gian, loại thao tác, đối tượng và kết quả nếu có. Thông báo không được dùng thay cho trạng thái dữ liệu chính.
+Admin xem các thao tác quan trọng; Employee xem thông báo dành cho mình. Audit thể hiện actor, thời gian, loại thao tác, đối tượng và kết quả theo dữ liệu của luồng tương ứng. Employee mở Tin tức để xem ANNOUNCEMENT hoặc chuông để xem mọi thông báo của mình; bấm Xem nội dung đánh dấu riêng thông báo đó đã đọc. Thông báo không được dùng thay cho trạng thái dữ liệu chính, và tiện ích tài nguyên chưa có audit log sửa/xóa riêng.
 
 UC-12 - Điều hướng bằng nút Back vật lý
 
@@ -969,6 +1042,46 @@ Luồng chính:
 5. Nếu đang ở màn hình gốc, để Android xử lý theo hành vi mặc định.
 
 Kết quả: Người dùng không bị thoát ứng dụng ngay khi đang ở màn hình con.
+
+UC-13 - Quản lý nội dung tiện ích nhân viên
+
+Tác nhân chính: Admin. Tác nhân phụ: Firestore. EmployeeResourceRules là thành phần kiểm tra nghiệp vụ bên trong ứng dụng.
+
+Mục tiêu: Chia sẻ lịch họp, ghi nhận khen thưởng hoặc tài liệu tới đúng người nhận.
+
+Luồng chính:
+
+1. Admin mở Tác vụ → Quản trị → Tiện ích nhân viên, chọn loại nội dung.
+2. Nhập tiêu đề/nội dung và chọn toàn bộ, phòng ban đang hoạt động hoặc nhân viên đang hoạt động. Với REWARD, bắt buộc chọn một nhân viên và ngày khen thưởng.
+3. MEETING cần ngày, giờ bắt đầu/kết thúc và địa điểm; DOCUMENT cần URL HTTPS. Liên kết tham gia cuộc họp là tùy chọn.
+4. UI và domain validator kiểm tra bản nháp; Repository chuẩn hóa dữ liệu và ghi qua transaction, Rules xác minh quyền Admin, schema và người nhận.
+5. Firestore ghi createdAt/createdBy khi tạo và updatedAt khi sửa; listener cập nhật danh sách.
+6. Admin có thể Chỉnh sửa → Lưu thay đổi hoặc Xóa sau xác nhận.
+
+Luồng thay thế: Thiếu dữ liệu, thời gian không hợp lệ, URL không phải HTTPS, người nhận đã ngừng hoạt động, mạng lỗi hoặc Rules chưa triển khai. Không xóa bản nháp khi lưu lỗi.
+
+UC-14 - Sử dụng tiện ích và xem thâm niên
+
+Tác nhân chính: Employee. Tác nhân phụ: Firestore và ứng dụng mở liên kết bên ngoài.
+
+1. Employee mở Lịch họp/Khen thưởng/Tài liệu từ Trang chủ hoặc danh sách Tiện ích.
+2. Listener chỉ nhận tối đa 200 nội dung cập nhật gần nhất thuộc ALL, phòng ban hiện tại hoặc chính nhân viên; UI lọc đúng loại nội dung.
+3. Nhân viên xem chi tiết hoặc mở URL HTTPS. Khen thưởng chỉ là ghi nhận, không tác động số tiền lương.
+4. Khi đổi phòng ban/tài khoản, ứng dụng tạo lại listener và xóa nội dung thuộc phạm vi cũ; lỗi có nút Thử lại.
+5. Nhân viên mở Thâm niên để xem thời gian từ hireDate đến ngày hiện tại hoặc ngày nghỉ việc. Nếu thiếu ngày, màn hình hướng dẫn Admin cập nhật hồ sơ.
+
+Kết quả: Chỉ nội dung được chia sẻ hợp lệ được đọc; nhân viên không có quyền tạo/sửa/xóa tài nguyên hoặc sửa ngày vào làm.
+
+UC-15 - Gửi yêu cầu hỗ trợ vân tay
+
+Tác nhân chính: Employee; người xử lý: Admin. Tác nhân phụ: Firestore.
+
+1. Employee mở Hỗ trợ → Hỗ trợ vân tay, nhập mô tả lỗi hoặc nhu cầu hỗ trợ 1-4.000 ký tự.
+2. Ứng dụng gửi loại FINGERPRINT_SUPPORT qua luồng đơn từ hiện có, lưu trong leaveRequests.
+3. Admin mở Đơn từ, xem nội dung và cập nhật trạng thái, reviewNote theo quy trình duyệt.
+4. Employee xem yêu cầu đã gửi và phản hồi trên màn hình Hỗ trợ.
+
+Kết quả: Có yêu cầu theo dõi được trên Firestore; nếu cần đăng ký lại mẫu, Admin vẫn thực hiện luồng vân tay riêng với thiết bị.
 
 3.6. Kịch bản kiểm thử và minh chứng hoạt động
 
@@ -1068,6 +1181,29 @@ Mô tả: Mở từ trang gốc vào màn hình nhân viên/chi tiết/biểu m�
 
 [VIDEO 02 - Quay thao tác nhấn nút Back vật lý ở màn hình con và quay lại màn hình trước. Link: [CẦN BỔ SUNG]]
 
+KT-APP-08 - Tiện ích có dữ liệu và phân quyền
+
+Admin tạo, sửa và xóa MEETING/DOCUMENT cho ALL, một phòng ban và một nhân viên; tạo REWARD cho một nhân viên có ngày ghi nhận. Kiểm tra tiêu đề/nội dung thiếu, ngày sai, giờ kết thúc không sau bắt đầu, người nhận không hoạt động và URL HTTP bị từ chối. Đăng nhập Employee ở các phạm vi khác nhau để xác nhận chỉ nội dung hợp lệ được đọc; tài khoản Employee không ghi được employeeResources. Đổi phòng ban và kiểm tra dữ liệu cũ được xóa trước khi listener nhận phạm vi mới. Mở tài liệu HTTPS bằng ứng dụng ngoài; số tiền bảng lương không đổi khi tạo khen thưởng.
+
+[HÌNH 3.22 - Admin tạo/sửa nội dung tại Tiện ích nhân viên.]
+[HÌNH 3.23 - Employee xem cuộc họp, khen thưởng và tài liệu đúng phạm vi.]
+
+KT-APP-09 - Tin tức, thâm niên và hỗ trợ
+
+Gửi ANNOUNCEMENT cho nhân viên thử; kiểm tra Tin tức chỉ chứa thông báo của chính tài khoản và chỉ đánh dấu đã đọc sau khi bấm Xem nội dung. Admin sửa Ngày vào làm trong hồ sơ; Employee xem thâm niên cập nhật, không tự sửa ngày này. Employee gửi hỗ trợ vân tay, Admin phản hồi tại Đơn từ, rồi Employee xem trạng thái/reviewNote. Kiểm tra trường hợp ngày vào làm thiếu và yêu cầu hỗ trợ trống hoặc quá 4.000 ký tự.
+
+[HÌNH 3.25 - Ngày vào làm trong hồ sơ Admin, màn hình Thâm niên và phản hồi hỗ trợ.]
+
+KT-APP-10 - Đăng ký tuần lần đầu và hạn gửi
+
+Lối tắt Đăng ký ca phải mở tab Đăng ký tuần sau. Chọn ca sáng/chiều, dùng chọn nhanh hoặc Sao chép tuần này, gửi lần đầu khi chưa có document yêu cầu và xác nhận PENDING cùng audit xuất hiện. Cập nhật yêu cầu đang chờ hoặc NEEDS_REVISION còn hạn; kiểm tra APPROVED không được Employee sửa. Kiểm tra trước và từ thời điểm thứ Bảy 12:00 giờ Việt Nam, truy vấn chỉ của mình, tài khoản không hoạt động/không có liên kết và slot của người khác. Mô phỏng thất bại transaction phải không tạo yêu cầu hoặc audit riêng lẻ. Các ranh giới quyền này đã có regression test ở Firestore Emulator; ảnh/video điện thoại vẫn cần bổ sung.
+
+[HÌNH 3.24 - Lối tắt Đăng ký ca, lựa chọn ca tuần sau và yêu cầu PENDING đã gửi.]
+
+KT-APP-11 - Lỗi server và dữ liệu tính công chưa sẵn sàng
+
+Ngắt kết nối server hoặc mô phỏng lỗi Source.SERVER khi tải kỳ công. Dù danh sách nhân viên đã có từ listener/cache, dashboard không được kết luận chấm công bằng 0 là kết quả hoàn chỉnh. Xác nhận hiển thị lỗi/Tải lại dữ liệu, không lưu bảng lương hoặc xuất CSV từ dữ liệu cũ/chưa đủ. Kết nối lại và Tải lại phải nhận đúng kỳ; kiểm tra cả đúng 5.000 bản ghi và còn dữ liệu vượt giới hạn. Không dùng cache fallback để bỏ qua điều kiện dữ liệu tính toán hoàn chỉnh.
+
 3.6.3. Kịch bản quay video minh chứng
 
 Video nên quay liên tục, nhìn thấy cả thiết bị thật và màn hình ứng dụng nếu có thể. Mỗi video nên có lời mô tả ngắn:
@@ -1078,31 +1214,54 @@ Video nên quay liên tục, nhìn thấy cả thiết bị thật và màn hìn
 - Video D: Mất Wi-Fi, chấm công offline, kết nối lại và đồng bộ.
 - Video E: Admin xử lý nhân viên/lịch/đơn và kết quả trên bảng công.
 - Video F: Nhấn nút Back vật lý để quay màn hình trước.
+- Video G: Admin đăng tiện ích theo người nhận; Employee xem đúng phạm vi, mở tài liệu và đọc tin tức.
+- Video H: Employee dùng Đăng ký ca để gửi tuần sau lần đầu, Admin xử lý và Employee xem phản hồi hỗ trợ vân tay.
 
 Mỗi video ghi thêm ngày quay, phiên bản firmware, phiên bản APK, thiết bị thử và kết quả mong đợi.
 
 3.7. Kết quả kiểm thử hiện tại
 
-Kết quả lần chạy kiểm thử gần nhất:
+Kết quả đã xác nhận trong phiên làm việc cập nhật ngày 08/10/2026:
 
-- Android: 191/191 unit test đạt với `:app:testDebugUnitTest`, Gradle 8.9 và JDK 17 (2026-09-28).
-- Firebase Functions: 32/32 test đạt với `npm test --prefix firebase/functions`. Functions hiện không thuộc luồng xử lý của dự án trên Firebase Spark.
-- Bản debug APK build thành công tại `app/build/outputs/apk/debug/app-debug.apk`.
-- Bản release có R8, minify và shrink build thành công khi loại trừ các task `lintVital`; môi trường offline chưa có `com.android.tools.lint:lint-gradle:31.7.3`. APK được tạo là `app-release-unsigned.apk` vì chưa cấu hình keystore ký phát hành.
+- Android: 255/255 unit test đạt trong 39 test suite, không có failure/error; chạy `:app:testDebugUnitTest :app:assembleDebug` với Gradle 8.9 và JDK 17. Kết quả bao gồm quy tắc tiện ích, lịch tuần, trạng thái dữ liệu tính toán và trường hợp giới hạn 5.000 bản ghi.
+- Bản debug APK build thành công tại `app/build/outputs/apk/debug/app-debug.apk`; kết quả build và XML test được đối chiếu lại ngày 08/10/2026.
+- Firestore Rules: 46/46 test đạt trên Emulator chạy bằng Java 21, gồm 5 test employeeResources và 7 regression test đăng ký tuần. Việc chạy Emulator là cục bộ, không ghi dữ liệu Firebase online.
+- Firebase Functions: 32/32 test đã đạt với `npm test --prefix firebase/functions` trong phiên làm việc. Functions vẫn là phần mở rộng, không thuộc luồng bắt buộc của dự án Firebase Spark; test này không có nghĩa Functions đã được deploy.
 
-Lưu ý: Các con số test và kết quả build ở trên là từ lần chạy trước khi bổ sung xử lý biên 5.000 bản ghi. Bản sửa biên mới nhất chưa được chạy lại test/build trong lần cập nhật báo cáo này.
+Kết quả lịch sử được giữ để đối chiếu:
+
+- Ngày 28/09/2026 từng ghi nhận Android 191/191 unit test; con số này đã được thay bằng kết quả 255/255 ở trên cho mã nguồn hiện tại.
+- Bản release có R8, minify và shrink từng build thành công khi loại trừ các task lintVital; môi trường offline khi đó thiếu com.android.tools.lint:lint-gradle:31.7.3. APK lịch sử là app-release-unsigned.apk do chưa cấu hình keystore ký phát hành. Lần cập nhật 08/10 chỉ xác nhận lại build debug, không khẳng định release mới đã build hoặc ký.
+- Các mô tả firmware và kịch bản phần cứng dựa trên mã nguồn, kiểm tra đã ghi nhận trước đó và kế hoạch thực nghiệm. Lần cập nhật này không chạy lại thử nghiệm thiết bị thật hoặc bổ sung phép đo sinh trắc học, điện áp/dòng, mất điện hay video.
 
 Trong cấu hình Firebase Spark, Firestore giữ sự kiện attendance gốc; Android diễn giải sự kiện theo lịch và quy tắc nghiệp vụ. Không xem kết quả trên từng Android client là nguồn sự thật tập trung. Việc resolve bằng transaction ở backend chỉ được tính đến khi dự án chuyển sang hạ tầng phù hợp, có thể phát sinh chi phí Blaze.
 
 Attendance realtime của Admin được giới hạn ở một cửa sổ gần nhất. Hồ sơ nhân viên lấy các lượt mới nhất theo `timestamp` ngay trong truy vấn Firestore và hỗ trợ tải tiếp bằng cursor. Lịch sử báo cáo truy vấn theo khoảng ngày, chia trang và có giới hạn 5.000 bản ghi để kiểm soát RAM. Khi đạt đúng 5.000, ứng dụng truy vấn kiểm tra thêm một bản ghi sau cursor cuối: nếu không còn dữ liệu, báo cáo vẫn được xem là đầy đủ và cho phép xuất CSV; nếu còn dữ liệu, ứng dụng báo cần thu hẹp khoảng ngày và khóa xuất CSV để không tạo file thiếu dữ liệu.
 
-Luồng báo cáo xóa dữ liệu của bộ lọc cũ khi bắt đầu truy vấn mới. Khi tải lỗi, trạng thái yêu cầu được mở lại, lỗi được hiển thị và người dùng có thể thử lại. Nút xuất CSV chỉ hoạt động khi kết quả tương ứng với bộ lọc hiện tại đã tải hoàn tất.
+Luồng báo cáo xóa dữ liệu của bộ lọc cũ khi bắt đầu truy vấn mới. Khi tải lỗi, trạng thái yêu cầu được mở lại, lỗi được hiển thị và người dùng có thể thử lại. Lịch sử và dữ liệu phụ trợ dùng Source.SERVER; thất bại làm rỗng kết quả kỳ, xóa khóa truy vấn hoàn chỉnh và dữ liệu tính toán. Nút xuất CSV, lưu bảng lương và các màn hình tính toán chỉ được coi là sẵn sàng khi đúng khoảng ngày/nhân viên, tải xong, không lỗi và không thiếu dữ liệu. Dashboard có thể đã nhận 5 nhân viên qua listener trong lúc kỳ chấm công chưa tải được; đây không phải bằng chứng có 0 lượt chấm công. Cách xử lý là thông báo chưa đồng bộ/Tải lại, không dùng cache fallback để đánh dấu kỳ đã hoàn chỉnh.
 
 Firmware công khai trạng thái hàng đợi LittleFS (`OK/WARNING/FULL/ERROR`) và dung lượng đã dùng. Khi hàng đợi đầy, thiết bị hiển thị lỗi và từ chối nhận lượt mới; heartbeat báo `firebaseSyncStatus = ERROR` nếu LittleFS lỗi hoặc hàng đợi đầy.
 
 Android dùng mặc định `versionCode = 2`, `versionName = "1.1.0"`, bật minify/shrink cho release và nhận thông tin ký qua biến môi trường. Chỉ có thể phát hành APK đã ký sau khi cấu hình keystore thật.
 
-Firestore Rules Emulator chưa được chạy trong môi trường kiểm tra đã ghi nhận do Firebase CLI yêu cầu Java 21 trong khi môi trường khi đó sử dụng Java 17. Vì vậy, không kết luận Rules đã được kiểm thử đầy đủ trên Emulator.
+Hai lỗi Rules của luồng đăng ký tuần đã được tái hiện và sửa trên Emulator:
+
+1. GET document chưa tồn tại bị PERMISSION_DENIED: Rule cũ truy cập resource.data.employeeId khi transaction đọc slot lần đầu, nhưng document chưa có nên không có resource.data. Rule mới tách get/list; chỉ cho Employee đang hoạt động đọc slot thiếu đúng employeeId_yyyy-MM-dd của mình, ngày thứ Hai hợp lệ và document thực sự chưa tồn tại. So sánh đầy đủ ID sau khi lấy token ngày cuối cùng, không dùng employeeId làm regex; vẫn bảo vệ ID chứa dấu gạch dưới/ký tự regex. Document có sẵn nhưng mang employeeId người khác vẫn bị từ chối, và quyền list không mở rộng.
+2. Deadline gây lỗi phép toán string + duration: isoDateAfter trả chuỗi ngày nên biểu thức cũ không thể so với request.time. Rule mới dùng timestamp: request.time < isoDate(weekStart) - duration.value(2, 'd') + duration.value(5, 'h'). Mốc 05:00 UTC thứ Bảy liền trước bằng 12:00 giờ Việt Nam; hạn gửi vẫn là trước mốc đó.
+
+Kiểm thử đã tái hiện GET đầu tiên trả 403 ở Rules cũ; phiên bản chỉ sửa GET đọc slot thiếu thành công nhưng commit vẫn 403 do string + duration. Rules cuối cùng cho phép transaction tạo PENDING kèm audit, cập nhật yêu cầu còn hạn, đồng thời từ chối slot khác, truy vấn rộng, tài khoản không hợp lệ, sửa APPROVED và tạo/sửa khi hết hạn. Các Rules/index cuối cùng CHƯA deploy lên Firebase online, vì chưa có xác nhận triển khai.
+
+Cách chạy lại kiểm thử Rules cục bộ: cần Java 21 trên PATH, mở terminal thứ nhất chạy:
+
+    firebase emulators:start --only firestore --project demo-chamcong-rules --config firebase.json
+
+Firebase CLI mặc định dùng port 8080 vì firebase.json chưa cấu hình cổng Firestore Emulator. Mở terminal PowerShell thứ hai chạy:
+
+    $env:FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
+    $rulesTests = (Get-ChildItem -LiteralPath 'firebase/test' -Filter '*.test.js').FullName
+    node --test --test-concurrency=1 @rulesTests
+
+Phiên kiểm chứng đã dùng Emulator cục bộ tại port 8085; khi đổi port phải đặt FIRESTORE_EMULATOR_HOST tương ứng. Project demo và Emulator dùng cho kiểm thử, tách khỏi Firebase online.
 
 Các kết quả tự động không thay thế cho kiểm thử trên điện thoại thật, thử nghiệm mất điện khi LittleFS đang ghi, hay video chứng minh hoạt động end-to-end. Nhóm cần bổ sung minh chứng tại mục 3.6.
 
@@ -1114,9 +1273,12 @@ Các kết quả tự động không thay thế cho kiểm thử trên điện t
 - Firebase Authentication và Firestore.
 - Mô hình attendance raw và logic resolve cục bộ.
 - Quản lý nhân viên, ca, lịch, đơn, báo cáo và audit theo các luồng hiện có.
+- Tiện ích nhân viên nối Firestore cho lịch họp, khen thưởng và tài liệu theo người nhận; Tin tức đọc thông báo của mình, Thâm niên lấy ngày vào làm và Hỗ trợ dùng đơn FINGERPRINT_SUPPORT.
+- Lối tắt đăng ký ca mở trực tiếp tuần sau; gửi/cập nhật lịch qua transaction cùng audit và các trạng thái PENDING/NEEDS_REVISION/APPROVED.
 - Firmware ESP8266 đọc vân tay, LCD, LED, buzzer, servo, Wi-Fi, NTP và hàng đợi LittleFS.
 - Xử lý Back vật lý/cử chỉ trong các shell của ứng dụng.
-- Unit test và build debug theo kết quả nêu trên.
+- Android 255/255 unit test, Rules Emulator Java 21 đạt 46/46 test và build debug theo kết quả nêu trên.
+- Sửa hai lỗi Rules đăng ký lần đầu/deadline và xử lý lỗi tải server mà không bỏ qua điều kiện dữ liệu tính công đầy đủ.
 
 Phần cần nhóm bổ sung trước khi nộp:
 
@@ -1126,7 +1288,7 @@ Phần cần nhóm bổ sung trước khi nộp:
 - Ảnh màn hình theo từng Use Case.
 - Video hoạt động end-to-end.
 - Link hoặc mã nguồn phụ lục nếu giảng viên yêu cầu.
-- Kiểm thử Firestore Rules trên môi trường tương thích Java 21 hoặc ghi rõ hạn chế.
+- Xác nhận và triển khai Rules/index đã kiểm thử lên Firebase online, chờ index sẵn sàng rồi thử lại các luồng trên điện thoại. Tại thời điểm báo cáo, bước deploy chưa được thực hiện.
 
 3.9. Hạn chế và hướng phát triển
 
@@ -1139,6 +1301,9 @@ Hạn chế:
 - Chưa đánh giá tải khi có nhiều thiết bị và nhiều sự kiện đồng thời.
 - Chưa kiểm thử đầy đủ trong điều kiện mất điện đột ngột khi đang ghi LittleFS.
 - Chưa có vỏ bảo vệ, chống nước, chống bụi và chống phá hoại.
+- Rules/index mới chưa được triển khai lên Firebase online; kết quả Emulator chưa thay thế thử nghiệm end-to-end trên môi trường online sau deploy.
+- Tài liệu là liên kết HTTPS bên ngoài, chưa có tải tệp/phiên bản tài liệu trong ứng dụng; khen thưởng là nội dung ghi nhận, tách khỏi tiền thưởng bảng lương.
+- Danh sách tài nguyên giới hạn 200 nội dung cập nhật gần nhất cho cả ba loại, chưa có tải tiếp lịch sử; sửa/xóa tài nguyên chưa ghi audit log riêng.
 
 Hướng phát triển:
 
@@ -1150,7 +1315,7 @@ Hướng phát triển:
 6. Thay servo mô hình bằng cơ cấu khóa phù hợp nếu triển khai thật.
 7. Thiết kế PCB, nguồn riêng, bảo vệ ngược cực và vỏ thiết bị.
 8. Thêm mã hóa, xoay vòng secret và quy trình cập nhật firmware.
-9. Bổ sung kiểm thử UI, integration test và Rules emulator trong CI.
+9. Đưa bộ Rules Emulator đã có vào CI và bổ sung kiểm thử UI, integration test trên điện thoại/môi trường online sau triển khai.
 10. Đánh giá chi phí trên mỗi thiết bị và khả năng mở rộng nhiều chi nhánh.
 
 
@@ -1159,6 +1324,8 @@ KẾT LUẬN
 Đề tài đã xây dựng được một mô hình chấm công IoT có sự kết hợp giữa thiết bị nhúng, cảm biến vân tay, kết nối Wi-Fi, Firebase và ứng dụng Android. Thiết bị đảm nhiệm việc nhận dạng và tạo sự kiện gần nơi phát sinh dữ liệu; Firebase đảm nhiệm lưu trữ và đồng bộ; ứng dụng Android đảm nhiệm quản lý, diễn giải nghiệp vụ và báo cáo.
 
 Điểm đáng chú ý về mặt thiết kế là sự tách biệt giữa attendance event gốc và kết quả phân loại. Nhờ đó, hệ thống có thể giải thích một bản ghi được xử lý ra sao, hỗ trợ điều chỉnh có lý do và lưu audit. Việc có hàng đợi offline cũng giúp mô hình sát hơn với điều kiện sử dụng thực tế, nơi Wi-Fi có thể không ổn định.
+
+Ở phiên bản mã nguồn cập nhật, các tiện ích nhân viên đã có luồng dữ liệu và xử lý nghiệp vụ cụ thể, cùng kiểm tra quyền theo người nhận. Kiểm thử Android và Firestore Emulator đạt kết quả ở mục 3.7; để các Rules/index mới hoạt động trên Firebase online, vẫn cần xác nhận deploy và kiểm tra lại bằng APK trên điện thoại. Các minh chứng phần cứng và phép đo còn đánh dấu [CẦN BỔ SUNG] chưa được thay bằng kết quả tự động.
 
 Sản phẩm hiện tại nên được trình bày đúng là prototype phục vụ học tập và chứng minh kiến thức hệ thống nhúng, IoT, Android, Firebase và thiết kế phần mềm. Để nâng cấp thành sản phẩm thực tế, nhóm cần tiếp tục hoàn thiện nguồn, bảo mật thiết bị, đo lường độ chính xác, thiết kế cơ khí, khả năng mở rộng và kiểm thử thực địa.
 
@@ -1256,11 +1423,17 @@ Hình 3.18: Bảng công sau duyệt.
 Hình 3.19: Báo cáo.
 Hình 3.20: Audit log.
 Hình 3.21: CSV xuất ra.
+Hình 3.22: Admin tạo/sửa lịch họp, khen thưởng và tài liệu.
+Hình 3.23: Tiện ích Employee theo phạm vi người nhận.
+Hình 3.24: Lối tắt Đăng ký ca, chọn ca tuần sau và yêu cầu PENDING.
+Hình 3.25: Ngày vào làm, Thâm niên và phản hồi hỗ trợ vân tay.
 
 Video 01: Nhận dạng và mở/đóng cửa.
 Video 02: Nút Back vật lý.
 Video 03: Offline outbox và đồng bộ.
 Video 04: Luồng Admin/Employee.
+Video 05: Admin đăng tiện ích và Employee xem đúng phạm vi, đọc tin tức/mở tài liệu.
+Video 06: Đăng ký tuần lần đầu, duyệt lịch và theo dõi hỗ trợ vân tay.
 
 Khi chèn ảnh vào bản báo cáo Word/PDF, mỗi ảnh nên có:
 
@@ -1285,17 +1458,26 @@ PHỤ LỤC C. DANH SÁCH SƠ ĐỒ CẦN VẼ LẠI
 10. Sơ đồ tuần tự chấm công.
 11. Sơ đồ tuần tự duyệt đơn.
 12. Sơ đồ trạng thái firmware.
+13. Sơ đồ tuần tự tạo/sửa nội dung tiện ích và đọc theo audience.
+14. Sơ đồ tuần tự đăng ký tuần: đọc slot thiếu, transaction yêu cầu/audit, duyệt hoặc yêu cầu sửa.
+15. Sơ đồ trạng thái tải kỳ công: đang tải, đầy đủ, lỗi server, vượt giới hạn và Tải lại.
 
 Gợi ý sơ đồ tuần tự chấm công:
 
     Employee -> Sensor: Đặt ngón tay
     Sensor -> ESP8266: fingerprintId/kết quả
-    ESP8266 -> LCD/LED/Buzzer: Hiển thị và báo hiệu
-    ESP8266 -> Servo: Mở cửa nếu hợp lệ
-    ESP8266 -> Firestore: Gửi attendance event
+    ESP8266 -> ESP8266: Kiểm tra nhận dạng/quyền và giờ hợp lệ
+    ESP8266 -> LittleFS: Tạo và ghi/flush event trước khi mở theo lượt
+    ESP8266 -> Firestore: Đồng bộ attendance event khi có mạng
+    Firestore -> ESP8266: Xác nhận; online chỉ mở đúng lượt hiện tại còn hạn
+    ESP8266 -> LCD/LED/Buzzer: Báo đã lưu offline hoặc xác nhận online
+    ESP8266 -> Servo: Mở một lần khi đủ điều kiện, không mở lại do sync muộn
     Firestore -> Android: Dữ liệu mới
     Android -> Domain Rules: Resolve theo lịch/ca
     Domain Rules -> UI: Hiển thị trạng thái và báo cáo
+
+    Nhánh chưa có giờ: AS608 hợp lệ -> chỉ mở cửa với CHUA LUU CONG,
+    không tạo event hoặc bản ghi chờ. Nhánh lỗi lưu: không mở theo lượt chấm công.
 
 Gợi ý sơ đồ tuần tự mất mạng:
 
@@ -1305,5 +1487,35 @@ Gợi ý sơ đồ tuần tự mất mạng:
     ESP8266 -> Wi-Fi/Firebase: Thử lại
     Wi-Fi/Firebase -> ESP8266: Thành công
     ESP8266 -> LittleFS: Xóa event đã xác nhận
+
+Gợi ý sơ đồ tuần tự tiện ích nhân viên:
+
+    Admin -> Compose form: Chọn loại, nội dung và người nhận
+    Compose -> EmployeeResourceRules: Kiểm tra bản nháp
+    MainViewModel -> Repository: Lưu nội dung đã chuẩn hóa
+    Repository -> Firestore Rules: Transaction employeeResources
+    Rules -> Repository: Chấp nhận hoặc từ chối theo quyền/schema
+    Firestore -> Employee listener: ALL / DEPARTMENT:<id> / EMPLOYEE:<id>
+    MainUiState -> Employee UI: Lọc loại, xem chi tiết hoặc mở HTTPS
+
+Gợi ý sơ đồ tuần tự đăng ký tuần:
+
+    Employee -> UI: Đăng ký ca / Đăng ký tuần sau
+    UI -> WeeklyScheduling: Kiểm tra ca chính, tuần và hạn gửi
+    Repository -> Firestore: Transaction đọc slot employeeId_weekStart
+    Rules -> Repository: Cho phép đọc slot của mình dù chưa có document
+    Repository -> Firestore: Ghi yêu cầu PENDING + audit trong cùng transaction
+    Rules -> Repository: Kiểm tra deadline timestamp và các ràng buộc
+    Admin -> Firestore: APPROVED hoặc NEEDS_REVISION theo luồng duyệt
+    Firestore -> Employee UI: Trạng thái và phản hồi
+
+Gợi ý sơ đồ lỗi tải dữ liệu tính công:
+
+    UI -> Repository: Tải lịch sử và dữ liệu phụ trợ bằng Source.SERVER
+    Firestore -> MainViewModel: Lỗi kết nối hoặc quyền
+    MainViewModel -> MainUiState: Xóa kết quả kỳ, đánh dấu chưa hoàn chỉnh
+    MainUiState -> UI: Hiển thị lỗi/Tải lại; chặn lưu lương/xuất CSV
+    Employee/Admin -> UI: Tải lại khi server hoạt động
+    Repository -> MainUiState: Dữ liệu đúng kỳ, đủ và không bị cắt giới hạn
 
 KẾT THÚC TÀI LIỆU

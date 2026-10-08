@@ -15,13 +15,13 @@ class NavigationStructureTest {
     @Test
     fun adminTaskHubKeepsEveryNonPrimaryAdminModuleReachable() {
         assertEquals(
-            listOf("Chấm công", "Có mặt", "Thiết bị", "Phân ca", "Ca làm", "Lịch", "Lương", "Hiệu suất", "Báo cáo", "Bảng công tháng", "Nhật ký", "Phòng ban", "Thông báo"),
+            listOf("Chấm công", "Có mặt", "Thiết bị", "Phân ca", "Ca làm", "Lịch", "Lương", "Hiệu suất", "Báo cáo", "Bảng công tháng", "Nhật ký", "Phòng ban", "Thông báo", "Tiện ích nhân viên"),
             adminTaskDestinations.map { it.title }
         )
     }
 
     @Test
-    fun employeePrimaryNavigationHasExactlyFourItemsInApprovedOrder() {
+    fun employeePrimaryNavigationHasExactlyFiveItemsInApprovedOrder() {
         assertEquals(
             listOf("Trang chủ", "Lịch làm việc", "Chấm công của tôi", "Đơn từ", "Cá nhân"),
             employeePrimaryDestinations.map { it.title }

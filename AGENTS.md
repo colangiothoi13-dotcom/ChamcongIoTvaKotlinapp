@@ -41,6 +41,12 @@ Usage notes:
 </skill>
 
 <skill>
+<name>design-md</name>
+<description>Create, update, validate, or follow DESIGN.md design-system documents using the google-labs-code/design.md specification. Use for documenting an existing visual identity, extracting design tokens from Android/Kotlin UI, or implementing UI from an existing DESIGN.md.</description>
+<location>project</location>
+</skill>
+
+<skill>
 <name>design-system</name>
 <description>Token architecture, component specifications, and slide generation. Three-layer tokens (primitive→semantic→component), CSS variables, spacing/typography scales, component specs, strategic slide creation. Use for design tokens, systematic design, brand-compliant presentations.</description>
 <location>project</location>

@@ -39,6 +39,11 @@ suspend fun FirebaseRepository.saveShift(shift: WorkShift): String {
     return ref.id
 }
 
+/** Seed both main shifts for employee registration without changing existing settings. */
+suspend fun FirebaseRepository.ensureDefaultScheduleShifts() {
+    defaultShiftTemplates().forEach { template -> ensureDefaultShiftStored(template.resolve().id) }
+}
+
 private suspend fun FirebaseRepository.ensureDefaultShiftStored(shiftId: String) {
     val standard = defaultShiftTemplates().map { it.resolve() }.firstOrNull { it.id == shiftId } ?: return
     val ref = db.collection("shifts").document(shiftId)
