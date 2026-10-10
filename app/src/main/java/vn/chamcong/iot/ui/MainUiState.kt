@@ -39,6 +39,8 @@ import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WeeklyScheduleRequest
 import vn.chamcong.iot.model.WeeklyWorkSummary
+import vn.chamcong.iot.model.WorkItem
+import vn.chamcong.iot.model.WorkItemHistory
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -48,6 +50,14 @@ data class MainUiState(
     val profileResolved: Boolean = false,
     val profileError: String? = null,
     val loading: Boolean = false,
+    val workItems: List<WorkItem> = emptyList(),
+    val workItemsLoading: Boolean = false,
+    val workItemsError: String? = null,
+    val selectedWorkItemId: String? = null,
+    val workItemHistory: List<WorkItemHistory> = emptyList(),
+    val workItemHistoryLoading: Boolean = false,
+    val workItemHistoryError: String? = null,
+    val workItemAttachmentStatus: String? = null,
     val employees: List<Employee> = emptyList(),
     val attendance: List<Attendance> = emptyList(),
     val historicalAttendance: List<Attendance> = emptyList(),
@@ -113,7 +123,9 @@ data class MainUiState(
     val attendanceHistoryTruncated: Boolean = false,
     val attendanceHistoryLoadedCount: Int = 0,
     val message: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    /** Separates repeated actions and account sessions even when feedback text is identical. */
+    val feedbackGeneration: Long = 0L
 ) {
     val employeeWeeklyScheduleRequestReady: Boolean
         get() = employeeWeeklyScheduleRequestLoadedWeekStart == employeeWeeklyTargetWeekStart &&

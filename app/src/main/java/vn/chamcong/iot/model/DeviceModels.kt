@@ -65,17 +65,28 @@ fun deviceSnapshotFromFields(id: String, fields: Map<String, Any?>): DeviceSnaps
     lastError = (fields["lastError"] as? String)?.take(240).orEmpty()
 )
 
-fun DeviceSnapshot.isOnline(
+/** Contact with Firebase, independent of whether local fingerprint matching is still running. */
+enum class DeviceConnectionState { ONLINE, NO_HEARTBEAT, STALE_HEARTBEAT, REPORTED_OFFLINE, CLOCK_SKEW }
+
+fun DeviceSnapshot.connectionState(
     now: Instant,
-    timeout: Duration = Duration.ofMinutes(2)
-): Boolean {
-    val heartbeat = lastHeartbeat?.toDate()?.toInstant() ?: return false
+    timeout: Duration = Duration.ofMinutes(2),
+    maxFutureSkew: Duration = Duration.ofSeconds(30)
+): DeviceConnectionState {
+    val heartbeat = lastHeartbeat?.toDate()?.toInstant() ?: return DeviceConnectionState.NO_HEARTBEAT
     val age = Duration.between(heartbeat, now)
-    return !status.equals("OFFLINE", ignoreCase = true)
-        && !wifiStatus.equals("OFFLINE", ignoreCase = true)
-        && !age.isNegative
-        && age <= timeout
+    // UI clocks are sampled periodically; a newly received heartbeat can be a few seconds
+    // ahead of that sample. A large future timestamp still cannot prove current contact.
+    if (age < maxFutureSkew.negated()) return DeviceConnectionState.CLOCK_SKEW
+    if (age > timeout) return DeviceConnectionState.STALE_HEARTBEAT
+    if (status.trim().equals("OFFLINE", ignoreCase = true) || wifiStatus.trim().equals("OFFLINE", ignoreCase = true)) {
+        return DeviceConnectionState.REPORTED_OFFLINE
+    }
+    return DeviceConnectionState.ONLINE
 }
+
+fun DeviceSnapshot.isOnline(now: Instant, timeout: Duration = Duration.ofMinutes(2)): Boolean =
+    connectionState(now, timeout) == DeviceConnectionState.ONLINE
 
 fun commandStatusLabel(command: Map<String, Any>): String {
     val type = command["type"] as? String

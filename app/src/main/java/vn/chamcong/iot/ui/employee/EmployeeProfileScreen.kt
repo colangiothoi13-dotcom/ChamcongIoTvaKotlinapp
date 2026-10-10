@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,9 +60,19 @@ fun EmployeeProfileScreen(
         Text("Chưa tải được hồ sơ cá nhân")
         return
     }
-    val activity = remember(state.employeeAttendanceForSummaries) {
-        state.employeeAttendanceForSummaries.sortedByDescending { it.timestamp.seconds }
+    val attendance = state.employeeAttendanceForSummaries
+    val activity = remember(employee.id, attendance) {
+        attendance.asSequence()
+            .filter { it.employeeId == employee.id }
+            .sortedWith(compareByDescending<Attendance> { it.timestamp.seconds }
+                .thenByDescending { it.timestamp.nanoseconds }
+                .thenBy { attendanceActivityKey(it) })
+            .distinctBy(::attendanceActivityKey)
+            .toList()
     }
+    var activityLimit by remember(state.userProfile?.uid, employee.id) { mutableStateOf(3) }
+    val visibleActivity = activity.take(activityLimit)
+    val hasHiddenActivity = visibleActivity.size < activity.size
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item { ProfileHeader(employee) }
@@ -83,6 +95,14 @@ fun EmployeeProfileScreen(
         }
         item {
             Text("Hoạt động gần đây", style = MaterialTheme.typography.headlineSmall)
+            if (activity.isNotEmpty()) {
+                Text(
+                    if (activityLimit == 3) "${visibleActivity.size} hoạt động mới nhất"
+                    else "${visibleActivity.size} hoạt động",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         if (activity.isEmpty()) {
             item {
@@ -95,17 +115,38 @@ fun EmployeeProfileScreen(
             }
         } else {
             items(
-                items = activity,
-                key = { attendance -> attendance.id.ifBlank { "${attendance.timestamp.seconds}-${attendance.type}" } }
+                items = visibleActivity,
+                key = ::attendanceActivityKey
             ) { attendance -> AttendanceActivityCard(attendance) }
         }
-        if (state.employeeAttendanceHistoryHasMore || state.employeeAttendanceHistoryLoading) {
+        if (hasHiddenActivity || visibleActivity.size > 3) {
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    if (hasHiddenActivity) {
+                        TextButton(
+                            onClick = { activityLimit += 3 },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        ) { Text("Xem thêm") }
+                    }
+                    if (visibleActivity.size > 3) {
+                        TextButton(
+                            onClick = { activityLimit = 3 },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        ) { Text("Thu gọn") }
+                    }
+                }
+            }
+        }
+        if (!hasHiddenActivity && (state.employeeAttendanceHistoryHasMore || state.employeeAttendanceHistoryLoading)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                     Button(
-                        onClick = vm::loadMoreEmployeeAttendance,
+                        onClick = {
+                            activityLimit = visibleActivity.size + 3
+                            vm.loadMoreEmployeeAttendance()
+                        },
                         enabled = !state.employeeAttendanceHistoryLoading,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     ) {
                         Text(if (state.employeeAttendanceHistoryLoading) "Đang tải lịch sử..." else "Tải thêm lịch sử")
                     }
@@ -116,7 +157,8 @@ fun EmployeeProfileScreen(
                     )
                 }
             }
-        } else if (state.employeeAttendanceHistory.isNotEmpty()) {
+        } else if (!hasHiddenActivity && state.employeeAttendanceHistory.isNotEmpty() &&
+            !state.employeeAttendanceHistoryHasMore && !state.employeeAttendanceHistoryLoading) {
             item {
                 Text(
                     "Đã tải hết lịch sử chấm công.",
@@ -132,6 +174,12 @@ fun EmployeeProfileScreen(
         }
     }
 }
+
+private fun attendanceActivityKey(attendance: Attendance): String =
+    attendance.id.takeIf(String::isNotBlank)?.let { "attendance:$it" }
+        ?: listOf(attendance.employeeId, attendance.timestamp.seconds.toString(),
+            attendance.timestamp.nanoseconds.toString(), attendance.type, attendance.deviceId)
+            .joinToString(separator = "|", prefix = "legacy:") { "${it.length}:$it" }
 
 @Composable
 private fun ProfileHeader(employee: Employee) {

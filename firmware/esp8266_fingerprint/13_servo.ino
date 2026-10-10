@@ -39,7 +39,7 @@ void startDoorMovement(int targetAngle) {
   doorOpen = false;
   doorOpenedAt = 0;
   doorStatus = targetAngle == DOOR_OPEN_ANGLE ? "OPENING" : "CLOSING";
-  Serial.printf("CUA: %s bat dau tai %lu ms\n", doorStatus.c_str(), doorMoveStartedAt);
+  Serial.printf_P(PSTR("CUA: %s bat dau tai %lu ms\n"), doorStatus.c_str(), doorMoveStartedAt);
 }
 
 void closeDoor() { startDoorMovement(DOOR_CLOSED_ANGLE); }
@@ -51,7 +51,7 @@ void openDoor() {
 
 void maybeCloseDoor() {
   if (doorOpen && elapsedAtLeast(millis(), doorOpenedAt, DOOR_AUTO_CLOSE_DELAY_MS)) {
-    Serial.printf("CUA: bat dau dong sau %lu ms mo hoan toan\n", millis() - doorOpenedAt);
+    Serial.printf_P(PSTR("CUA: bat dau dong sau %lu ms mo hoan toan\n"), millis() - doorOpenedAt);
     closeDoor();
   }
 }
@@ -68,11 +68,11 @@ void serviceDoor() {
   doorStatus = doorOpen ? "OPEN" : "CLOSED";
   // Measure the open hold separately from servo travel time.
   doorOpenedAt = doorOpen ? millis() : 0;
-  Serial.printf("CUA: %s hoan toan; servo di chuyen %lu ms\n",
+  Serial.printf_P(PSTR("CUA: %s hoan toan; servo di chuyen %lu ms\n"),
                 doorStatus.c_str(), millis() - doorMoveStartedAt);
   if (doorOpen && fingerprintDoorNoticeActive) {
-    renderLcd("SE DONG SAU 5S", !fingerprintDoorNoticeAttendanceSaved ? "CHUA LUU CONG"
-        : (fingerprintDoorNoticeOffline ? "OFFLINE: DA LUU" : "DA XAC NHAN"));
+    renderLcd(F("SE DONG SAU 5S"), !fingerprintDoorNoticeAttendanceSaved ? F("CHUA LUU CONG")
+        : (fingerprintDoorNoticeOffline ? F("OFFLINE: DA LUU") : F("DA XAC NHAN")));
   }
   if (!doorOpen && fingerprintDoorNoticeActive) showReadyScreen();
 }

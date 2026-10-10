@@ -35,7 +35,7 @@ const char* WIFI_PASSWORD = DEVICE_WIFI_PASSWORD;
 const char* FIREBASE_API_KEY = FIREBASE_WEB_API_KEY;
 const char* FIRESTORE_URL = FIRESTORE_BASE_URL;
 const char* DEVICE_ID = "GATE-01";
-const char* FIRMWARE_VERSION = "spark-anonymous-v14-command-status";
+const char* FIRMWARE_VERSION = "spark-anonymous-v16-tls-memory";
 // User-selected policy: AS608 matches can grant access when the server cannot
 // be reached. No employee roster/mapping cache is stored on the ESP8266.
 const bool OFFLINE_AS608_ACCESS_ENABLED = true;
@@ -51,6 +51,11 @@ const unsigned long COMMAND_RETRY_INTERVAL_MS = 10000;
 const unsigned long HTTPS_RETRY_COOLDOWN_MS = 30000;
 const uint32_t MIN_HTTPS_FREE_HEAP = 30000;
 const uint32_t MIN_HTTPS_MAX_FREE_BLOCK = 20000;
+// Checked again after the 6,200-byte BearSSL stack and HTTP headers exist.
+// Core 3.1.2 needs about 22.2 KB more for the default TLS buffers/contexts.
+// Keep headroom for TCP and require room for context allocation before RX.
+const uint32_t MIN_HTTPS_CONNECT_FREE_HEAP = 28000;
+const uint32_t MIN_HTTPS_CONNECT_MAX_FREE_BLOCK = 24000;
 const unsigned long WIFI_RECONNECT_INTERVAL_MS = 15000;
 const unsigned long SENSOR_RETRY_INTERVAL_MS = 15000;
 const unsigned long LCD_CLOCK_INTERVAL_MS = 1000;
@@ -129,6 +134,7 @@ size_t attendanceOutboxBytes();
 bool attendanceOutboxIsFull();
 const char* attendanceOutboxStatus();
 bool doorNeedsResponsiveLoop();
+bool canStartHttpsRequest(const char* operation, bool prepared = false);
 void serviceDoor();
 void serviceOutputEffects();
 void serviceEnrollment();

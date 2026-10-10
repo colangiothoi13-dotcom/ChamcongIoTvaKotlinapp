@@ -292,6 +292,34 @@ class PayrollRulesTest {
         assertTrue(payrollCandidates(listOf(retired), emptyList(), "2026-09").contains(retired))
     }
 
+    @Test
+    fun activeEmployeeWithSavedZeroHoursIsNotANewPayrollCandidate() {
+        val savedEmployee = Employee(id = "e1", fullName = "Trí")
+        val sameNameEmployee = savedEmployee.copy(id = "e2")
+        val saved = Payroll(employeeId = savedEmployee.id, month = "2026-10", hoursWorked = 0.0)
+
+        assertEquals(listOf(sameNameEmployee), payrollCandidates(
+            listOf(savedEmployee, sameNameEmployee), listOf(saved), "2026-10"))
+    }
+
+    @Test
+    fun savedPayrollInAnotherMonthDoesNotBlockNewPayroll() {
+        val employee = Employee(id = "e1")
+        val saved = Payroll(employeeId = employee.id, month = "2026-09")
+
+        assertEquals(listOf(employee), payrollCandidates(listOf(employee), listOf(saved), "2026-10"))
+    }
+
+    @Test
+    fun retiredEmployeeCanSettleTerminationMonthOnceButNotLaterMonths() {
+        val retired = Employee(id = "retired", active = false, terminationDate = "2026-10-20")
+        val saved = Payroll(employeeId = retired.id, month = "2026-10")
+
+        assertEquals(listOf(retired), payrollCandidates(listOf(retired), emptyList(), "2026-10"))
+        assertTrue(payrollCandidates(listOf(retired), listOf(saved), "2026-10").isEmpty())
+        assertTrue(payrollCandidates(listOf(retired), emptyList(), "2026-11").isEmpty())
+    }
+
     private fun attendance(employeeId: String, type: String, localTime: String): Attendance =
         Attendance(
             employeeId = employeeId,

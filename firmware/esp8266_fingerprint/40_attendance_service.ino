@@ -1,24 +1,17 @@
 // Heartbeat, fingerprint mapping, and attendance upload.
 
+// Alternate due background telemetry with FIFO attempts across transport backoff.
+bool heartbeatWaitingForAttendanceAttempt = false;
+
 bool publishDeviceSnapshot() {
   if (doorNeedsResponsiveLoop()) { firebaseSyncStatus = "PENDING"; return false; }
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.printf("HEARTBEAT bo qua: WiFi status=%d\n", WiFi.status());
-    firebaseSyncStatus = "PENDING";
-    return false;
-  }
-  if (!hasValidClock()) {
-    Serial.println("HEARTBEAT bo qua: chua dong bo NTP");
-    firebaseSyncStatus = "PENDING";
-    return false;
-  }
-  if (attendanceOutboxBytes() > 0) {
-    Serial.println("HEARTBEAT bo qua: dang uu tien dong bo cham cong");
+    Serial.printf_P(PSTR("HEARTBEAT bo qua: WiFi status=%d\n"), WiFi.status());
     firebaseSyncStatus = "PENDING";
     return false;
   }
   if (!firebaseSignIn()) {
-    Serial.println("HEARTBEAT bo qua: Firebase Auth that bai");
+    Serial.println(F("HEARTBEAT bo qua: Firebase Auth that bai"));
     return false;
   }
 
@@ -28,7 +21,7 @@ bool publishDeviceSnapshot() {
     if (templateStatus == FINGERPRINT_OK) {
       templateCount = finger.templateCount;
     } else {
-      setSensorError("AS608 loi khi doc so mau van tay");
+      setSensorError(F("AS608 loi khi doc so mau van tay"));
     }
   }
 
@@ -43,11 +36,20 @@ bool publishDeviceSnapshot() {
     String body;
     {
       // The JSON tree is released before TLS allocates its receive buffer.
-      DynamicJsonDocument doc(sendCapabilities ? 3072 : 1536);
-      JsonObject fields = doc.createNestedObject("fields");
+      DynamicJsonDocument doc(sendCapabilities ? 4096 : 2560);
+      JsonObject write = doc.createNestedArray("writes").createNestedObject();
+      JsonObject update = write.createNestedObject("update");
+      String documentName = FIRESTORE_URL;
+      const int prefix = documentName.indexOf("/v1/");
+      if (prefix < 0) {
+        firebaseSyncStatus = "ERROR";
+        setLatestError(F("Duong dan Firestore heartbeat khong hop le"));
+        return false;
+      }
+      update["name"] = documentName.substring(prefix + 4) + "/devices/" + DEVICE_ID;
+      JsonObject fields = update.createNestedObject("fields");
       fields["deviceId"]["stringValue"] = DEVICE_ID;
       fields["status"]["stringValue"] = "ONLINE";
-      fields["lastHeartbeat"]["timestampValue"] = utcTimestamp();
       fields["firmwareVersion"]["stringValue"] = FIRMWARE_VERSION;
       if (templateCount >= 0) fields["fingerprintCount"]["integerValue"] = templateCount;
       fields["capacity"]["integerValue"] = 127;
@@ -73,27 +75,33 @@ bool publishDeviceSnapshot() {
           item["stringValue"] = capability;
         }
       }
-      body.reserve(measureJson(doc) + 1);
-      serializeJson(doc, body);
+      JsonArray mask = write.createNestedObject("updateMask").createNestedArray("fieldPaths");
+      const char* updatedFields[] = {"deviceId", "status", "firmwareVersion", "capacity",
+          "pendingAttendanceCount", "pendingAttendanceBytes", "pendingAttendanceCapacity",
+          "attendanceOutboxStatus", "wifiStatus", "firebaseSyncStatus", "sensorStatus",
+          "doorStatus", "failedScanCount", "lastError"};
+      for (const char* field : updatedFields) mask.add(field);
+      if (sendCapabilities) mask.add("capabilities");
+      if (templateCount >= 0) mask.add("fingerprintCount");
+      // Presence uses Firestore request time even before NTP is ready. Scans
+      // retain their original device timestamps and existing clock validation.
+      JsonObject heartbeat = write.createNestedArray("updateTransforms").createNestedObject();
+      heartbeat["fieldPath"] = "lastHeartbeat";
+      heartbeat["setToServerValue"] = "REQUEST_TIME";
+      if (doc.overflowed()) {
+        firebaseSyncStatus = "ERROR";
+        setLatestError(F("Bo nho JSON heartbeat khong du"));
+        return false;
+      }
+      const size_t bodySize = measureJson(doc);
+      if (!body.reserve(bodySize + 1) || serializeJson(doc, body) != bodySize) {
+        firebaseSyncStatus = "PENDING";
+        deferHttpsRequests("JSON heartbeat");
+        setLatestError(F("Khong du RAM tao heartbeat; se thu lai"));
+        return false;
+      }
     }
-    String url = String(FIRESTORE_URL) + "/devices/" + DEVICE_ID +
-                 "?updateMask.fieldPaths=deviceId"
-                 "&updateMask.fieldPaths=status"
-                 "&updateMask.fieldPaths=lastHeartbeat"
-                 "&updateMask.fieldPaths=firmwareVersion"
-                 "&updateMask.fieldPaths=capacity"
-                 "&updateMask.fieldPaths=pendingAttendanceCount"
-                 "&updateMask.fieldPaths=pendingAttendanceBytes"
-                 "&updateMask.fieldPaths=pendingAttendanceCapacity"
-                 "&updateMask.fieldPaths=attendanceOutboxStatus"
-                 "&updateMask.fieldPaths=wifiStatus"
-                 "&updateMask.fieldPaths=firebaseSyncStatus"
-                 "&updateMask.fieldPaths=sensorStatus"
-                 "&updateMask.fieldPaths=doorStatus"
-                 "&updateMask.fieldPaths=failedScanCount"
-                 "&updateMask.fieldPaths=lastError";
-    if (sendCapabilities) url += "&updateMask.fieldPaths=capabilities";
-    if (templateCount >= 0) url += "&updateMask.fieldPaths=fingerprintCount";
+    String url = String(FIRESTORE_URL) + ":commit";
     if (!canStartHttpsRequest("heartbeat")) {
       firebaseSyncStatus = "PENDING";
       return false;
@@ -104,10 +112,18 @@ bool publishDeviceSnapshot() {
       HTTPClient https;
       if (https.begin(client, url)) {
         began = true;
+        // HTTPClient has copied the URL; release its temporary heap block.
+        url = String();
         https.setTimeout(5000);
         https.addHeader("Content-Type", "application/json");
         https.addHeader("Authorization", "Bearer " + firebaseIdToken);
-        code = https.sendRequest("PATCH", reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
+        if (!canStartHttpsRequest("heartbeat", true)) {
+          https.end();
+          client.stop();
+          firebaseSyncStatus = "PENDING";
+          return false;
+        }
+        code = https.sendRequest("POST", reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
         https.end();
       }
       client.stop();
@@ -117,16 +133,20 @@ bool publishDeviceSnapshot() {
   if (!began) {
     firebaseSyncStatus = "ERROR";
     deferHttpsRequests("heartbeat");
-    setLatestError("Khong tao duoc ket noi heartbeat");
+    setLatestError(F("Khong tao duoc ket noi heartbeat"));
     return false;
   }
   recordHttpsResult("heartbeat", code);
-  Serial.printf("HEARTBEAT HTTP %d\n", code);
+  Serial.printf_P(PSTR("HEARTBEAT HTTP %d\n"), code);
   const bool synced = code >= 200 && code < 300;
   if (synced) {
     if (sendCapabilities) capabilitiesNeedSync = false;
     firebaseSyncStatus = outboxError ? "ERROR" : (pendingCount == 0 ? "ONLINE" : "PENDING");
   } else {
+    if (code == 401) {
+      firebaseIdToken = "";
+      tokenCreatedAt = 0;
+    }
     firebaseSyncStatus = "ERROR";
     setLatestError(String("Heartbeat HTTP ") + code);
   }
@@ -134,11 +154,17 @@ bool publishDeviceSnapshot() {
 }
 
 void maybePublishDeviceSnapshot() {
-  if (doorNeedsResponsiveLoop() || pendingCommandExecution) return;
-  // Give an unsynchronized attendance event priority over periodic telemetry.
-  if (attendanceOutboxBytes() > 0) return;
-  if (lastHeartbeat == 0 || millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
+  if (doorNeedsResponsiveLoop() ||
+      enrollmentStage != EnrollmentStage::IDLE ||
+      ((pendingCommandExecution || pendingCommandResult) && pendingCommandType != "SYNC_ATTENDANCE") ||
+      !foregroundAttendanceHandled || httpsRetryCooldownActive()) return;
+  const bool queuedAttendance = attendanceOutboxBytes() > 0;
+  if (queuedAttendance && heartbeatWaitingForAttendanceAttempt) return;
+  // Give both operations a turn when transport failures share one cooldown.
+  // Foreground scans keep priority; a background backlog cannot hide presence.
+  if (lastHeartbeat == 0 || elapsedAtLeast(millis(), lastHeartbeat, HEARTBEAT_INTERVAL_MS)) {
     lastHeartbeat = millis();
+    heartbeatWaitingForAttendanceAttempt = queuedAttendance;
     publishDeviceSnapshot();
   }
 }
@@ -150,7 +176,7 @@ bool getFingerprintMapping(uint16_t templateId, String& employeeId, String& empl
   employeeName = "";
   if (WiFi.status() != WL_CONNECTED) {
     lastFingerprintAuthorizationUnavailable = true;
-    setLatestError("Khong co mang de xac thuc mo cua");
+    setLatestError(F("Khong co mang de xac thuc mo cua"));
     return false;
   }
   if (!firebaseSignIn()) {
@@ -177,8 +203,15 @@ bool getFingerprintMapping(uint16_t templateId, String& employeeId, String& empl
     https.useHTTP10(true);
     if (https.begin(client, url)) {
       began = true;
+      url = String();
       https.setTimeout(5000);
       https.addHeader("Authorization", "Bearer " + firebaseIdToken);
+      if (!canStartHttpsRequest("xac thuc van tay", true)) {
+        https.end();
+        client.stop();
+        lastFingerprintAuthorizationUnavailable = true;
+        return false;
+      }
       code = https.GET();
       if (code == 200) {
         DynamicJsonDocument doc(1024);
@@ -199,7 +232,7 @@ bool getFingerprintMapping(uint16_t templateId, String& employeeId, String& empl
   if (!began) {
     lastFingerprintAuthorizationUnavailable = true;
     deferHttpsRequests("xac thuc van tay");
-    setLatestError("Khong tao duoc ket noi xac thuc van tay");
+    setLatestError(F("Khong tao duoc ket noi xac thuc van tay"));
     return false;
   }
   recordHttpsResult("xac thuc van tay", code);
@@ -214,12 +247,12 @@ bool getFingerprintMapping(uint16_t templateId, String& employeeId, String& empl
   }
   if (!parsed) {
     lastFingerprintAuthorizationUnavailable = true;
-    setLatestError("Du lieu xac thuc van tay khong hop le");
+    setLatestError(F("Du lieu xac thuc van tay khong hop le"));
     return false;
   }
   if (!enabled || employeeId.length() == 0 || employeeName.length() == 0) {
     lastFingerprintAuthorizationDenied = true;
-    Serial.printf("Template %u khong duoc phep mo cua\n", templateId);
+    Serial.printf_P(PSTR("Template %u khong duoc phep mo cua\n"), templateId);
     return false;
   }
   return true;
@@ -243,8 +276,8 @@ bool buildAttendanceEvent(uint16_t templateId, uint16_t confidence,
   if (!mapped) lastFingerprintAuthorizationUnavailable = false;
   if (now < MIN_VALID_UNIX_TIME) {
     lastAttendanceMissingClock = true;
-    Serial.println("Chua dong bo duoc thoi gian NTP");
-    setLatestError("Chua co gio hop le de luu luot quet");
+    Serial.println(F("Chua dong bo duoc thoi gian NTP"));
+    setLatestError(F("Chua co gio hop le de luu luot quet"));
     return false;
   }
   if (!reserveAttendanceEventId(eventId)) return false;
@@ -375,19 +408,19 @@ void handleAttendanceDelivery(const String& eventId, AttendanceDelivery delivery
   foregroundAttendanceDelivery = delivery;
   const bool localAccess = delivery == AttendanceDelivery::LOCAL_ACCEPTED && OFFLINE_AS608_ACCESS_ENABLED;
   if ((delivery == AttendanceDelivery::CONFIRMED || localAccess) && mayOpen) {
-    showLcd(foregroundAttendanceEmployeeName, "DANG MO CUA");
+    showLcd(foregroundAttendanceEmployeeName, F("DANG MO CUA"));
     signalResult(true);
     openDoor();
     fingerprintDoorNoticeActive = true;
     fingerprintDoorNoticeOffline = localAccess;
     fingerprintDoorNoticeAttendanceSaved = true;
-    if (localAccess) Serial.printf("OUTBOX %s: mo cua theo mau AS608; du lieu van cho dong bo\n", eventId.c_str());
+    if (localAccess) Serial.printf_P(PSTR("OUTBOX %s: mo cua theo mau AS608; du lieu van cho dong bo\n"), eventId.c_str());
   } else if (delivery == AttendanceDelivery::REJECTED) {
     lastFingerprintAuthorizationDenied = true;
-    showFingerprintResultNotice("LUOT BI TU CHOI", "XIN LIEN HE ADMIN");
+    showFingerprintResultNotice(F("LUOT BI TU CHOI"), F("XIN LIEN HE ADMIN"));
     signalResult(false);
   } else {
-    Serial.printf("OUTBOX %s: xac nhan muon, chi dong bo du lieu\n", eventId.c_str());
+    Serial.printf_P(PSTR("OUTBOX %s: xac nhan muon, chi dong bo du lieu\n"), eventId.c_str());
   }
 }
 
@@ -395,8 +428,8 @@ void expireForegroundAttendance() {
   if (foregroundAttendanceHandled ||
       !elapsedAtLeast(millis(), foregroundAttendanceCreatedAt, FOREGROUND_ATTENDANCE_VALIDITY_MS)) return;
   foregroundAttendanceHandled = true;
-  Serial.printf("OUTBOX %s: het han mo cua; ban ghi van cho dong bo\n", foregroundAttendanceEventId.c_str());
+  Serial.printf_P(PSTR("OUTBOX %s: het han mo cua; ban ghi van cho dong bo\n"), foregroundAttendanceEventId.c_str());
   if (!doorNeedsResponsiveLoop() && !pendingCommandExecution && !pendingCommandResult) {
-    showLcd("DA LUU CHO GUI", "CHUA MO CUA");
+    showLcd(F("DA LUU CHO GUI"), F("CHUA MO CUA"));
   }
 }

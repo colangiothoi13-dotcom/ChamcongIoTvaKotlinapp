@@ -8,7 +8,7 @@ bool firebaseSignIn() {
   }
   if (FIREBASE_API_KEY == nullptr || String(FIREBASE_API_KEY).length() == 0) {
     firebaseSyncStatus = "ERROR";
-    setLatestError("Chua cau hinh FIREBASE_WEB_API_KEY");
+    setLatestError(F("Chua cau hinh FIREBASE_WEB_API_KEY"));
     return false;
   }
   if (!canStartHttpsRequest("Firebase Auth")) {
@@ -29,9 +29,16 @@ bool firebaseSignIn() {
     https.useHTTP10(true);
     if (https.begin(client, url)) {
       began = true;
+      url = String();
       https.setTimeout(5000);
       https.addHeader("Content-Type", "application/json");
       static const uint8_t authPayload[] = "{\"returnSecureToken\":true}";
+      if (!canStartHttpsRequest("Firebase Auth", true)) {
+        https.end();
+        client.stop();
+        firebaseSyncStatus = "PENDING";
+        return false;
+      }
       code = https.POST(authPayload, sizeof(authPayload) - 1);
       if (code == 200) {
         DynamicJsonDocument authDoc(2048);
@@ -48,24 +55,24 @@ bool firebaseSignIn() {
   if (!began) {
     firebaseSyncStatus = "ERROR";
     deferHttpsRequests("Firebase Auth");
-    setLatestError("Khong tao duoc ket noi Firebase Auth");
+    setLatestError(F("Khong tao duoc ket noi Firebase Auth"));
     return false;
   }
   recordHttpsResult("Firebase Auth", code);
   if (code != 200) {
-    Serial.printf("Firebase Auth loi HTTP %d\n", code);
+    Serial.printf_P(PSTR("Firebase Auth loi HTTP %d\n"), code);
     firebaseSyncStatus = "ERROR";
     setLatestError(String("Firebase Auth HTTP ") + code);
     return false;
   }
   if (!parsed) {
     firebaseSyncStatus = "ERROR";
-    setLatestError("Firebase Auth tra ve JSON khong hop le");
+    setLatestError(F("Firebase Auth tra ve JSON khong hop le"));
     return false;
   }
   firebaseIdToken = idToken;
   tokenCreatedAt = millis();
-  Serial.println("Da dang nhap Firebase Anonymous");
+  Serial.println(F("Da dang nhap Firebase Anonymous"));
   firebaseSyncStatus = "PENDING";
   return true;
 }

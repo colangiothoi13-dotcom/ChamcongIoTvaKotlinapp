@@ -40,6 +40,7 @@ fun summarizeDashboard(
     val schedulesByKey = schedules.associateBy { it.employeeId to it.date }
     val shiftsById = shifts.associateBy { it.id }
     val checkedIds = mutableSetOf<String>()
+    val checkedIdsByDate = dates.associateWith { mutableSetOf<String>() }
     val lateIds = mutableSetOf<String>()
     val unresolvedIds = mutableSetOf<String>()
     for (employeeId in activeIds) {
@@ -74,6 +75,7 @@ fun summarizeDashboard(
                 val observedPairs = pairs.filter { (_, pair) -> pair.checkIn != null || pair.checkOut != null }
                 if (rows.isEmpty() && observedPairs.isEmpty()) continue
                 checkedIds += employeeId
+                checkedIdsByDate.getValue(date) += employeeId
                 if (pairs.any { (shift, pair) -> attendanceLateMinutes(pair.checkIn, date, shift, zoneId) > 0 }) {
                     lateIds += employeeId
                 }
@@ -92,6 +94,7 @@ fun summarizeDashboard(
             val pair = rawPair.copy(checkIn = adjustment?.checkInAt ?: rawPair.checkIn, checkOut = adjustment?.checkOutAt ?: rawPair.checkOut)
             if (rows.isEmpty() && pair.checkIn == null && pair.checkOut == null) continue
             checkedIds += employeeId
+            checkedIdsByDate.getValue(date) += employeeId
             if (attendanceLateMinutes(pair.checkIn, date, shift, zoneId) > 0 ||
                 (shift == null && adjustment?.checkInAt == null && rows.any { it.type == "CHECK_IN" && it.status == "LATE" })) lateIds += employeeId
             // Presence follows the most recent day with effective attendance in the selected week.
@@ -99,7 +102,7 @@ fun summarizeDashboard(
         }
     }
     val weeklyAttendance = dates.map { date ->
-        DailyAttendance(date = date, count = weekRows.count { it.localDate(zoneId) == date })
+        DailyAttendance(date = date, count = checkedIdsByDate.getValue(date).size)
     }
 
     return DashboardSummary(

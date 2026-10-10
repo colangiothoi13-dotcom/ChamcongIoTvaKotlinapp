@@ -15,7 +15,7 @@ void initializeLcd() {
   Wire.begin(LCD_SDA_PIN, LCD_SCL_PIN);
   lcd.init();
   lcd.backlight();
-  showLcd("KHOI DONG...", "VUI LONG DOI");
+  showLcd(F("KHOI DONG..."), F("VUI LONG DOI"));
 }
 
 char vietnameseLetter(uint32_t codePoint) {
@@ -128,7 +128,7 @@ void serviceFingerprintResultNotice() {
 }
 
 void showSensorReconnectScreen() {
-  showLcd("CAM BIEN LOI", "DANG KET NOI LAI");
+  showLcd(F("CAM BIEN LOI"), F("DANG KET NOI LAI"));
 }
 
 bool hasValidClock() {
@@ -149,7 +149,7 @@ String vietnamTimeText() {
 void showIdleScreen() {
   lcdIdleMode = true;
   if (!littleFsReady) {
-    renderLcd("LOI LITTLEFS", "KHONG LUU QUEUE");
+    renderLcd(F("LOI LITTLEFS"), F("KHONG LUU QUEUE"));
     lastLcdClock = millis();
     return;
   }
@@ -160,7 +160,7 @@ void showIdleScreen() {
   if (hasValidClock()) {
     renderLcd(vietnamTimeText(), secondLine);
   } else {
-    renderLcd("CHUA DONG BO GIO", secondLine);
+    renderLcd(F("CHUA DONG BO GIO"), secondLine);
   }
   lastLcdClock = millis();
 }
@@ -171,7 +171,7 @@ void showReadyScreen() {
   // Removing the finger must not replace the current confirmation screen with
   // the background queue count before this scan is confirmed or times out.
   if (!foregroundAttendanceHandled) {
-    showLcd(foregroundAttendanceEmployeeName, "DANG XU LY");
+    showLcd(foregroundAttendanceEmployeeName, F("DANG XU LY"));
     return;
   }
   if (sensorReady) showIdleScreen();
@@ -182,7 +182,7 @@ void maybeUpdateIdleClock() {
   if (!lcdIdleMode || millis() - lastLcdClock < LCD_CLOCK_INTERVAL_MS) return;
   lastLcdClock = millis();
   if (!littleFsReady) {
-    renderLcd("LOI LITTLEFS", "KHONG LUU QUEUE");
+    renderLcd(F("LOI LITTLEFS"), F("KHONG LUU QUEUE"));
     return;
   }
   int pendingCount = attendancePendingCount();
@@ -192,6 +192,6 @@ void maybeUpdateIdleClock() {
   if (hasValidClock()) {
     renderLcd(vietnamTimeText(), secondLine);
   } else {
-    renderLcd("CHUA DONG BO GIO", secondLine);
+    renderLcd(F("CHUA DONG BO GIO"), secondLine);
   }
 }

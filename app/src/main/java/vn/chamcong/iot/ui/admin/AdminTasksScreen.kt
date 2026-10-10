@@ -41,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -65,6 +66,10 @@ data class AdminTaskGroup(
 )
 
 val adminTaskGroups = listOf(
+    AdminTaskGroup(
+        "Đơn từ",
+        listOf(AdminTaskItem(AppDestination.REQUESTS, "Duyệt đăng ký ca, đơn từ và tăng ca", Icons.Default.Description))
+    ),
     AdminTaskGroup(
         "Vận hành",
         listOf(
@@ -101,7 +106,7 @@ val adminTaskGroups = listOf(
     )
 ).also { groups ->
     check(groups.flatMap { it.items }.map { it.destination } == adminTaskDestinations) {
-        "Danh mục Tác vụ không khớp với hợp đồng điều hướng Admin"
+        "Danh mục Tiện ích không khớp với hợp đồng điều hướng Admin"
     }
 }
 
@@ -112,7 +117,7 @@ fun AdminTasksScreen(onOpen: (AppDestination) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
-            Text("Danh mục quản trị", style = MaterialTheme.typography.headlineLarge)
+            Text("Tiện ích quản trị", style = MaterialTheme.typography.headlineLarge)
             Text("Chọn chức năng bạn muốn xử lý", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         items(adminTaskGroups, key = { it.title }) { group ->

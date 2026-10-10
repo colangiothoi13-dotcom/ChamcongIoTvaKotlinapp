@@ -38,6 +38,7 @@ import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.loadAttendanceRange
 import vn.chamcong.iot.ui.retryAttendanceRange
+import vn.chamcong.iot.ui.workitems.WorkItemEditorDialog
 import kotlinx.coroutines.delay
 import vn.chamcong.iot.model.Attendance
 import java.time.DayOfWeek
@@ -53,6 +54,7 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
     var monthMode by remember { mutableStateOf(false) }
     var assignment by remember { mutableStateOf<AssignmentTarget?>(null) }
     var bulkAssignment by remember { mutableStateOf(false) }
+    var workSchedule by remember { mutableStateOf<WorkSchedule?>(null) }
     val dates = weekDates(state.selectedWeekStart)
     val activeEmployees = state.operationalEmployees.filter { it.active }
     val attendance = state.attendanceForSummaries
@@ -113,6 +115,29 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
                 assignment = AssignmentTarget(employee, date, false)
             }
         }
+        Text("Giao công việc theo ca", style = MaterialTheme.typography.titleLarge)
+        val period = YearMonth.from(state.selectedWeekStart)
+        val rangeStart = if (monthMode) period.atDay(1) else dates.first()
+        val rangeEnd = if (monthMode) period.atEndOfMonth() else dates.last()
+        val availableSchedules = state.calculationSchedules.filter { schedule ->
+            val date = runCatching { LocalDate.parse(schedule.date) }.getOrNull()
+            schedule.id.isNotBlank() && date != null && date >= rangeStart && date <= rangeEnd &&
+                activeEmployees.any { it.id == schedule.employeeId }
+        }.sortedWith(compareBy({ it.date }, { it.employeeName }))
+        if (availableSchedules.isEmpty()) Text("Phân ca cho nhân viên trước để giao công việc theo ca.")
+        availableSchedules.forEach { schedule ->
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(AppSpacing.medium)) {
+                    Text("${schedule.employeeName} · ${schedule.date} · ${schedule.shiftName}")
+                    TextButton(onClick = { vm.clearError(); workSchedule = schedule }, enabled = !state.saving) {
+                        Text("Giao công việc")
+                    }
+                }
+            }
+        }
+    }
+    workSchedule?.let { schedule ->
+        WorkItemEditorDialog(state, vm, onDismiss = { workSchedule = null }, initialSchedule = schedule)
     }
     assignment?.let { target ->
         ScheduleAssignmentDialog(state, target, vm) { assignment = null }

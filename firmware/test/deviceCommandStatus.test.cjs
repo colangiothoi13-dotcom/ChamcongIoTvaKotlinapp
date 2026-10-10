@@ -80,7 +80,7 @@ function fixture(type = 'SYNC_ATTENDANCE') {
     commandPollIntervalMs: 3000, requests: [], signals: [], displays: [], readyCalls: 0,
     restarts: 0, commits: 0, stoppedClients: 0, endedRequests: 0, results: [], deferrals: [],
     jsonDocument, String, strcmp: (a, b) => a === b ? 0 : 1,
-    Serial: { printf() {}, println() {} },
+    Serial: { printf() {}, printf_P() {}, println() {} }, F: value => value, PSTR: value => value,
     WiFi: { status: () => s.online ? 1 : 0 },
     ESP: { getFreeHeap: () => 34000, restart() { s.restarts++; } },
     BearSSL: { WiFiClientSecure: class {

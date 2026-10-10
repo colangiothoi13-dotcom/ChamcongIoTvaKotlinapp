@@ -14,6 +14,7 @@ data class DashboardSummary(
 
 data class DailyAttendance(
     val date: LocalDate,
+    /** Distinct active employees with effective attendance on this work date. */
     val count: Int
 )
 

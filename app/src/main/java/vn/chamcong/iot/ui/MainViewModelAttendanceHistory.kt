@@ -143,7 +143,8 @@ fun MainViewModel.loadMoreEmployeeAttendance() {
     val after = employeeAttendanceHistoryCursor
     val pagesToLoad = if (after == null) 2 else 1
     employeeAttendanceHistoryJob = viewModelScope.launch {
-        _state.update { it.copy(employeeAttendanceHistoryLoading = true, error = null) }
+        _state.update { it.copy(employeeAttendanceHistoryLoading = true, error = null,
+            feedbackGeneration = it.feedbackGeneration + 1) }
         try {
             val loaded = mutableListOf<Attendance>()
             var cursor = after

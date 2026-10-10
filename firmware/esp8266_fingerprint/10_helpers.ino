@@ -13,13 +13,13 @@ void maintainWifiConnection() {
   if (status == WL_CONNECTED) {
     if (!wifiWasConnected) {
       wifiWasConnected = true;
-      Serial.println("WIFI da ket noi");
+      Serial.println(F("WIFI da ket noi"));
       // A new Wi-Fi connection gets one immediate retry. A live connection
       // with no working internet keeps the normal HTTPS cooldown.
       hasHttpsTransportFailure = false;
       if (time(nullptr) < MIN_VALID_UNIX_TIME) {
         configTime(0, 0, "pool.ntp.org", "time.google.com");
-        Serial.println("WIFI: dang dong bo lai gio NTP");
+        Serial.println(F("WIFI: dang dong bo lai gio NTP"));
       }
       if (attendanceOutboxBytes() > 0) {
         attendanceSyncIntervalMs = ATTENDANCE_NEXT_RECORD_INTERVAL_MS;
@@ -31,12 +31,12 @@ void maintainWifiConnection() {
 
   if (wifiWasConnected) {
     wifiWasConnected = false;
-    Serial.printf("WIFI mat ket noi (status=%d)\n", status);
+    Serial.printf_P(PSTR("WIFI mat ket noi (status=%d)\n"), status);
   }
   if (millis() - lastWifiReconnectAttempt < WIFI_RECONNECT_INTERVAL_MS) return;
 
   lastWifiReconnectAttempt = millis();
-  Serial.printf("WIFI dang ket noi lai (status=%d)\n", status);
+  Serial.printf_P(PSTR("WIFI dang ket noi lai (status=%d)\n"), status);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
@@ -44,7 +44,7 @@ void maintainWifiConnection() {
 void deferHttpsRequests(const char* operation) {
   hasHttpsTransportFailure = true;
   lastHttpsTransportFailure = millis();
-  Serial.printf("HTTPS tam dung sau %s; thu lai sau %lu giay\n",
+  Serial.printf_P(PSTR("HTTPS tam dung sau %s; thu lai sau %lu giay\n"),
                 operation, HTTPS_RETRY_COOLDOWN_MS / 1000);
 }
 
@@ -53,7 +53,7 @@ bool httpsRetryCooldownActive() {
       !elapsedAtLeast(millis(), lastHttpsTransportFailure, HTTPS_RETRY_COOLDOWN_MS);
 }
 
-bool canStartHttpsRequest(const char* operation) {
+bool canStartHttpsRequest(const char* operation, bool prepared) {
   // Door deferral is normal pending work, never a transport error/cooldown.
   if (doorNeedsResponsiveLoop()) {
     firebaseSyncStatus = "PENDING";
@@ -62,25 +62,31 @@ bool canStartHttpsRequest(const char* operation) {
   if (WiFi.status() != WL_CONNECTED) return false;
 
   if (httpsRetryCooldownActive()) {
-    Serial.printf("HTTPS bo qua %s: dang cho mang on dinh\n", operation);
+    Serial.printf_P(PSTR("HTTPS bo qua %s: dang cho mang on dinh\n"), operation);
     return false;
   }
 
   const uint32_t freeHeap = ESP.getFreeHeap();
   const uint32_t maxBlock = ESP.getMaxFreeBlockSize();
   const uint8_t fragmentation = ESP.getHeapFragmentation();
-  if (freeHeap < MIN_HTTPS_FREE_HEAP || maxBlock < MIN_HTTPS_MAX_FREE_BLOCK) {
-    Serial.printf("HTTPS bo qua %s: heap=%u, block=%u, frag=%u%%\n",
+  const uint32_t minimumFreeHeap = prepared ? MIN_HTTPS_CONNECT_FREE_HEAP : MIN_HTTPS_FREE_HEAP;
+  const uint32_t minimumMaxBlock = prepared ? MIN_HTTPS_CONNECT_MAX_FREE_BLOCK : MIN_HTTPS_MAX_FREE_BLOCK;
+  if (freeHeap < minimumFreeHeap || maxBlock < minimumMaxBlock) {
+    Serial.printf_P(PSTR("HTTPS bo qua %s: heap=%u, block=%u, frag=%u%%\n"),
                   operation, freeHeap, maxBlock, fragmentation);
     deferHttpsRequests(operation);
     return false;
+  }
+  if (prepared) {
+    Serial.printf_P(PSTR("HTTPS %s truoc TLS: heap=%u, block=%u, frag=%u%%\n"),
+                    operation, freeHeap, maxBlock, fragmentation);
   }
   return true;
 }
 
 void recordHttpsResult(const char* operation, int code) {
   if (code < 0) {
-    Serial.printf("HTTPS %s loi %d (%s), heap=%u, block=%u, frag=%u%%\n",
+    Serial.printf_P(PSTR("HTTPS %s loi %d (%s), heap=%u, block=%u, frag=%u%%\n"),
                   operation, code, HTTPClient::errorToString(code).c_str(), ESP.getFreeHeap(), ESP.getMaxFreeBlockSize(),
                   ESP.getHeapFragmentation());
     deferHttpsRequests(operation);
@@ -92,7 +98,7 @@ void recordHttpsResult(const char* operation, int code) {
 void setLatestError(const String& message) {
   lastError = message;
   if (lastError.length() > 160) lastError = lastError.substring(0, 160);
-  Serial.printf("LOI GAN NHAT: %s\n", lastError.c_str());
+  Serial.printf_P(PSTR("LOI GAN NHAT: %s\n"), lastError.c_str());
 }
 
 int recentFailedScanCount() {

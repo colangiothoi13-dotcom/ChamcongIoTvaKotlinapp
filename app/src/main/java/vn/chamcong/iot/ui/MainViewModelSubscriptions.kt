@@ -51,6 +51,17 @@ internal fun MainViewModel.subscribe() {
 }
 
 internal fun MainViewModel.cancelDataSubscriptions() {
+    workItemSessionGeneration += 1
+    val workOperationWasActive = workItemOperation?.isActive == true
+    workItemOperation?.cancel()
+    workItemOperation = null
+    if (workOperationWasActive) {
+        _state.update { it.copy(saving = false, workItemAttachmentStatus = null) }
+    }
+    workItemsSubscription?.cancel()
+    workItemsSubscription = null
+    workItemHistorySubscription?.cancel()
+    workItemHistorySubscription = null
     employeeWeeklyScheduleRequestSubscription?.cancel()
     employeeWeeklyScheduleRequestSubscription = null
     weeklyScheduleRequestsSubscription?.cancel()
@@ -72,6 +83,16 @@ internal fun MainViewModel.cancelDataSubscriptions() {
     scheduleSubscription = null
     _state.update {
         it.copy(
+            message = null,
+            error = null,
+            feedbackGeneration = it.feedbackGeneration + 1,
+            workItems = emptyList(),
+            workItemsLoading = false,
+            workItemsError = null,
+            selectedWorkItemId = null,
+            workItemHistory = emptyList(),
+            workItemHistoryLoading = false,
+            workItemHistoryError = null,
             employees = emptyList(),
             attendance = emptyList(),
             historicalAttendance = emptyList(),
@@ -124,6 +145,7 @@ internal fun MainViewModel.subscribeAdmin() {
     if (subscriptionMode == "ADMIN") return
     cancelDataSubscriptions()
     subscriptionMode = "ADMIN"
+    retryWorkItems()
     subscribeEmployeeResources()
     subscribeAdminWeeklyScheduleRequests()
     dataSubscriptions += viewModelScope.launch {
@@ -223,6 +245,7 @@ internal fun MainViewModel.subscribeEmployee(profile: UserProfile) {
     if (subscriptionMode == mode) return
     cancelDataSubscriptions()
     subscriptionMode = mode
+    retryWorkItems()
     employeeAttendanceHistoryEmployeeId = employeeId.takeIf(String::isNotBlank)
     employeeAttendanceHistoryHasMore = employeeId.isNotBlank()
     _state.update {

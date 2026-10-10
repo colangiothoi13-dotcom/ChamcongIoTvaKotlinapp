@@ -68,7 +68,9 @@ data class Payroll(
     val hourlyRate: Long = 0,
     val hoursWorked: Double = 0.0,
     val bonus: Long = 0,
-    val deduction: Long = 0
+    val deduction: Long = 0,
+    /** Legacy saved payslips start at zero; only an explicit, archived recalculation increments it. */
+    val revision: Long = 0L
 ) { @get:com.google.firebase.firestore.Exclude
     val netSalary: Long get() = baseSalary + bonus - deduction }
 

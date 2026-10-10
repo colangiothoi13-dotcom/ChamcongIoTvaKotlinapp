@@ -592,6 +592,228 @@ service cloud.firestore {
         && (data.type != 'REWARD' || (data.eventDate != '' && data.audience.matches('EMPLOYEE:[^/\\s:]+')))
         && (data.type != 'DOCUMENT' || data.url != '');
     }
+    // Work completion requires employee evidence and manager approval, never an IoT scan.
+    function workItemPath(id) {
+      return /databases/$(database)/documents/workItems/$(id);
+    }
+    function workHistoryPath(id, version) {
+      return /databases/$(database)/documents/workItems/$(id)/history/$(string(version));
+    }
+    function activeWorkEmployee(employeeId) {
+      return exists(employeePath(employeeId)) && get(employeePath(employeeId)).data.active == true;
+    }
+    function workAttachmentPath(workId, attachmentId) {
+      return /databases/$(database)/documents/workItems/$(workId)/attachments/$(attachmentId);
+    }
+    function workAttachmentChunkPath(workId, attachmentId, index) {
+      return /databases/$(database)/documents/workItems/$(workId)/attachments/$(attachmentId)/chunks/$(string(index));
+    }
+    function workAttachments(data) {
+      // Tasks saved before attachments were added remain readable and editable.
+      return data.get('resultAttachments', []);
+    }
+    function validWorkAttachmentMetadata(data, attachmentId) {
+      let keys = ['id', 'fileName', 'mimeType', 'sizeBytes', 'sha256', 'chunkCount',
+        'uploadedById', 'assigneeId', 'createdAt'];
+      return data is map && data.keys().hasAll(keys) && data.keys().hasOnly(keys)
+        && attachmentId is string && attachmentId.matches('[A-Za-z0-9_-]{1,80}') && data.id == attachmentId
+        && nonBlank(data.fileName) && data.fileName.size() <= 180
+        && !data.fileName.matches('(?s).*[/\\\\].*')
+        && nonBlank(data.mimeType) && data.mimeType.size() <= 120 && !data.mimeType.matches('(?s).*[\r\n].*')
+        && data.sizeBytes is int && data.sizeBytes > 0 && data.sizeBytes <= 5242880
+        && data.sha256 is string && data.sha256.matches('[0-9a-f]{64}')
+        && data.chunkCount is int && data.chunkCount >= 1 && data.chunkCount <= 10
+        && data.sizeBytes > (data.chunkCount - 1) * 524288 && data.sizeBytes <= data.chunkCount * 524288
+        && nonBlank(data.uploadedById) && nonBlank(data.assigneeId) && data.createdAt is timestamp;
+    }
+    function validWorkAttachmentReference(workId, data, attachment) {
+      let path = workAttachmentPath(workId, attachment.id);
+      // Stored metadata was already validated at creation and is immutable. Exact equality
+      // authenticates every field without repeatedly exhausting Rules' expression budget.
+      return attachment.assigneeId == data.assigneeId && getAfter(path).data == attachment;
+    }
+    function validWorkAttachments(workId, data) {
+      let attachments = workAttachments(data);
+      // The parent shape check already enforces list type and the five-file limit.
+      return attachments.toSet().size() == attachments.size()
+        && (attachments.size() < 1 || validWorkAttachmentReference(workId, data, attachments[0]))
+        && (attachments.size() < 2 || validWorkAttachmentReference(workId, data, attachments[1]))
+        && (attachments.size() < 3 || validWorkAttachmentReference(workId, data, attachments[2]))
+        && (attachments.size() < 4 || validWorkAttachmentReference(workId, data, attachments[3]))
+        && (attachments.size() < 5 || validWorkAttachmentReference(workId, data, attachments[4]));
+    }
+    function employeeCanUploadWorkAttachment(workId, data) {
+      let task = get(workItemPath(workId)).data;
+      return isOwnEmployee(task.assigneeId) && activeWorkEmployee(task.assigneeId)
+        && task.status == 'IN_PROGRESS' && data.assigneeId == task.assigneeId
+        && data.uploadedById == request.auth.uid;
+    }
+    function canReadWorkAttachment(workId, attachment) {
+      let task = get(workItemPath(workId)).data;
+      return isAdmin() || (isOwnEmployee(task.assigneeId) && activeWorkEmployee(task.assigneeId)
+        && (attachment == null || attachment.assigneeId == task.assigneeId));
+    }
+    function validWorkAttachmentChunk(metadata, data, index) {
+      return data.keys().hasAll(['index', 'data', 'createdAt']) && data.keys().hasOnly(['index', 'data', 'createdAt'])
+        && data.index is int && index == string(data.index) && data.index >= 0 && data.index < metadata.chunkCount
+        && data.data is bytes
+        && data.data.size() == (data.index == metadata.chunkCount - 1
+          ? metadata.sizeBytes - data.index * 524288 : 524288)
+        && data.createdAt == request.time;
+    }
+    function validWorkAttachmentCreate(workId, attachmentId, data) {
+      let firstChunk = workAttachmentChunkPath(workId, attachmentId, 0);
+      return validWorkAttachmentMetadata(data, attachmentId) && data.createdAt == request.time
+        && employeeCanUploadWorkAttachment(workId, data)
+        && existsAfter(firstChunk) && validWorkAttachmentChunk(data, getAfter(firstChunk).data, '0');
+    }
+    function validWorkAttachmentChunkCreate(workId, attachmentId, index, data) {
+      let path = workAttachmentPath(workId, attachmentId);
+      let metadata = getAfter(path).data;
+      let nextChunk = workAttachmentChunkPath(workId, attachmentId, data.index + 1);
+      // Every chunk requires its successor. The chain reaches all chunks without exceeding the
+      // per-operation Rules access limit; metadata and all chunks must be created in one batch.
+      return !exists(path) && existsAfter(path) && metadata.createdAt == request.time
+        && employeeCanUploadWorkAttachment(workId, metadata)
+        && validWorkAttachmentChunk(metadata, data, index)
+        && (data.index == metadata.chunkCount - 1
+          || (existsAfter(nextChunk) && getAfter(nextChunk).data.createdAt == request.time));
+    }
+    function validWorkLink(data) {
+      let schedule = /databases/$(database)/documents/workSchedules/$(data.relatedScheduleId);
+      return (data.relatedScheduleId == null && data.relatedShiftId == null && data.relatedScheduleDate == null)
+        || (nonBlank(data.relatedScheduleId) && nonBlank(data.relatedShiftId)
+          && data.relatedScheduleDate is string && exists(schedule)
+          && get(schedule).data.employeeId == data.assigneeId
+          && get(schedule).data.date == data.relatedScheduleDate
+          && (get(schedule).data.shiftId == data.relatedShiftId
+            || ('shiftIds' in get(schedule).data && data.relatedShiftId in get(schedule).data.shiftIds)));
+    }
+    function validWorkItem(data) {
+      let attachments = workAttachments(data);
+      let keys = ['title', 'description', 'requiredResult', 'assignedById', 'assignedByName',
+        'assigneeId', 'assigneeName', 'startAt', 'deadline', 'priority', 'status', 'completedAt',
+        'resultReport', 'managerFeedback', 'relatedScheduleId', 'relatedShiftId', 'relatedScheduleDate',
+        'version', 'reworkCount', 'createdAt', 'updatedAt', 'lastUpdatedById', 'lastUpdatedByName'];
+      return data.keys().hasAll(keys) && data.keys().hasOnly(keys.concat(['resultAttachments']))
+        && attachments is list && attachments.size() <= 5
+        && nonBlank(data.title) && data.title.size() <= 160
+        && nonBlank(data.description) && data.description.size() <= 5000
+        && nonBlank(data.requiredResult) && data.requiredResult.size() <= 5000
+        && nonBlank(data.assignedById) && nonBlank(data.assignedByName)
+        && nonBlank(data.assigneeId) && nonBlank(data.assigneeName)
+        && data.startAt is timestamp && data.deadline is timestamp && data.deadline > data.startAt
+        && data.priority in ['LOW', 'NORMAL', 'HIGH', 'URGENT']
+        && data.status in ['ASSIGNED', 'IN_PROGRESS', 'PENDING_REVIEW', 'COMPLETED']
+        && (data.status == 'COMPLETED' ? data.completedAt is timestamp : data.completedAt == null)
+        && data.resultReport is string && data.resultReport.size() <= 10000
+        && (!(data.status in ['PENDING_REVIEW', 'COMPLETED'])
+          || attachments.size() > 0 || nonBlank(data.resultReport))
+        && data.managerFeedback is string && data.managerFeedback.size() <= 5000
+        && data.version is int && data.version >= 1
+        && data.reworkCount is int && data.reworkCount >= 0
+        && data.createdAt is timestamp && data.updatedAt == request.time
+        && data.lastUpdatedById == request.auth.uid && nonBlank(data.lastUpdatedByName)
+        && (data.relatedScheduleId == null
+          ? (data.relatedShiftId == null && data.relatedScheduleDate == null)
+          : (nonBlank(data.relatedScheduleId) && nonBlank(data.relatedShiftId)
+            && data.relatedScheduleDate is string && data.relatedScheduleDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')));
+    }
+    function matchingWorkHistory(id, before, after, action) {
+      let path = workHistoryPath(id, after.version);
+      let history = getAfter(path).data;
+      return !exists(path) && existsAfter(path)
+        && history.keys().hasAll(['workItemId', 'version', 'action', 'actorId', 'actorName', 'createdAt', 'before', 'after'])
+        && history.keys().hasOnly(['workItemId', 'version', 'action', 'actorId', 'actorName', 'createdAt', 'before', 'after'])
+        && history.workItemId == id && history.version == after.version && history.action == action
+        && history.actorId == request.auth.uid && history.actorName == after.lastUpdatedByName
+        && history.createdAt == request.time && history.before == before && history.after == after;
+    }
+    function validWorkCreate(id, data) {
+      return isAdmin() && validWorkItem(data) && activeWorkEmployee(data.assigneeId)
+        && data.assigneeName == get(employeePath(data.assigneeId)).data.fullName && validWorkLink(data)
+        && data.assignedById == request.auth.uid && data.assignedByName == data.lastUpdatedByName
+        && data.version == 1 && data.createdAt == request.time && data.reworkCount == 0
+        && data.status == 'ASSIGNED' && data.resultReport == '' && data.managerFeedback == ''
+        && workAttachments(data).size() == 0
+        && matchingWorkHistory(id, null, data, 'CREATED');
+    }
+    function validWorkEdit(id, old, data) {
+      let reassigned = old.assigneeId != data.assigneeId;
+      return isAdmin() && old.status != 'COMPLETED' && activeWorkEmployee(data.assigneeId)
+        && data.assigneeName == get(employeePath(data.assigneeId)).data.fullName && validWorkLink(data)
+        && data.diff(old).affectedKeys().hasOnly(['title', 'description', 'requiredResult', 'assigneeId',
+          'assigneeName', 'startAt', 'deadline', 'priority', 'relatedScheduleId', 'relatedShiftId', 'relatedScheduleDate',
+          'status', 'resultReport', 'resultAttachments', 'managerFeedback', 'reworkCount', 'version', 'updatedAt', 'lastUpdatedById', 'lastUpdatedByName'])
+        && data.status == (reassigned ? 'ASSIGNED' : (old.status == 'PENDING_REVIEW' ? 'IN_PROGRESS' : old.status))
+        && data.resultReport == (reassigned ? '' : old.resultReport)
+        && workAttachments(data) == (reassigned ? [] : workAttachments(old))
+        && data.managerFeedback == (reassigned ? '' : old.managerFeedback)
+        && data.reworkCount == (reassigned ? 0 : old.reworkCount)
+        && matchingWorkHistory(id, old, data, 'EDITED');
+    }
+    function validWorkEmployeeUpdate(id, old, data) {
+      let keys = data.diff(old).affectedKeys();
+      return isOwnEmployee(old.assigneeId) && activeWorkEmployee(old.assigneeId)
+        && keys.hasOnly(['status', 'resultReport', 'resultAttachments', 'version', 'updatedAt', 'lastUpdatedById', 'lastUpdatedByName'])
+        // Immutable references already stored on this task remain certified. Validate the
+        // complete list whenever the employee changes/adds the attachment field.
+        && (!keys.hasAny(['resultAttachments']) || validWorkAttachments(id, data))
+        && (old.status == 'ASSIGNED'
+          ? (data.status == 'IN_PROGRESS' && data.resultReport == old.resultReport
+            && workAttachments(data) == workAttachments(old)
+            && matchingWorkHistory(id, old, data, 'STARTED'))
+          : (old.status == 'IN_PROGRESS' && (data.status == 'IN_PROGRESS'
+            ? matchingWorkHistory(id, old, data, 'PROGRESS_UPDATED')
+            // validWorkItem already requires text or attachments for PENDING_REVIEW.
+            : (data.status == 'PENDING_REVIEW'
+              && matchingWorkHistory(id, old, data, 'RESULT_SUBMITTED')))));
+    }
+    function validWorkReview(id, old, data) {
+      return isAdmin() && old.status == 'PENDING_REVIEW'
+        && data.diff(old).affectedKeys().hasOnly(['status', 'managerFeedback', 'completedAt', 'reworkCount',
+          'resultAttachments', 'version', 'updatedAt', 'lastUpdatedById', 'lastUpdatedByName'])
+        && workAttachments(data) == workAttachments(old)
+        && ((data.status == 'COMPLETED' && data.completedAt == request.time
+            && data.reworkCount == old.reworkCount && matchingWorkHistory(id, old, data, 'APPROVED'))
+          || (data.status == 'IN_PROGRESS' && data.completedAt == null && nonBlank(data.managerFeedback)
+            && data.reworkCount == old.reworkCount + 1 && matchingWorkHistory(id, old, data, 'REWORK_REQUESTED')));
+    }
+    match /workItems/{id} {
+      allow read: if isAdmin() || (isOwnEmployee(resource.data.assigneeId) && activeWorkEmployee(resource.data.assigneeId));
+      allow create: if validWorkCreate(id, request.resource.data);
+      allow update: if validWorkItem(request.resource.data)
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.assignedById == resource.data.assignedById
+        && request.resource.data.assignedByName == resource.data.assignedByName
+        && (validWorkEdit(id, resource.data, request.resource.data)
+          || validWorkEmployeeUpdate(id, resource.data, request.resource.data)
+          || validWorkReview(id, resource.data, request.resource.data));
+      allow delete: if false;
+      match /history/{version} {
+        allow read: if isAdmin() || (isOwnEmployee(get(workItemPath(id)).data.assigneeId)
+          && activeWorkEmployee(get(workItemPath(id)).data.assigneeId));
+        allow create: if existsAfter(workItemPath(id))
+          && version == string(getAfter(workItemPath(id)).data.version)
+          && matchingWorkHistory(id, exists(workItemPath(id)) ? get(workItemPath(id)).data : null,
+            getAfter(workItemPath(id)).data, request.resource.data.action)
+          && getAfter(workItemPath(id)).data.updatedAt == request.time
+          && (!exists(workItemPath(id)) || getAfter(workItemPath(id)).data.version == get(workItemPath(id)).data.version + 1);
+      allow update, delete: if false;
+      }
+      match /attachments/{attachmentId} {
+        allow read: if canReadWorkAttachment(id, resource == null ? null : resource.data);
+        allow create: if validWorkAttachmentCreate(id, attachmentId, request.resource.data);
+        allow update, delete: if false;
+        match /chunks/{index} {
+          allow read: if canReadWorkAttachment(id, get(workAttachmentPath(id, attachmentId)).data);
+          allow create: if validWorkAttachmentChunkCreate(id, attachmentId, index, request.resource.data);
+          allow update, delete: if false;
+        }
+      }
+    }
+
     match /employeeResources/{id} {
       allow read: if isAdmin() || employeeCanReadResource(resource.data);
       allow create: if isAdmin() && validEmployeeResource(request.resource.data)
@@ -1057,12 +1279,68 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isDevice() && deviceDeletesFingerprintMapping(id));
     }
     match /system/{id} { allow read, write: if isAdmin(); }
+    function payrollPath(id) {
+      return /databases/$(database)/documents/payroll/$(id);
+    }
+    function payrollRevisionPath(id, revision) {
+      return /databases/$(database)/documents/payroll/$(id)/revisions/$(string(revision));
+    }
+    function validPayroll(data, id) {
+      let keys = ['employeeCode', 'employeeName', 'employeeId', 'month', 'baseSalary',
+        'hourlyRate', 'hoursWorked', 'bonus', 'deduction'];
+      // Updates retain harmless legacy fields exactly; their diff whitelist forbids changing them.
+      return data.keys().hasAll(keys)
+        && nonBlank(data.employeeId) && !data.employeeId.matches('(?s).*/.*')
+        && data.employeeCode is string && data.employeeName is string
+        && data.month is string && data.month.matches('[0-9]{4}-(0[1-9]|1[0-2])')
+        && id == data.employeeId + '_' + data.month
+        && data.hourlyRate is int && data.hourlyRate >= 0 && data.hourlyRate <= 1000000000000
+        && data.hoursWorked is number && data.hoursWorked >= 0 && data.hoursWorked <= 744
+        && data.baseSalary is int && data.baseSalary == math.round(data.hourlyRate * data.hoursWorked)
+        && data.bonus is int && data.bonus >= 0 && data.bonus <= 1000000000000
+        && data.deduction is int && data.deduction >= 0 && data.deduction <= 1000000000000
+        && data.get('revision', 0) is int && data.get('revision', 0) >= 0;
+    }
+    function payrollMatchesCurrentRate(data) {
+      let employee = employeePath(data.employeeId);
+      return exists(employee) && get(employee).data.get('baseSalary', 0) == data.hourlyRate;
+    }
+    function matchingPayrollRevision(id, previous, next) {
+      let path = payrollRevisionPath(id, next.revision);
+      let history = getAfter(path).data;
+      return !exists(path) && existsAfter(path)
+        && history.keys().hasAll(['payrollId', 'revision', 'previous', 'next', 'actorId', 'reason', 'createdAt'])
+        && history.keys().hasOnly(['payrollId', 'revision', 'previous', 'next', 'actorId', 'reason', 'createdAt'])
+        && history.payrollId == id && history.revision == next.revision
+        && history.previous == previous && history.next == next
+        && history.actorId == request.auth.uid && nonBlank(history.reason) && history.reason.size() <= 500
+        && history.createdAt == request.time;
+    }
+    function validPayrollUpdate(id, previous, next) {
+      return isAdmin() && validPayroll(next, id) && payrollMatchesCurrentRate(next)
+        && next.diff(previous).affectedKeys().hasOnly(['hoursWorked', 'hourlyRate', 'baseSalary', 'bonus', 'deduction', 'revision'])
+        && next.revision == previous.get('revision', 0) + 1
+        && next.employeeId == previous.employeeId && next.employeeCode == previous.employeeCode
+        && next.employeeName == previous.employeeName && next.month == previous.month
+        && matchingPayrollRevision(id, previous, next);
+    }
     match /payroll/{id} {
       allow read: if isAdmin()
         || (resource.data.employeeId is string && isOwnEmployee(resource.data.employeeId));
-      allow create: if isAdmin();
-      // Phieu luong da luu la anh chup lich su, khong ghi de/xoa.
-      allow update, delete: if false;
+      allow create: if isAdmin() && validPayroll(request.resource.data, id)
+        && request.resource.data.keys().hasOnly(['employeeCode', 'employeeName', 'employeeId', 'month', 'baseSalary',
+          'hourlyRate', 'hoursWorked', 'bonus', 'deduction', 'revision'])
+        && request.resource.data.get('revision', 0) == 0 && payrollMatchesCurrentRate(request.resource.data);
+      // Explicit recalculation is the only update path; both versions are archived atomically.
+      allow update: if validPayrollUpdate(id, resource.data, request.resource.data);
+      allow delete: if false;
+      match /revisions/{revision} {
+        allow read: if isAdmin() || isOwnEmployee(get(payrollPath(id)).data.employeeId);
+        allow create: if isAdmin() && exists(payrollPath(id)) && existsAfter(payrollPath(id))
+          && revision == string(getAfter(payrollPath(id)).data.revision)
+          && validPayrollUpdate(id, get(payrollPath(id)).data, getAfter(payrollPath(id)).data);
+        allow update, delete: if false;
+      }
     }
     match /performanceReviews/{id} { allow read, write: if isAdmin(); }
     match /syncReceipts/{id} { allow read, write: if isAdmin(); }

@@ -225,7 +225,13 @@ exports.resolveAttendance = onDocumentCreated({ document: "attendance/{eventId}"
     const scan = currentEvent.data();
     if (scan.resolutionStatus !== "PENDING" || scan.type !== "SCAN") return null;
 
-    const employee = await getMappedActiveEmployee(transaction, scan.templateId);
+    // Creation already verified the mapping at the device/recordAttendance
+    // boundary. A delayed trigger must retain that immutable employee snapshot:
+    // a template slot may have been reassigned or the employee retired since.
+    // Legacy scans without identity still use the validated mapping fallback.
+    const employee = typeof scan.employeeId === "string" && scan.employeeId.trim()
+      ? { id: scan.employeeId, fullName: typeof scan.employeeName === "string" ? scan.employeeName : "" }
+      : await getMappedActiveEmployee(transaction, scan.templateId);
     if (!employee) {
       transaction.update(eventRef, {
         type: "UNSCHEDULED", resolutionStatus: "UNSCHEDULED", status: "ABNORMAL",

@@ -21,8 +21,14 @@ bool refreshCommandVersion() {
     https.useHTTP10(true);
     if (https.begin(client, url)) {
       began = true;
+      url = String();
       https.setTimeout(5000);
       https.addHeader("Authorization", "Bearer " + firebaseIdToken);
+      if (!canStartHttpsRequest("refresh lenh", true)) {
+        https.end();
+        client.stop();
+        return false;
+      }
       code = https.GET();
       if (code == 200) {
         DynamicJsonDocument current(512);
@@ -40,21 +46,21 @@ bool refreshCommandVersion() {
 
   if (!began) {
     deferHttpsRequests("refresh lenh");
-    setLatestError("Khong tao duoc ket noi doc lenh");
+    setLatestError(F("Khong tao duoc ket noi doc lenh"));
     return false;
   }
   recordHttpsResult("refresh lenh", code);
   if (code != 200) {
-    Serial.printf("LENH refresh: HTTP %d, heap=%u\n", code, ESP.getFreeHeap());
+    Serial.printf_P(PSTR("LENH refresh: HTTP %d, heap=%u\n"), code, ESP.getFreeHeap());
     return false;
   }
   if (!parsed) {
-    Serial.printf("LENH refresh: JSON khong hop le, heap=%u\n", ESP.getFreeHeap());
-    setLatestError("Du lieu lenh khong hop le");
+    Serial.printf_P(PSTR("LENH refresh: JSON khong hop le, heap=%u\n"), ESP.getFreeHeap());
+    setLatestError(F("Du lieu lenh khong hop le"));
     return false;
   }
   if (commandRequestId != requestId) {
-    Serial.println("LENH refresh: requestId da doi, bo ket qua lenh cu");
+    Serial.println(F("LENH refresh: requestId da doi, bo ket qua lenh cu"));
     pendingCommandResult = false;
     return false;
   }
@@ -94,9 +100,15 @@ bool updateDeviceCommandStatus(const char* status, const char* message) {
     HTTPClient https;
     if (https.begin(client, url)) {
       began = true;
+      url = String();
       https.setTimeout(5000);
       https.addHeader("Content-Type", "application/json");
       https.addHeader("Authorization", "Bearer " + firebaseIdToken);
+      if (!canStartHttpsRequest("cap nhat lenh", true)) {
+        https.end();
+        client.stop();
+        return false;
+      }
       code = https.sendRequest("PATCH", reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
       https.end();
     }
@@ -105,17 +117,17 @@ bool updateDeviceCommandStatus(const char* status, const char* message) {
 
   if (!began) {
     deferHttpsRequests("cap nhat lenh");
-    setLatestError("Khong tao duoc ket noi cap nhat lenh");
+    setLatestError(F("Khong tao duoc ket noi cap nhat lenh"));
     return false;
   }
   recordHttpsResult("cap nhat lenh", code);
   if (code < 0) {
-    Serial.printf("Cap nhat lenh: HTTP %d (%s), heap=%u\n",
+    Serial.printf_P(PSTR("Cap nhat lenh: HTTP %d (%s), heap=%u\n"),
                   code, HTTPClient::errorToString(code).c_str(), ESP.getFreeHeap());
   } else {
-    Serial.printf("Cap nhat lenh: HTTP %d, heap=%u\n", code, ESP.getFreeHeap());
+    Serial.printf_P(PSTR("Cap nhat lenh: HTTP %d, heap=%u\n"), code, ESP.getFreeHeap());
   }
-  if (code < 200 || code >= 300) setLatestError(String("Cap nhat lenh HTTP ") + code);
+  if (code < 200 || code >= 300) setLatestError(String(F("Cap nhat lenh HTTP ")) + code);
   return code >= 200 && code < 300;
 }
 
@@ -171,7 +183,7 @@ bool commitFingerprintCompletion() {
       mappingWrite["delete"] = mappingName;
     }
     if (doc.overflowed()) {
-      setLatestError("Bo nho JSON lenh van tay khong du");
+      setLatestError(F("Bo nho JSON lenh van tay khong du"));
       return false;
     }
     body.reserve(measureJson(doc) + 1);
@@ -189,6 +201,11 @@ bool commitFingerprintCompletion() {
       https.setTimeout(8000);
       https.addHeader("Content-Type", "application/json");
       https.addHeader("Authorization", "Bearer " + firebaseIdToken);
+      if (!canStartHttpsRequest("hoan tat van tay", true)) {
+        https.end();
+        client.stop();
+        return false;
+      }
       code = https.sendRequest("POST", reinterpret_cast<const uint8_t*>(body.c_str()), body.length());
       https.end();
     }
@@ -203,7 +220,7 @@ bool commitFingerprintCompletion() {
   // A deployed backend may have applied this command between the status PATCH
   // and this commit. Treat that idempotent completion as success.
   if (refreshCommandVersion() && commandAlreadyApplied) return true;
-  setLatestError(String("Hoan tat van tay HTTP ") + code);
+  setLatestError(String(F("Hoan tat van tay HTTP ")) + code);
   return false;
 }
 
@@ -215,12 +232,12 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
   wasCompleted = false;
   employeeId = "";
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.printf("LENH: WiFi chua ket noi, status=%d\n", WiFi.status());
+    Serial.printf_P(PSTR("LENH: WiFi chua ket noi, status=%d\n"), WiFi.status());
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
     return false;
   }
   if (!firebaseSignIn()) {
-    Serial.println("LENH: dang nhap Firebase that bai");
+    Serial.println(F("LENH: dang nhap Firebase that bai"));
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
     return false;
   }
@@ -257,6 +274,12 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
       began = true;
       https.setTimeout(5000);
       https.addHeader("Authorization", "Bearer " + firebaseIdToken);
+      url = String();
+      if (!canStartHttpsRequest("doc lenh", true)) {
+        https.end();
+        client.stop();
+        return false;
+      }
       code = https.GET();
       if (code == 200) {
         DynamicJsonDocument response(1536);
@@ -282,14 +305,14 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
 
   if (!began) {
     deferHttpsRequests("doc lenh");
-    setLatestError("Khong tao duoc ket noi doc lenh");
+    setLatestError(F("Khong tao duoc ket noi doc lenh"));
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
     return false;
   }
   recordHttpsResult("doc lenh", code);
   if (code == 200) {
     if (!parsed) {
-      Serial.printf("LENH GET: JSON khong hop le, heap=%u\n", ESP.getFreeHeap());
+      Serial.printf_P(PSTR("LENH GET: JSON khong hop le, heap=%u\n"), ESP.getFreeHeap());
       commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
       return false;
     }
@@ -297,7 +320,7 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
         (responseType == "ENROLL_FINGERPRINT" || responseType == "DELETE_FINGERPRINT");
     const bool active = status == "REQUESTED" || status == "PROCESSING" || recoverCompletion;
     commandPollIntervalMs = active ? COMMAND_ACTIVE_POLL_INTERVAL_MS : COMMAND_IDLE_POLL_INTERVAL_MS;
-    Serial.printf("LENH GET: device=%s, HTTP=200, status=%s, type=%s, heap=%u\n", DEVICE_ID,
+    Serial.printf_P(PSTR("LENH GET: device=%s, HTTP=200, status=%s, type=%s, heap=%u\n"), DEVICE_ID,
                   status.c_str(), responseType.length() > 0 ? responseType.c_str() : "(missing)", ESP.getFreeHeap());
     if (!active) return false;
     type = responseType;
@@ -311,11 +334,11 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
     return type.length() > 0 && commandVersion.length() > 0;
   }
   if (code < 0) {
-    Serial.printf("Doc lenh dang ky: HTTP %d (%s), heap=%u\n",
+    Serial.printf_P(PSTR("Doc lenh dang ky: HTTP %d (%s), heap=%u\n"),
                   code, HTTPClient::errorToString(code).c_str(), ESP.getFreeHeap());
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
   } else {
-    Serial.printf("Doc lenh dang ky: HTTP %d\n", code);
+    Serial.printf_P(PSTR("Doc lenh dang ky: HTTP %d\n"), code);
     commandPollIntervalMs = code == 404 ? COMMAND_IDLE_POLL_INTERVAL_MS : COMMAND_RETRY_INTERVAL_MS;
   }
   return false;
@@ -349,18 +372,18 @@ bool finishDeviceCommand() {
     if (pendingCommandType == "SYNC_ATTENDANCE") {
       // Attendance may already be fully drained. The failed command report
       // must not leave a false attendance-pending message on the idle LCD.
-      Serial.println("CHO GUI KET QUA LENH: SYNC_ATTENDANCE");
+      Serial.println(F("CHO GUI KET QUA LENH: SYNC_ATTENDANCE"));
       if (foregroundAttendanceHandled && !waitingForFingerRemoval &&
           !fingerprintResultHoldActive()) showReadyScreen();
     } else {
-      showLcd("CHO DONG BO", "KIEM TRA MANG");
+      showLcd(F("CHO DONG BO"), F("KIEM TRA MANG"));
     }
     return false;
   }
   pendingCommandResult = false;
   commandPollIntervalMs = COMMAND_IDLE_POLL_INTERVAL_MS;
   if (pendingCommandRestart) {
-    showLcd(pendingCommandSuccess ? "DANG KHOI DONG" : "KHOI DONG LOI", "VUI LONG DOI");
+    showLcd(pendingCommandSuccess ? F("DANG KHOI DONG") : F("KHOI DONG LOI"), F("VUI LONG DOI"));
     if (pendingCommandSuccess) signalResult(true);
     if (pendingCommandSuccess) ESP.restart();
     return true;
@@ -370,16 +393,16 @@ bool finishDeviceCommand() {
                        pendingCommandType == "TEST_LED_RED" ||
                        pendingCommandType == "TEST_BUZZER";
   if (pendingCommandType == "DELETE_FINGERPRINT") {
-    showLcd(pendingCommandSuccess ? "DA XOA VAN TAY" : "XOA THAT BAI",
-            pendingCommandSuccess ? "HOAN TAT" : "KIEM TRA APP");
+    showLcd(pendingCommandSuccess ? F("DA XOA VAN TAY") : F("XOA THAT BAI"),
+            pendingCommandSuccess ? F("HOAN TAT") : F("KIEM TRA APP"));
   } else if (pendingCommandType == "ENROLL_FINGERPRINT") {
-    showLcd(pendingCommandSuccess ? "DANG KY XONG" : "DANG KY THAT BAI",
-            pendingCommandSuccess ? "HOAN TAT" : "KIEM TRA APP");
+    showLcd(pendingCommandSuccess ? F("DANG KY XONG") : F("DANG KY THAT BAI"),
+            pendingCommandSuccess ? F("HOAN TAT") : F("KIEM TRA APP"));
   } else if (pendingCommandType == "SYNC_ATTENDANCE") {
-    showLcd(pendingCommandSuccess ? "DA DONG BO" : "DONG BO THAT BAI",
-            pendingCommandSuccess ? "CHAM CONG" : "KIEM TRA MANG");
+    showLcd(pendingCommandSuccess ? F("DA DONG BO") : F("DONG BO THAT BAI"),
+            pendingCommandSuccess ? F("CHAM CONG") : F("KIEM TRA MANG"));
   } else {
-    showLcd(pendingCommandSuccess ? "LENH HOAN TAT" : "LENH THAT BAI",
+    showLcd(pendingCommandSuccess ? F("LENH HOAN TAT") : F("LENH THAT BAI"),
             pendingCommandType);
   }
   if (!isTestCommand || !pendingCommandSuccess) signalResult(pendingCommandSuccess);
@@ -410,7 +433,7 @@ void serviceDeviceCommandExecution() {
     if (!finished && elapsedAtLeast(millis(), pendingCommandStartedAt, SYNC_COMMAND_TIMEOUT_MS)) {
       finished = true;
       success = false;
-      setLatestError("Dong bo het han; giu su kien chua gui trong LittleFS");
+      setLatestError(F("Dong bo het han; giu su kien chua gui trong LittleFS"));
     }
   } else if (pendingCommandType == "OPEN_DOOR") {
     finished = doorOpen && !doorMoving;
@@ -438,9 +461,9 @@ bool checkDeviceCommand() {
   bool wasCompleted = false;
   if (!readDeviceCommand(templateId, type, employeeId, wasProcessing, wasCompleted)) return false;
   if (!hasValidClock()) {
-    Serial.println("LENH: chua dong bo NTP, tam hoan cap nhat");
+    Serial.println(F("LENH: chua dong bo NTP, tam hoan cap nhat"));
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
-    showLcd("LOI DONG BO GIO", "KIEM TRA MANG");
+    showLcd(F("LOI DONG BO GIO"), F("KIEM TRA MANG"));
     return true;
   }
 
@@ -460,14 +483,14 @@ bool checkDeviceCommand() {
   // A PROCESSING command found after a reset may have been interrupted while
   // touching the sensor. Never rerun it; report a deterministic failure.
   if (wasProcessing && type != "SYNC_ATTENDANCE") {
-    Serial.printf("LENH %s dang PROCESSING sau khi khoi dong, danh bai\n", type.c_str());
+    Serial.printf_P(PSTR("LENH %s dang PROCESSING sau khi khoi dong, danh bai\n"), type.c_str());
     pendingCommandSuccess = false;
     pendingCommandResult = true;
     return finishDeviceCommand();
   }
 
   if (!isSupportedDeviceCommand(type) || commandRequestId.length() == 0) {
-    setLatestError(String("Lenh khong duoc ho tro: ") + type);
+    setLatestError(String(F("Lenh khong duoc ho tro: ")) + type);
     pendingCommandSuccess = false;
     pendingCommandResult = true;
     pendingCommandRestart = false;
@@ -488,7 +511,7 @@ bool checkDeviceCommand() {
       enrolling ? "Waiting for finger" : "Processing device command";
   if (!wasProcessing && !updateDeviceCommandStatus("PROCESSING", processingMessage)) {
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
-    showLcd("LOI MAY CHU", "KIEM TRA MANG");
+    showLcd(F("LOI MAY CHU"), F("KIEM TRA MANG"));
     return true;
   }
   bool success = false;
@@ -496,9 +519,9 @@ bool checkDeviceCommand() {
 
   if (deleting || enrolling) {
     if (!sensorReady) {
-      setLatestError("AS608 dang loi; khong the xu ly mau van tay");
+      setLatestError(F("AS608 dang loi; khong the xu ly mau van tay"));
     } else if (templateId > 0 && templateId <= 127 && deleting) {
-      showLcd("DANG XOA", "VAN TAY...");
+      showLcd(F("DANG XOA"), F("VAN TAY..."));
       success = finger.deleteModel(templateId) == FINGERPRINT_OK;
     } else if (templateId > 0 && templateId <= 127 && enrolling) {
       if (startEnrollment(templateId)) {
@@ -507,19 +530,19 @@ bool checkDeviceCommand() {
       }
     }
   } else if (type == "TEST_LED_GREEN") {
-    showLcd("TEST LED XANH", "DANG THUC HIEN");
+    showLcd(F("TEST LED XANH"), F("DANG THUC HIEN"));
     testGreenLed();
     success = true;
   } else if (type == "TEST_LED_RED") {
-    showLcd("TEST LED DO", "DANG THUC HIEN");
+    showLcd(F("TEST LED DO"), F("DANG THUC HIEN"));
     testRedLed();
     success = true;
   } else if (type == "TEST_BUZZER") {
-    showLcd("TEST COI", "DANG THUC HIEN");
+    showLcd(F("TEST COI"), F("DANG THUC HIEN"));
     testBuzzer();
     success = true;
   } else if (type == "SYNC_ATTENDANCE") {
-    showLcd("DANG DONG BO", "CHAM CONG...");
+    showLcd(F("DANG DONG BO"), F("CHAM CONG..."));
     syncCommandHadRejections = false;
     pendingCommandExecution = true;
     attendanceSyncIntervalMs = ATTENDANCE_NEXT_RECORD_INTERVAL_MS;
@@ -529,15 +552,15 @@ bool checkDeviceCommand() {
     serviceDeviceCommandExecution();
     return true;
   } else if (type == "RESTART_DEVICE") {
-    showLcd("DANG KHOI DONG", "VUI LONG DOI");
+    showLcd(F("DANG KHOI DONG"), F("VUI LONG DOI"));
     success = true;
   } else if (type == "OPEN_DOOR") {
-    showLcd("DANG MO CUA", "VUI LONG DOI");
+    showLcd(F("DANG MO CUA"), F("VUI LONG DOI"));
     openDoor();
     pendingCommandExecution = true;
     return true;
   } else if (type == "CLOSE_DOOR") {
-    showLcd("DANG DONG CUA", "VUI LONG DOI");
+    showLcd(F("DANG DONG CUA"), F("VUI LONG DOI"));
     closeDoor();
     pendingCommandExecution = true;
     return true;

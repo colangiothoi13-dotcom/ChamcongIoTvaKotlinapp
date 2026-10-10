@@ -1,6 +1,19 @@
 # Kiểm chứng firmware ESP8266
 
-Ngày cập nhật: 05/10/2026. Firmware hiện tại là `spark-anonymous-v14-command-status`, giữ sửa kết quả lệnh và hành vi ngoại tuyến của v12. Phép đo cửa trực tiếp ngày 04/10 thuộc bản v9; log người dùng cung cấp sau đó thuộc v10, v11 và v14. Người dùng đã xác nhận cửa hoạt động trở lại; chưa coi một chu kỳ cửa là nghiệm thu toàn bộ thiết bị hoặc luồng mạng.
+Ngày cập nhật: 09/10/2026. Firmware hiện tại là `spark-anonymous-v16-tls-memory`, giữ sửa kết quả lệnh của v14, heartbeat của v15 và hành vi ngoại tuyến của v12. Phép đo cửa trực tiếp ngày 04/10 thuộc bản v9; log người dùng cung cấp sau đó thuộc v10, v11, v14 và v15. Người dùng đã xác nhận cửa hoạt động trở lại; chưa coi một chu kỳ cửa là nghiệm thu toàn bộ thiết bị hoặc luồng mạng.
+
+## Bản sửa bộ nhớ HTTPS v16
+
+Log v15 dừng sau `DANG KY: dat ngon tay lan 1 (template 20)`, báo `Unhandled C++ exception: OOM` rồi reset Software Watchdog. Giải mã bằng ELF v15 đã biên dịch trên máy trỏ về `publishDeviceSnapshot()` → HTTPClient → BearSSL `_installClientX509Validator()` → `operator new`. Không có thời gian giữa các dòng để kết luận đăng ký bị timeout hay lỗi cảm biến. Khi đăng ký kết thúc, `pendingCommandExecution` đã tắt nhưng `pendingCommandResult` còn bật; heartbeat trước đây có thể chen vào trước khi báo kết quả lệnh.
+
+- Chuyển chuỗi LCD/log sang Flash bằng `F()` và `printf_P(PSTR())`. RAM tĩnh giảm từ **39.552** byte trong ELF v15 sang **34.832** byte, tiết kiệm **4.720 byte**.
+- Cả 8 request Auth, heartbeat, mapping, gửi công và lệnh đều kiểm tra lại heap/block sau khi đã tạo BearSSL client và header HTTP, ngay trước request. Giữ kiểm tra ban đầu 30.000/20.000 byte; kiểm tra trước TLS yêu cầu heap ≥28.000 và block ≥24.000 byte. BearSSL core 3.1.2 cấp phát stack 6.200 byte khi tạo client và khoảng 22.194 byte cho các context/buffer kết nối. Ngưỡng sau chuẩn bị dành thêm khoảng 5,8 KB cho TCP, header và phần phụ trợ; vẫn cần đối chiếu trên thiết bị thật.
+- Giải phóng URL tạm sau `https.begin()`, kiểm tra reserve và độ dài serialize của body heartbeat. Hoãn khi thiếu RAM; giữ hàng đợi công, capabilities và kết quả lệnh để retry. Không thu nhỏ buffer nhận TLS 16 KB khi chưa xác nhận hỗ trợ MFLN.
+- Hoãn heartbeat khi đăng ký còn hoạt động hoặc kết quả lệnh thường chưa gửi xong. Giữ cơ chế luân phiên heartbeat/đồng bộ nền của `SYNC_ATTENDANCE`.
+- Chạy `node --test firmware/test/*.test.cjs` đạt **99/99**, không thất bại hoặc bỏ qua. Các bài mới thực thi guard thật với heap/block ở ranh giới, phân mảnh sau chuẩn bị request và cooldown qua millis rollover; kiểm tra reserve/serialize lỗi, dọn client khi hoãn và giữ dữ liệu chờ. Bài tích hợp chạy `loop()` cùng `serviceEnrollment()`/`finishEnrollment()` qua lưu mẫu thành công, lỗi nhận gói cảm biến và timeout; heartbeat chỉ tiếp tục sau khi kết quả lệnh được xác nhận.
+- Biên dịch NodeMCU v2/core ESP8266 3.1.2 thành công: RAM **34.832/80.192 byte (43%)**, IRAM **64.103/65.536 byte (97%)**, flash **464.820/1.048.576 byte (44%)**. Bản build và log ở `firmware/build/esp8266-oom-fix`. Cảnh báo tương thích kiến trúc LiquidCrystal_I2C đã có từ trước.
+
+Khi nạp, giữ LittleFS nếu còn công chờ gửi. Serial 9600 baud phải hiện `FW: spark-anonymous-v16-tls-memory`. Thử đăng ký thành công, để hết thời gian chờ và gửi lại khi mạng lỗi; xem `HTTPS ... truoc TLS: heap=..., block=..., frag=...`, kết quả lệnh và `HEARTBEAT HTTP 200`. Nếu RAM không đủ, phải thấy `HTTPS bo qua ...` và retry, không coi hoãn gửi là đã hoàn tất lệnh. Phiên sửa này chưa nạp hoặc thử trên bo thật; kiểm tra giả lập không thay thế TLS/UART/nguồn thực tế.
 
 ## Bản sửa kết quả lệnh v14
 

@@ -5,6 +5,7 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.loadAttendanceRange
 import vn.chamcong.iot.ui.retryAttendanceRange
+import vn.chamcong.iot.ui.retryWorkItems
 
 import vn.chamcong.iot.ui.AppSpacing
 import android.content.Context
@@ -38,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.ReportFilter
 import vn.chamcong.iot.domain.filterAttendanceReportRows
 import vn.chamcong.iot.domain.validateReportFilter
+import vn.chamcong.iot.domain.filterWorkItemsForReport
+import vn.chamcong.iot.domain.workItemMetrics
 import vn.chamcong.iot.model.ReportType
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
@@ -51,7 +54,7 @@ import java.time.format.DateTimeParseException
 @Composable
 fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
     val context = LocalContext.current
-    var type by remember { mutableStateOf(ReportType.ATTENDANCE) }
+    var type by remember { mutableStateOf(ReportType.WORK_ITEMS) }
     var startText by remember { mutableStateOf(state.selectedWeekStart.toString()) }
     var endText by remember { mutableStateOf(state.selectedWeekStart.plusDays(6).toString()) }
     var employeeId by remember { mutableStateOf("") }
@@ -72,18 +75,24 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
         if (error is DateTimeParseException) "Ngày báo cáo không hợp lệ. Nhập theo định dạng yyyy-MM-dd."
         else error.message?.takeIf(String::isNotBlank) ?: "Bộ lọc báo cáo không hợp lệ"
     }
-    val attendanceHistoryReady = type == ReportType.DEVICE_ACTIVITY || (
+    val needsAttendance = type != ReportType.DEVICE_ACTIVITY && type != ReportType.WORK_ITEMS
+    val workItemsReady = !state.workItemsLoading && state.workItemsError == null
+    val attendanceHistoryReady = type == ReportType.DEVICE_ACTIVITY ||
+        (type == ReportType.WORK_ITEMS && workItemsReady) || (
         filter != null && state.hasCompleteCalculationRange(filter.startDate, filter.endDate, filter.employeeId)
         )
     val inPreview = LocalInspectionMode.current
-    LaunchedEffect(filter?.startDate, filter?.endDate, filter?.employeeId, type == ReportType.DEVICE_ACTIVITY) {
-        if (!inPreview && type != ReportType.DEVICE_ACTIVITY) {
+    LaunchedEffect(filter?.startDate, filter?.endDate, filter?.employeeId, needsAttendance) {
+        if (!inPreview && needsAttendance) {
             filter?.let { vm.loadAttendanceRange(it.startDate, it.endDate, it.employeeId, force = true) }
         }
     }
-    val attendanceRows = if (attendanceHistoryReady) filter?.let(vm::reportAttendanceRows).orEmpty() else emptyList()
+    val attendanceRows = if (attendanceHistoryReady && needsAttendance) filter?.let(vm::reportAttendanceRows).orEmpty() else emptyList()
     val filteredAttendanceRows = filterAttendanceReportRows(attendanceRows, type)
     val deviceRows = if (type == ReportType.DEVICE_ACTIVITY) vm.reportDeviceRows() else emptyList()
+    val workRows = if (type == ReportType.WORK_ITEMS && workItemsReady) filter?.let {
+        filterWorkItemsForReport(state.workItems, it, state.employees)
+    }.orEmpty() else emptyList()
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -92,6 +101,9 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
         item {
             Text("Báo cáo", style = MaterialTheme.typography.titleLarge)
             Text("Lọc theo ngày, nhân viên hoặc phòng ban; ngày dùng định dạng yyyy-MM-dd.", style = MaterialTheme.typography.bodySmall)
+            if (type == ReportType.WORK_ITEMS) {
+                Text("Công việc được lọc theo hạn hoàn thành. Thời điểm hoàn thành là lúc quản lý duyệt.", style = MaterialTheme.typography.bodySmall)
+            }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
@@ -147,14 +159,21 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Xuất CSV và chia sẻ") }
             exportError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (state.attendanceHistoryLoading && filter != null && type != ReportType.DEVICE_ACTIVITY) {
+            if (type == ReportType.WORK_ITEMS) {
+                if (state.workItemsLoading) Text("Đang tải công việc…")
+                state.workItemsError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = vm::retryWorkItems) { Text("Thử lại") }
+                }
+            }
+            if (state.attendanceHistoryLoading && filter != null && needsAttendance) {
                 Text("Đang tải dữ liệu chấm công theo khoảng ngày...", style = MaterialTheme.typography.bodySmall)
             }
-            if (state.attendanceHistoryError != null && filter != null && type != ReportType.DEVICE_ACTIVITY) {
+            if (state.attendanceHistoryError != null && filter != null && needsAttendance) {
                 Text(state.attendanceHistoryError, color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = vm::retryAttendanceRange) { Text("Thử lại") }
             }
-            if (state.attendanceHistoryTruncated && filter != null && type != ReportType.DEVICE_ACTIVITY) {
+            if (state.attendanceHistoryTruncated && filter != null && needsAttendance) {
                 Text(
                     "Khoảng chọn có quá nhiều bản ghi (tối đa ${state.attendanceHistoryLoadedCount}). Hãy thu hẹp khoảng ngày để xuất đầy đủ.",
                     color = MaterialTheme.colorScheme.error
@@ -163,11 +182,40 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
         }
         item {
             Text(
-                if (type == ReportType.DEVICE_ACTIVITY) "${deviceRows.size} thiết bị" else "${filteredAttendanceRows.size} dòng báo cáo",
+                when (type) {
+                    ReportType.DEVICE_ACTIVITY -> "${deviceRows.size} thiết bị"
+                    ReportType.WORK_ITEMS -> "${workRows.size} công việc"
+                    else -> "${filteredAttendanceRows.size} dòng báo cáo"
+                },
                 style = MaterialTheme.typography.titleMedium
             )
         }
-        if (type == ReportType.DEVICE_ACTIVITY) {
+        if (type == ReportType.WORK_ITEMS) {
+            item {
+                val metrics = workItemMetrics(workRows)
+                Text("Hoàn thành ${metrics.completed} · Đang làm ${metrics.inProgress} · Chờ duyệt ${metrics.pendingReview}")
+                Text("Đúng hạn ${metrics.completedOnTime} · Hoàn thành muộn ${metrics.completedLate} · Đang quá hạn ${metrics.overdue}")
+                Text("Tỷ lệ hoàn thành đúng hạn: ${if (metrics.completed == 0) "Chưa có việc hoàn thành" else "%.1f%%".format(metrics.onTimeCompletionRate * 100)}")
+            }
+            items(workRows, key = { it.id }) { row ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(AppSpacing.medium)) {
+                        Text(row.title, style = MaterialTheme.typography.titleMedium)
+                        Text(row.assigneeName)
+                        Text("Hạn: ${row.deadline.toDate().toInstant().atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))}")
+                        Text(when (row.status) {
+                            "ASSIGNED" -> "Được giao"
+                            "IN_PROGRESS" -> "Đang thực hiện"
+                            "PENDING_REVIEW" -> "Chờ duyệt"
+                            "COMPLETED" -> "Hoàn thành"
+                            else -> row.status
+                        })
+                        if (row.resultReport.isNotBlank()) Text("Kết quả: ${row.resultReport}")
+                        if (row.managerFeedback.isNotBlank()) Text("Phản hồi: ${row.managerFeedback}")
+                    }
+                }
+            }
+        } else if (type == ReportType.DEVICE_ACTIVITY) {
             items(deviceRows, key = { it.deviceId }) { row ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(AppSpacing.medium)) {
@@ -197,6 +245,7 @@ fun ReportsScreen(state: MainUiState, vm: MainViewModel) {
 }
 
 private fun reportTypeTitle(type: ReportType): String = when (type) {
+    ReportType.WORK_ITEMS -> "Công việc"
     ReportType.ATTENDANCE -> "Chấm công"
     ReportType.WORK_SUMMARY -> "Ngày công"
     ReportType.LATE_EARLY -> "Trễ/sớm"

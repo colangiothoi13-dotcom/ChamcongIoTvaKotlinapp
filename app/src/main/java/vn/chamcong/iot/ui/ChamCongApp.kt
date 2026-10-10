@@ -50,7 +50,7 @@ import vn.chamcong.iot.ui.employee.EmployeeProfileScreen
 import vn.chamcong.iot.ui.employee.EmployeePayrollScreen
 import vn.chamcong.iot.ui.employee.EmployeeScheduleScreen
 import vn.chamcong.iot.ui.employee.EmployeeResourcesScreen
-import vn.chamcong.iot.ui.employee.EmployeeUtilitiesScreen
+import vn.chamcong.iot.ui.employee.EmployeeTasksScreen
 import vn.chamcong.iot.ui.employee.EmployeeNewsScreen
 import vn.chamcong.iot.ui.employee.EmployeeTenureScreen
 import vn.chamcong.iot.ui.employee.EmployeeSupportScreen
@@ -59,10 +59,12 @@ import vn.chamcong.iot.model.RequestType
 import vn.chamcong.iot.ui.departments.DepartmentsScreen
 import vn.chamcong.iot.ui.notifications.AnnouncementsScreen
 import vn.chamcong.iot.ui.reports.MonthlyTimesheetScreen
+import vn.chamcong.iot.ui.workitems.WorkItemsScreen
 
 enum class AppDestination(val title: String) {
     DASHBOARD("Tổng quan"),
-    TASKS("Tác vụ"),
+    TASKS("Tiện ích"),
+    WORK_ITEMS("Công việc"),
     REQUESTS("Đơn từ"),
     SHIFT_MANAGEMENT("Phân ca"),
     EMPLOYEES("Nhân viên"),
@@ -85,6 +87,8 @@ enum class AppDestination(val title: String) {
 enum class EmployeeDestination(val title: String) {
     HOME("Trang chủ"),
     ATTENDANCE("Chấm công của tôi"),
+    TASKS("Tiện ích"),
+    WORK_ITEMS("Việc của tôi"),
     REQUESTS("Đơn từ"),
     PAYROLL("Bảng lương"),
     PROFILE("Cá nhân"),
@@ -104,13 +108,14 @@ private val employeeTerminationDateFormatter = DateTimeFormatter.ofPattern("dd/M
 
 val adminPrimaryDestinations = listOf(
     AppDestination.DASHBOARD,
+    AppDestination.WORK_ITEMS,
     AppDestination.TASKS,
-    AppDestination.REQUESTS,
     AppDestination.SHIFT_MANAGEMENT,
     AppDestination.EMPLOYEES
 )
 
 val adminTaskDestinations = listOf(
+    AppDestination.REQUESTS,
     AppDestination.ATTENDANCE,
     AppDestination.PRESENCE,
     AppDestination.DEVICES,
@@ -129,10 +134,26 @@ val adminTaskDestinations = listOf(
 
 val employeePrimaryDestinations = listOf(
     EmployeeDestination.HOME,
+    EmployeeDestination.WORK_ITEMS,
+    EmployeeDestination.SCHEDULE,
+    EmployeeDestination.TASKS,
+    EmployeeDestination.PROFILE
+)
+
+val employeeTaskDestinations = listOf(
+    EmployeeDestination.REQUESTS,
+    EmployeeDestination.SHIFT_REGISTRATION,
     EmployeeDestination.SCHEDULE,
     EmployeeDestination.ATTENDANCE,
-    EmployeeDestination.REQUESTS,
-    EmployeeDestination.PROFILE
+    EmployeeDestination.PAYROLL,
+    EmployeeDestination.PROFILE,
+    EmployeeDestination.TENURE,
+    EmployeeDestination.REWARDS,
+    EmployeeDestination.NOTIFICATIONS,
+    EmployeeDestination.NEWS,
+    EmployeeDestination.MEETINGS,
+    EmployeeDestination.DOCUMENTS,
+    EmployeeDestination.SUPPORT
 )
 
 @Composable
@@ -259,7 +280,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
             selected = backStack.removeAt(backStack.lastIndex)
         }
     }
-    val icons = listOf(Icons.Default.Dashboard, Icons.Default.Assignment, Icons.Default.Description, Icons.Default.CalendarMonth, Icons.Default.Groups)
+    val icons = listOf(Icons.Default.Dashboard, Icons.Default.Assignment, Icons.Default.Apps, Icons.Default.CalendarMonth, Icons.Default.Groups)
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(
@@ -318,6 +339,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                     if (destination == AppDestination.REQUESTS) initialRequestGroup = AdminRequestGroup.OTHER_REQUESTS
                 }
                 AppDestination.TASKS -> AdminTasksScreen { destination -> navigate(destination) }
+                AppDestination.WORK_ITEMS -> WorkItemsScreen(state, vm)
                 AppDestination.SHIFT_MANAGEMENT -> ShiftManagementScreen(
                     onOpenWeeklyRegistrations = {
                         vm.selectWeeklyRegistrationWeek()
@@ -426,10 +448,11 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
     var showAccountMenu by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
     fun navigate(destination: EmployeeDestination) {
-        if (destination == EmployeeDestination.REQUESTS) requestInitialType = RequestType.LEAVE
-        if (destination != selected) {
+        val target = if (destination == EmployeeDestination.UTILITIES) EmployeeDestination.TASKS else destination
+        if (target == EmployeeDestination.REQUESTS) requestInitialType = RequestType.LEAVE
+        if (target != selected) {
             backStack.add(selected)
-            selected = destination
+            selected = target
         }
     }
     BackHandler(
@@ -441,7 +464,7 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
             selected = backStack.removeAt(backStack.lastIndex)
         }
     }
-    val icons = listOf(Icons.Default.Home, Icons.Default.CalendarMonth, Icons.Default.LocationOn, Icons.Default.Description, Icons.Default.Person)
+    val icons = listOf(Icons.Default.Home, Icons.Default.Assignment, Icons.Default.CalendarMonth, Icons.Default.Apps, Icons.Default.Person)
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -486,7 +509,10 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 4.dp) {
                 employeePrimaryDestinations.forEachIndexed { index, destination ->
                     NavigationBarItem(
-                        selected = selected == destination,
+                        selected = selected == destination || (
+                            destination == EmployeeDestination.TASKS &&
+                                selected in employeeTaskDestinations && selected !in employeePrimaryDestinations
+                            ),
                         onClick = { navigate(destination) },
                         icon = { Icon(icons[index], destination.title) },
                         label = { Text(destination.title, maxLines = 1) },
@@ -518,7 +544,6 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                         onOpenSchedule = { navigate(EmployeeDestination.SCHEDULE) },
                         onOpenAttendance = { navigate(EmployeeDestination.ATTENDANCE) },
                         onOpenRequests = { navigate(EmployeeDestination.REQUESTS) },
-                        onOpenProfile = { navigate(EmployeeDestination.PROFILE) },
                         onOpenUtility = ::navigate
                     )
                     EmployeeDestination.ATTENDANCE -> EmployeeAttendanceScreen(
@@ -534,7 +559,8 @@ private fun EmployeeHomeShell(state: MainUiState, vm: MainViewModel) {
                     EmployeeDestination.SHIFT_REGISTRATION -> EmployeeScheduleScreen(state, vm, startInRegistration = true)
                     EmployeeDestination.REQUESTS -> EmployeeRequestsScreen(state, vm, initialType = requestInitialType)
                     EmployeeDestination.PAYROLL -> EmployeePayrollScreen(state, vm)
-                    EmployeeDestination.UTILITIES -> EmployeeUtilitiesScreen(::navigate)
+                    EmployeeDestination.TASKS, EmployeeDestination.UTILITIES -> EmployeeTasksScreen(state, ::navigate)
+                    EmployeeDestination.WORK_ITEMS -> WorkItemsScreen(state, vm)
                     EmployeeDestination.MEETINGS -> EmployeeResourcesScreen(state, vm, EmployeeResourceType.MEETING)
                     EmployeeDestination.REWARDS -> EmployeeResourcesScreen(state, vm, EmployeeResourceType.REWARD)
                     EmployeeDestination.DOCUMENTS -> EmployeeResourcesScreen(state, vm, EmployeeResourceType.DOCUMENT)

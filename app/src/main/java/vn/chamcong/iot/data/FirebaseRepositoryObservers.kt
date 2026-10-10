@@ -70,10 +70,11 @@ fun FirebaseRepository.observeEmployeeRequests(employeeId: String): Flow<List<Le
     val listener = db.collection("leaveRequests")
         .whereEqualTo("employeeId", employeeId)
         .addSnapshotListener { value, error ->
-            if (error != null) close(error)
-            else trySend(value?.documents.orEmpty()
-                .mapNotNull { it.toObject(LeaveRequest::class.java)?.copy(id = it.id) }
-                .sortedByDescending { it.createdAt.toDate().time })
+            sendSnapshot(error) {
+                value?.documents.orEmpty()
+                    .mapNotNull { it.leaveRequest() }
+                    .sortedByDescending { it.createdAt.toDate().time }
+            }
         }
     awaitClose { listener.remove() }
 }
@@ -243,8 +244,7 @@ fun FirebaseRepository.observeLeaveRequests(): Flow<List<LeaveRequest>> = callba
     val listener = db.collection("leaveRequests")
         .orderBy("createdAt", Query.Direction.DESCENDING)
         .addSnapshotListener { value, error ->
-            if (error != null) close(error)
-            else trySend(value?.documents.orEmpty().mapNotNull { it.toObject(LeaveRequest::class.java)?.copy(id = it.id) })
+            sendSnapshot(error) { value?.documents.orEmpty().mapNotNull { it.leaveRequest() } }
         }
     awaitClose { listener.remove() }
 }
@@ -265,8 +265,7 @@ fun FirebaseRepository.observeNotifications(): Flow<List<AppNotification>> = cal
         .orderBy("createdAt", Query.Direction.DESCENDING)
         .limit(100)
         .addSnapshotListener { value, error ->
-            if (error != null) close(error)
-            else trySend(value?.documents.orEmpty().mapNotNull { it.toObject(AppNotification::class.java)?.copy(id = it.id) })
+            sendSnapshot(error) { value?.documents.orEmpty().map { it.appNotification() } }
         }
     awaitClose { listener.remove() }
 }
@@ -304,10 +303,11 @@ fun FirebaseRepository.observeEmployeeNotifications(employeeId: String): Flow<Li
     val listener = db.collection("notifications")
         .whereEqualTo("recipientEmployeeId", employeeId)
         .addSnapshotListener { value, error ->
-            if (error != null) close(error)
-            else trySend(value?.documents.orEmpty()
-                .mapNotNull { it.toObject(AppNotification::class.java)?.copy(id = it.id) }
-                .sortedByDescending { it.createdAt.toDate().time })
+            sendSnapshot(error) {
+                value?.documents.orEmpty()
+                    .map { it.appNotification() }
+                    .sortedByDescending { it.createdAt.toDate().time }
+            }
         }
     awaitClose { listener.remove() }
 }
@@ -317,10 +317,12 @@ fun FirebaseRepository.observeAnnouncements(): Flow<List<Announcement>> = callba
         .orderBy("sentAt", Query.Direction.DESCENDING)
         .limit(100)
         .addSnapshotListener { value, error ->
-            if (error != null) close(error)
-            else trySend(value?.documents.orEmpty().mapNotNull { document ->
-                document.toObject(Announcement::class.java)?.copy(id = document.id)
-            })
+            sendSnapshot(error) {
+                value?.documents.orEmpty().mapNotNull { document ->
+                    document.toObject(Announcement::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        ?.copy(id = document.id)
+                }
+            }
         }
     awaitClose { listener.remove() }
 }
@@ -343,8 +345,7 @@ fun FirebaseRepository.observeUserProfile(): Flow<UserProfile?> = callbackFlow {
         awaitClose { }
     } else {
         val listener = db.collection("users").document(uid).addSnapshotListener { value, error ->
-            if (error != null) close(error)
-            else trySend(value?.toObject(UserProfile::class.java)?.copy(uid = uid))
+            sendSnapshot(error) { value?.userProfile() }
         }
         awaitClose { listener.remove() }
     }

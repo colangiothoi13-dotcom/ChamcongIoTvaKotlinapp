@@ -56,7 +56,8 @@ function fixture() {
     EnrollmentStage: Object.fromEntries(['IDLE', 'FIRST_IMAGE', 'FIRST_CONVERSION', 'REMOVE_FINGER', 'SECOND_GAP', 'SECOND_IMAGE', 'SECOND_CONVERSION', 'CREATE_MODEL', 'STORE_MODEL'].map(x => [x, x])),
     AttendanceDelivery: Object.fromEntries(['NOT_STORED', 'QUEUED', 'CONFIRMED', 'REJECTED', 'LOCAL_ACCEPTED', 'ACCESS_ONLY'].map(x => [x, x])),
     AttendanceSyncResult: Object.fromEntries(['EMPTY', 'DEFERRED', 'RETRY', 'ACKNOWLEDGED', 'REJECTED', 'STORAGE_ERROR'].map(x => [x, x])),
-    Serial: { printf() {}, println() {} }, servoWrites: [], displays: [], signals: [],
+    Serial: { printf() {}, printf_P() {}, println() {} }, F: value => value, PSTR: value => value,
+    servoWrites: [], displays: [], signals: [],
     millis() { return state.now >>> 0; }, constrain: (value, min, max) => Math.min(max, Math.max(min, value)),
     doorServo: { write(angle) { state.servoWrites.push([state.now, angle]); }, attach() {} },
     showLcd(...lines) { state.displays.push(lines); }, renderLcd() {}, showReadyScreen() {},
@@ -177,6 +178,113 @@ function wifiLoopFixture() {
   s.run(js(functionSource('10_helpers.ino', 'maintainWifiConnection')));
   return s;
 }
+
+function heartbeatLoopFixture() {
+  const s = fingerprintLoopFixture();
+  Object.assign(s, {
+    HEARTBEAT_INTERVAL_MS: 30000, lastHeartbeat: 1,
+    heartbeatWaitingForAttendanceAttempt: false,
+    operations: [], queueBytes: 2, imageResult: s.FINGERPRINT_NOFINGER,
+    publishDeviceSnapshot() { s.operations.push('heartbeat'); return true; },
+    flushAttendanceOutbox() {
+      s.operations.push('attendance'); return s.AttendanceSyncResult.ACKNOWLEDGED;
+    },
+  });
+  s.run(js(functionSource('40_attendance_service.ino', 'maybePublishDeviceSnapshot')));
+  return s;
+}
+
+test('real enrollment success, sensor error and timeout defer due telemetry through completion retries', () => {
+  for (const outcome of ['success', 'sensor error', 'timeout']) {
+    const s = heartbeatLoopFixture(); s.now = 30001; s.queueBytes = 0;
+    s.pendingCommandExecution = true; s.pendingCommandType = 'ENROLL_FINGERPRINT';
+    s.commandPollIntervalMs = s.COMMAND_ACTIVE_POLL_INTERVAL_MS;
+    s.enrollmentStage = outcome === 'success' ? s.EnrollmentStage.STORE_MODEL : s.EnrollmentStage.FIRST_IMAGE;
+    s.enrollmentStageStartedAt = s.now - (outcome === 'timeout' ? 30000 : 80);
+    s.enrollmentLastServiceAt = s.enrollmentLastPollAt = s.now - 80;
+    if (outcome === 'sensor error') s.imageResult = s.FINGERPRINT_PACKETRECIEVEERR;
+    s.statusAttempts = 0; s.acknowledgeResult = false;
+    s.checkDeviceCommand = () => {
+      s.statusAttempts++;
+      if (s.acknowledgeResult) {
+        s.pendingCommandResult = false;
+        s.commandPollIntervalMs = 15000;
+      }
+      return true;
+    };
+
+    // Execute real loop -> serviceEnrollment -> finishEnrollment. The stage
+    // becomes IDLE this tick, while its Firestore completion remains pending.
+    s.run('loop();');
+    assert.equal(s.enrollmentStage, s.EnrollmentStage.IDLE, outcome);
+    assert.equal(s.pendingCommandExecution, false, outcome);
+    assert.equal(s.pendingCommandSuccess, outcome === 'success', outcome);
+    assert.equal(s.pendingCommandResult, true, outcome);
+    assert.equal(s.sensorCalls, outcome === 'timeout' ? 0 : 1, outcome);
+    assert.equal(s.statusAttempts, 1, outcome);
+    assert.deepEqual(s.operations, [], outcome);
+    assert.equal(s.lastHeartbeat, 1, outcome);
+
+    s.now += 3000; s.run('loop();');
+    assert.equal(s.statusAttempts, 2, outcome);
+    assert.equal(s.pendingCommandResult, true, outcome);
+    assert.deepEqual(s.operations, [], 'a retrying status cannot lose priority to heartbeat');
+    assert.equal(s.lastHeartbeat, 1, outcome);
+
+    s.acknowledgeResult = true; s.now += 3000; s.run('loop();');
+    assert.equal(s.pendingCommandResult, false, outcome);
+    assert.equal(s.statusAttempts, 3, outcome);
+    assert.deepEqual(s.operations, [], 'completion owns its final loop tick');
+    s.imageResult = s.FINGERPRINT_NOFINGER;
+    s.now += 5; s.run('loop();');
+    assert.deepEqual(s.operations, ['heartbeat'], outcome);
+    assert.equal(s.lastHeartbeat, s.now, outcome);
+  }
+});
+
+test('a due heartbeat precedes a failing background FIFO head without starving queued delivery', () => {
+  const s = heartbeatLoopFixture(); s.now = 30001;
+  s.flushAttendanceOutbox = () => {
+    s.operations.push('attendance'); s.hasHttpsTransportFailure = true;
+    s.lastHttpsTransportFailure = s.now; return s.AttendanceSyncResult.RETRY;
+  };
+  s.run('loop();');
+  assert.deepEqual(s.operations, ['heartbeat', 'attendance']);
+  assert.equal(s.queueBytes, 2);
+  s.now = 60001; s.run('loop();');
+  assert.deepEqual(s.operations, ['heartbeat', 'attendance', 'heartbeat', 'attendance']);
+  assert.equal(s.queueBytes, 2);
+});
+
+test('shared transport cooldown alternates heartbeat and FIFO attempts when both fail', () => {
+  const s = heartbeatLoopFixture();
+  s.publishDeviceSnapshot = () => {
+    s.operations.push('heartbeat'); s.hasHttpsTransportFailure = true;
+    s.lastHttpsTransportFailure = s.now; return false;
+  };
+  s.flushAttendanceOutbox = () => {
+    s.operations.push('attendance'); s.hasHttpsTransportFailure = true;
+    s.lastHttpsTransportFailure = s.now; return s.AttendanceSyncResult.RETRY;
+  };
+  for (const now of [30001, 60001, 90001, 120001]) {
+    s.now = now; s.run('loop();');
+  }
+  assert.deepEqual(s.operations, ['heartbeat', 'attendance', 'heartbeat', 'attendance']);
+  assert.equal(s.queueBytes, 2);
+  assert.equal(s.foregroundAttendanceHandled, true);
+});
+
+test('an active foreground scan keeps FIFO priority ahead of due telemetry', () => {
+  const s = heartbeatLoopFixture(); s.now = 30001;
+  s.foregroundAttendanceHandled = false; s.foregroundAttendanceCreatedAt = s.now;
+  s.flushAttendanceOutbox = () => {
+    s.operations.push('attendance'); s.foregroundAttendanceHandled = true;
+    return s.AttendanceSyncResult.ACKNOWLEDGED;
+  };
+  s.run('loop();');
+  assert.deepEqual(s.operations, ['attendance', 'heartbeat']);
+  assert.equal(s.queueBytes, 2);
+});
 
 test('wrong fingerprint stays readable for 1s after immediate finger lift and blocks another scan', () => {
   const s = fingerprintFixture(); s.searchResult = s.FINGERPRINT_NOTFOUND;

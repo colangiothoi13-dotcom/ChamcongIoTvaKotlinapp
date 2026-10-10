@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.dashboard
 
+import vn.chamcong.iot.ui.workitems.WorkOverview
+
 import androidx.compose.ui.tooling.preview.Preview
 import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
@@ -8,6 +10,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +31,7 @@ import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -36,8 +41,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -54,10 +62,19 @@ import vn.chamcong.iot.ui.attendanceStatusLabel
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Locale
+import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDestination) -> Unit) {
     val inPreview = LocalInspectionMode.current
+    var now by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(inPreview) {
+        if (!inPreview) while (true) {
+            delay(15_000)
+            now = Instant.now()
+        }
+    }
     LaunchedEffect(state.selectedWeekStart) {
         if (!inPreview) vm.loadAttendanceRange(state.selectedWeekStart, state.selectedWeekStart.plusDays(6), force = true)
     }
@@ -71,7 +88,17 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDesti
         item {
             CalculationLoadingNotice(state, vm)
             Text("Tổng quan hệ thống", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text("Theo dõi nhân sự và chấm công trong ngày", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Theo dõi công việc, kết quả và có mặt trong ca", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Tuần báo cáo: ${summary.weekStart} – ${summary.weekStart.plusDays(6)}",
+                modifier = Modifier.padding(top = AppSpacing.small),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                TextButton(onClick = { vm.moveWeek(-1) }) { Text("‹ Tuần trước") }
+                TextButton(onClick = { vm.selectWeek(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))) }) { Text("Tuần này") }
+                TextButton(onClick = { vm.moveWeek(1) }) { Text("Tuần sau ›") }
+            }
             Text("Hôm nay · ${daily.date}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
         }
         item {
@@ -106,32 +133,21 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDesti
                 }
             }
         }
-        item {
-            Text("Tổng quan tuần", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Theo dõi nhanh tình hình nhân sự và máy chấm công", style = MaterialTheme.typography.bodyMedium)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Tuần ${summary.weekStart} – ${summary.weekStart.plusDays(6)}", modifier = Modifier.weight(1f))
-                TextButton(onClick = { vm.moveWeek(-1) }) { Text("‹") }
-                TextButton(onClick = { vm.selectWeek(java.time.LocalDate.now()) }) { Text("Tuần này") }
-                TextButton(onClick = { vm.moveWeek(1) }) { Text("›") }
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
-                DashboardMetric("Nhân viên", summary.activeEmployees.toString(), Icons.Default.Groups, Modifier.weight(1f), onClick = { onNavigate(AppDestination.EMPLOYEES) })
-                DashboardMetric("Đã chấm", summary.checkedEmployees.toString(), Icons.Default.Fingerprint, Modifier.weight(1f), onClick = { onNavigate(AppDestination.ATTENDANCE) })
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
-                DashboardMetric("Đi trễ", summary.lateEmployees.toString(), Icons.Default.WarningAmber, Modifier.weight(1f), MaterialTheme.colorScheme.tertiary, { onNavigate(AppDestination.ATTENDANCE) })
-                DashboardMetric("Chưa chấm", summary.unmarkedEmployees.toString(), Icons.Default.EventBusy, Modifier.weight(1f), MaterialTheme.colorScheme.onSurfaceVariant, { onNavigate(AppDestination.ATTENDANCE) })
-            }
-        }
+        item { WorkOverview(state) { onNavigate(AppDestination.WORK_ITEMS) } }
         item {
             Card(Modifier.fillMaxWidth().clickable { onNavigate(AppDestination.ATTENDANCE) }) {
                 Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
-                    Text("Lượt chấm trong tuần", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Nhân viên chấm công trong tuần", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                        AssistChip(onClick = { onNavigate(AppDestination.ATTENDANCE) }, label = { Text("Đã chấm: ${summary.checkedEmployees}") })
+                        AssistChip(onClick = { onNavigate(AppDestination.ATTENDANCE) }, label = { Text("Đi trễ: ${summary.lateEmployees}") })
+                        AssistChip(onClick = { onNavigate(AppDestination.ATTENDANCE) }, label = { Text("Chưa chấm: ${summary.unmarkedEmployees}") })
+                    }
+                    Text(
+                        "Mỗi nhân viên được tính một lần trong ngày.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Row(
                         Modifier.fillMaxWidth().height(140.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -164,7 +180,7 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDesti
                     if (state.devices.isEmpty()) {
                         Text("Chưa có snapshot thiết bị trên Firebase", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        val online = state.devices.count { it.isOnline(Instant.now()) }
+                        val online = state.devices.count { it.isOnline(now) }
                         Text("${online}/${state.devices.size} thiết bị đang online")
                     }
                     Text("Thiết bị mất kết nối hoặc thiếu tín hiệu sẽ được hiển thị là cần kiểm tra.", style = MaterialTheme.typography.bodySmall)
@@ -177,7 +193,7 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDesti
             val missing = state.presenceRecords.count { it.status == vn.chamcong.iot.model.PresenceStatus.MISSING_CHECK_OUT }
             val abnormal = state.presenceRecords.count { it.status == vn.chamcong.iot.model.PresenceStatus.ABNORMAL }
             val failedCommands = state.commands.count { it["status"] == "FAILED" }
-            val offlineDevices = state.devices.count { !it.isOnline(Instant.now()) }
+            val offlineDevices = state.devices.count { !it.isOnline(now) }
             val pendingSync = state.devices.sumOf { it.pendingAttendanceCount }
             val failedScanDevices = state.devices.filter { it.failedScanCount >= 5 }
             val failedScans = failedScanDevices.sumOf { it.failedScanCount }
@@ -189,8 +205,8 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDesti
                         if (pending > 0) Text("$pending đơn từ đang chờ duyệt")
                         if (missing > 0) Text("$missing người chưa chấm ra")
                         if (abnormal > 0) Text("$abnormal lượt có mặt bất thường")
-                if (failedCommands > 0) Text("$failedCommands lệnh thiết bị thất bại")
-                if (offlineDevices > 0) Text("$offlineDevices thiết bị offline/chưa rõ")
+                        if (failedCommands > 0) Text("$failedCommands lệnh thiết bị thất bại")
+                        if (offlineDevices > 0) Text("$offlineDevices thiết bị offline/chưa rõ")
                         if (pendingSync > 0) Text("$pendingSync lượt chấm đang chờ đồng bộ")
                         if (failedScanDevices.isNotEmpty()) Text("$failedScans lượt quét vân tay thất bại gần đây trên ${failedScanDevices.size} thiết bị")
                         if (deviceErrors > 0) Text("$deviceErrors thiết bị có lỗi gần nhất")
@@ -200,20 +216,11 @@ fun DashboardScreen(state: MainUiState, vm: MainViewModel, onNavigate: (AppDesti
         }
         item {
             if (state.visibleAdminNotifications.isNotEmpty()) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                        Text("Thông báo trong app", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        state.visibleAdminNotifications.take(5).forEach { notification ->
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(notification.title, fontWeight = if (notification.read) FontWeight.Normal else FontWeight.Bold)
-                                    Text(notification.body, style = MaterialTheme.typography.bodySmall)
-                                }
-                                if (!notification.read) TextButton(onClick = { vm.markNotificationRead(notification.id) }, enabled = !state.saving) { Text("Đã đọc") }
-                            }
-                        }
-                    }
-                }
+                AdminNotificationsCard(
+                    notifications = state.visibleAdminNotifications,
+                    saving = state.saving,
+                    onMarkRead = { ids -> ids.forEach { vm.markNotificationRead(it) } }
+                )
             }
         }
         item {

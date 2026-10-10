@@ -1,15 +1,16 @@
-# Chấm công IoT bằng vân tay
+# Quản lý công việc kết hợp chấm công IoT bằng vân tay
 
 Ứng dụng Android dành cho **Admin** và **nhân viên**, kết hợp ESP8266 với cảm biến AS608/R307 và Firebase. Tài liệu này mô tả đường đi đến từng màn hình, ý nghĩa các nút và điều gì xảy ra sau khi thao tác. Dự án đang vận hành theo **Firebase Spark**: không cần Cloud Functions để đăng ký vân tay hoặc để Android hiển thị công đã phân giải.
 
-Cập nhật tài liệu ngày **08/10/2026** theo mã nguồn hiện tại. [Báo cáo đồ án](BAO_CAO_DO_AN_CHAM_CONG_IOT.txt) trình bày kiến trúc, thiết kế dữ liệu, Use Case và đánh giá sản phẩm.
+Cập nhật tài liệu ngày **09/10/2026** theo mã nguồn hiện tại. [Báo cáo đồ án](BAO_CAO_DO_AN_CHAM_CONG_IOT.txt) trình bày kiến trúc, thiết kế dữ liệu, Use Case và đánh giá sản phẩm.
 
-**Trạng thái bản cập nhật:** các tiện ích nhân viên đã có màn hình và xử lý đọc/ghi Firebase. Kiểm tra chỉ đọc ngày **08/10/2026** xác nhận Rules đang hoạt động trên `chamcongiot-56ae5` khớp mã nguồn, được cập nhật lúc **09:42:14 giờ Việt Nam**; toàn bộ **22 indexes** khớp cấu hình và index tiện ích đã **READY**. Admin xử lý tại **Đơn từ → Đăng ký tuần / Đơn khác / Tăng ca**, với danh sách gọn, tìm/lọc và chi tiết riêng. Bản giao diện mới đã qua **284 kiểm thử / 45 bộ kiểm thử Android** và build APK debug. Cài APK mới trên **máy Admin** để dùng giao diện mới; luồng Employee và backend giữ nguyên, không cần deploy Firebase thêm. Xem [checklist chức năng và giới hạn kiểm chứng](KIEM_TRA_CHUC_NANG_ADMIN_USER.txt).
+**Trạng thái bản cập nhật 09/10/2026:** đã bổ sung đối tượng Công việc, giao việc theo ca, báo cáo kết quả, duyệt/làm lại, lịch sử phiên bản, cập nhật đồng thời và hiệu suất theo việc. Đã cập nhật Firestore Rules/index và sửa lỗi queue IoT/danh tính lượt chấm. Cần deploy Rules/index mới và cài APK mới trước khi dùng công việc online; đối chiếu Firebase ngày 08/10/2026 thuộc bản trước. Hướng dẫn, sơ đồ dữ liệu, Use Case và kết quả kiểm thử bổ sung nằm ở [Quản lý công việc](docs/QUAN_LY_CONG_VIEC.md).
 
 ## Mục lục
 
 - [Luồng hoạt động chung](#luồng-hoạt-động-chung)
 - [Đăng nhập và điều hướng](#đăng-nhập-và-điều-hướng)
+- [Công việc và kết quả](#công-việc-và-kết-quả)
 - [Chức năng Admin](#chức-năng-admin)
 - [Chức năng nhân viên](#chức-năng-nhân-viên)
 - [Cách hệ thống tính công trên Spark](#cách-hệ-thống-tính-công-trên-spark)
@@ -26,8 +27,11 @@ Admin tạo phòng ban, nhân viên, ca và lịch
   └─ Gửi lệnh đăng ký vân tay → ESP8266 lấy mẫu 2 lần → thiết bị hoàn tất trên Firestore
 Nhân viên đăng nhập → đăng ký lịch tuần sau / gửi đơn / đăng ký tăng ca
 Admin duyệt lịch, đơn từ, tăng ca
+Admin tạo/giao công việc, chọn người thực hiện và ca liên quan (tùy chọn)
 Nhân viên quét vân tay → ESP8266 nhận diện → lưu lượt SCAN/PENDING lên Firestore
 Android ghép lượt quét với lịch, ca và quyết định duyệt → hiển thị công hiệu lực
+Nhân viên mở Việc của tôi → bắt đầu → cập nhật tiến độ → gửi kết quả
+Admin đối chiếu yêu cầu, báo cáo, có mặt trong ca → duyệt hoàn thành hoặc yêu cầu làm lại
 Admin theo dõi, xử lý ngoại lệ → lập phiếu lương, xuất báo cáo, xem nhật ký
 ```
 
@@ -47,20 +51,34 @@ Admin theo dõi, xử lý ngoại lệ → lập phiếu lương, xuất báo c�
 
 Nếu app báo **“Tài khoản chưa được cấp quyền”**, Admin cần kiểm tra `users/{uid}`: `role`, `active` và `employeeId` của nhân viên. Tài khoản Firebase Auth riêng lẻ chưa đủ quyền sử dụng dữ liệu.
 
-Thanh dưới của Admin: **Tổng quan · Tác vụ · Đơn từ · Phân ca · Nhân viên**. Mục **Tác vụ** mở các màn hình vận hành, lương, báo cáo và quản trị. Thanh dưới của nhân viên: **Trang chủ · Lịch làm việc · Chấm công của tôi · Đơn từ · Cá nhân**. **Bảng lương** mở từ **Chấm công của tôi** hoặc menu tài khoản.
+Thanh dưới của Admin: **Tổng quan · Công việc · Tiện ích · Phân ca · Nhân viên**. Mục **Tiện ích** mở các màn hình vận hành, lương, báo cáo và quản trị. Thanh dưới của nhân viên: **Trang chủ · Việc của tôi · Lịch làm việc · Tiện ích · Cá nhân**. **Việc của tôi** mở danh sách công việc được giao. **Tiện ích** tập hợp đơn từ, đăng ký ca, bảng lương và các tiện ích theo nhóm; **Bảng lương** cũng mở được từ **Trang chủ**, **Chấm công của tôi** hoặc menu tài khoản.
+
+Phản hồi kết quả thao tác và lỗi chung hiển thị khoảng 5 giây rồi tự ẩn. Thông báo đã gửi và lịch sử nghiệp vụ được lưu trong các mục tương ứng để xem lại.
+
+## Công việc và kết quả
+
+**Admin → Công việc → Tạo và giao việc** nhập tên, mô tả, yêu cầu kết quả, người thực hiện, thời gian bắt đầu, deadline, ưu tiên và ca tùy chọn. **Phân ca → Lịch → Giao công việc theo ca** điền sẵn người và ca đã chọn. Ngày/giờ công việc nhập theo `dd/MM/yyyy HH:mm`, giờ Việt Nam.
+
+**Nhân viên → Việc của tôi → chi tiết** chọn **Bắt đầu thực hiện**, sau đó nhập **Tiến độ và báo cáo kết quả** để **Lưu tiến độ** hoặc **Gửi kết quả chờ duyệt**. **Admin** xem báo cáo rồi **Duyệt hoàn thành** hoặc **Yêu cầu làm lại** có lý do. Vòng đời: **Được giao → Đang thực hiện → Chờ duyệt → Hoàn thành**.
+
+Danh sách có tìm kiếm và bộ lọc trạng thái, ưu tiên, thời hạn. Chi tiết có lịch sử ai thay đổi gì/lúc nào và lượt quét hợp lệ đúng ca. **Quét vân tay ghi nhận có mặt; kết quả và bước duyệt xác nhận hoàn thành.** Quá hạn đang làm/chờ duyệt và hoàn thành muộn được phân biệt; thời điểm hoàn thành là lúc quản lý duyệt. Khi hai người cập nhật cùng phiên bản, một thao tác thành công, thao tác còn lại báo xung đột và giữ nội dung form.
+
+**Tiện ích → Hiệu suất/Báo cáo → Công việc** xem số việc có hạn trong kỳ, đã hoàn thành/đang làm/chờ duyệt, đúng hạn/muộn, quá hạn và làm lại. Tỷ lệ đúng hạn chỉ tính trên việc đã hoàn thành. Xem [thiết kế dữ liệu, Use Case, kiểm thử và triển khai](docs/QUAN_LY_CONG_VIEC.md).
 
 ## Chức năng Admin
 
-### 1. Tổng quan và Tác vụ
+### 1. Tổng quan và Tiện ích
 
-**Tổng quan** hiển thị tình hình hôm nay, người đi trễ, số lượt quét trong tuần, tình trạng thiết bị, cảnh báo cần xử lý, thông báo và các lượt chấm mới nhất.
+**Tổng quan** hiển thị việc hôm nay, sắp đến hạn, quá hạn, chờ duyệt, cùng tình hình có mặt, người đi trễ, lượt quét, thiết bị và thông báo.
+
+Nút chọn tuần nằm dưới tiêu đề **Tổng quan hệ thống**. Thẻ **Theo dõi công việc** nằm sau các thông tin chấm công hôm nay và trước biểu đồ tuần. Số người đã chấm, đi trễ, chưa chấm trong tuần được gộp vào thẻ biểu đồ; không còn khối Tổng quan tuần riêng.
 
 | Nút/thao tác | Kết quả |
 | --- | --- |
-| `‹`, `Tuần này`, `›` | Đổi tuần của biểu đồ và số liệu tuần. |
+| `‹ Tuần trước`, `Tuần này`, `Tuần sau ›` | Đổi tuần của biểu đồ và số liệu tuần; các chỉ số có nhãn Hôm nay vẫn tính theo ngày hiện tại. |
 | `Xem tất cả` ở “Chấm công mới nhất” | Mở màn hình **Chấm công** để lọc và xử lý chi tiết. |
 | `Đã đọc` trên thông báo | Đánh dấu thông báo đã đọc. |
-| Thẻ chức năng trong **Tác vụ** | Mở màn hình tương ứng: **Chấm công, Có mặt, Thiết bị, Phân ca, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Bảng công tháng, Nhật ký, Phòng ban, Thông báo, Tiện ích nhân viên**. |
+| Thẻ chức năng trong **Tiện ích** | Mở màn hình tương ứng: **Đơn từ, Chấm công, Có mặt, Thiết bị, Phân ca, Ca làm, Lịch, Lương, Hiệu suất, Báo cáo, Bảng công tháng, Nhật ký, Phòng ban, Thông báo, Tiện ích nhân viên**. |
 
 **Phân ca** trên thanh dưới là trang điều hướng nhanh đến **Ca làm**, **Lịch** và **Duyệt đăng ký tuần sau**. Mục **Cài đặt** chưa có màn hình thao tác trong bản hiện tại.
 
@@ -87,7 +105,7 @@ Lệnh đăng ký/xóa có thể lần lượt ở trạng thái chờ, đang x�
 
 ### 3. Phòng ban
 
-Vào **Tác vụ → Phòng ban**.
+Vào **Tiện ích → Phòng ban**.
 
 | Nút/thao tác | Kết quả |
 | --- | --- |
@@ -99,7 +117,7 @@ Vào **Tác vụ → Phòng ban**.
 
 ### 4. Lịch và ca làm
 
-Vào **Phân ca → Lịch** hoặc **Tác vụ → Lịch** để xem lịch đã phân và phân ca. Màn hình này giữ lưới tuần/tháng và các thao tác phân lịch. Ca sáng và ca chiều là ca chính; tăng ca cố định **18:00–22:00**. Khu xem và duyệt đăng ký lịch tuần của Admin nằm tại **Đơn từ → Đăng ký tuần**.
+Vào **Phân ca → Lịch** hoặc **Tiện ích → Lịch** để xem lịch đã phân và phân ca. Màn hình này giữ lưới tuần/tháng và các thao tác phân lịch. Ca sáng và ca chiều là ca chính; tăng ca cố định **18:00–22:00**. Khu xem và duyệt đăng ký lịch tuần của Admin nằm tại **Đơn từ → Đăng ký tuần**.
 
 | Nút/thao tác ở **Lịch** | Kết quả |
 | --- | --- |
@@ -157,7 +175,7 @@ Khu duyệt phía Admin nằm trong **Đơn từ**, với danh sách gọn và c
 
 ### 6. Chấm công và xử lý ngoại lệ
 
-Vào **Tác vụ → Chấm công**, hoặc **Tổng quan → Xem tất cả**.
+Vào **Tiện ích → Chấm công**, hoặc **Tổng quan → Xem tất cả**.
 
 | Nút/thao tác | Kết quả |
 | --- | --- |
@@ -174,9 +192,11 @@ Giờ điều chỉnh dùng `yyyy-MM-dd HH:mm`. Để trống một ô thời gi
 
 ### 7. Có mặt và Thiết bị
 
-**Tác vụ → Có mặt** là màn hình theo dõi, không sửa dữ liệu. `‹ Ngày trước` / `Ngày sau ›` đổi ngày; các chip trạng thái lọc danh sách và số lượng nhân viên đang có mặt, vắng, nghỉ hoặc bất thường.
+**Tiện ích → Có mặt** là màn hình theo dõi, không sửa dữ liệu. `‹ Ngày trước` / `Ngày sau ›` đổi ngày; các chip trạng thái lọc danh sách và số lượng nhân viên đang có mặt, vắng, nghỉ hoặc bất thường.
 
-**Tác vụ → Thiết bị** hiển thị kết nối, heartbeat, firmware, số mẫu, hàng đợi đồng bộ, lượt chấm mới nhất và trạng thái lệnh.
+**Tiện ích → Thiết bị** hiển thị kết nối, heartbeat, firmware, số mẫu, hàng đợi đồng bộ, lượt chấm mới nhất và trạng thái lệnh.
+
+Trạng thái online dựa trên heartbeat mới trong vòng 2 phút và thông tin kết nối do thiết bị gửi. Thiết bị có nguồn hoặc nhận được vân tay tại chỗ chưa chứng minh đang kết nối Firebase; thời gian lượt chấm mới nhất có thể là dữ liệu cũ. Khi heartbeat đã cũ, kiểm tra thời gian cập nhật và kết nối mạng của thiết bị.
 
 | Nút/thao tác ở **Thiết bị** | Kết quả |
 | --- | --- |
@@ -192,30 +212,36 @@ Mỗi thiết bị chỉ xử lý một lệnh đang chờ tại một thời đ
 
 | Màn hình / nút | Kết quả |
 | --- | --- |
-| **Tác vụ → Lương** → nhập `Tháng lương (yyyy-MM)` | Chọn kỳ lương và xem các phiếu đã lưu. |
+| **Tiện ích → Lương** → nhập `Tháng lương (yyyy-MM)` | Chọn kỳ lương; đối chiếu tổng giờ đã lưu trên phiếu với giờ công hiện tại của tháng, gồm ca chính và tăng ca. |
 | `Lập phiếu lương / thiết lập lương` → chọn nhân viên → `Đặt lương` → `Lưu đơn giá giờ` | Lưu đơn giá cơ bản theo giờ cho nhân viên đang làm. |
-| Chọn nhân viên → `Lập phiếu` | Xem trước giờ ca chính, giờ tăng ca, thưởng KPI, khoản thưởng/khấu trừ và thực lĩnh. |
+| Chọn nhân viên → `Lập phiếu` | Số giờ hiển thị ngay trong danh sách chọn nhân viên và trong phiếu; xem trước giờ ca chính, giờ tăng ca, thưởng KPI, khoản thưởng/khấu trừ và thực lĩnh. |
+| `Tải lại giờ công tháng` / `Xem chi tiết … ngày` | Tải đủ dữ liệu của tháng, xem giờ vào/ra và số giờ từng ngày; khi chưa tải đủ, app chưa hiển thị số giờ hay cho lưu phiếu. |
 | `Lưu phiếu` | Chốt phiếu lương tháng thành bản lưu lịch sử; nhân viên có thể xem trên app. |
-| **Tác vụ → Hiệu suất** → chọn tháng | Xem số ca/giờ tăng ca, số lần đi trễ và các khoản thưởng/phạt tự động; màn hình chỉ đọc. |
-| **Tác vụ → Bảng công tháng** → `Tháng trước` / `Tháng sau` | Xem tổng hợp công theo tháng báo cáo được chọn. |
+| Phiếu đã lưu → `Tính lại phiếu` | Tải mới giờ công của tháng, xem số cũ và số mới theo đơn giá hiện tại; mặc định giữ thưởng/khấu trừ cũ. Nhập lý do rồi `Lưu phiếu tính lại` để cập nhật và giữ lịch sử trước/sau. |
+| **Tiện ích → Hiệu suất** → chọn tháng | Xem số việc có hạn trong tháng, đã hoàn thành, đang làm, chờ duyệt, đúng hạn/muộn, làm lại và tỷ lệ đúng hạn trên việc đã hoàn thành; chấm công/tăng ca là phần hỗ trợ bật riêng. |
+| **Tiện ích → Bảng công tháng** → `Tháng trước` / `Tháng sau` | Xem tổng hợp công theo tháng báo cáo được chọn. |
 | `Xem chi tiết theo ngày và ca` / `Ẩn chi tiết theo ca` | Mở hoặc thu gọn các dòng ngày và ca của từng nhân viên. |
 
 Nhân viên đã nghỉ vẫn xuất hiện ở **tháng lịch sử phù hợp** và có thể lập phiếu đến **tháng nghỉ**; từ tháng sau không còn là đối tượng vận hành mới. Phiếu đã lưu giữ nguyên lịch sử khi dữ liệu sống thay đổi.
+
+Admin xác nhận **Vào ca/Ra ca** giúp phân loại lượt quét hợp lệ để tính công. Giờ tính lương cần cặp vào/ra và được tính theo khung ca, hoặc theo điều chỉnh công của Admin; xác nhận một lượt quét không tự cộng đủ giờ cả ca. App cảnh báo ngày đã chấm vào nhưng chưa chấm ra. **Tải lại giờ công tháng** chỉ cập nhật giờ công để đối chiếu. Muốn cập nhật phiếu đã lưu, Admin dùng **Tính lại phiếu**, kiểm tra số tiền, nhập lý do và lưu; mỗi lần lưu giữ lịch sử trước/sau cùng nhật ký. Nếu phiếu, giờ công hoặc đơn giá đã thay đổi trong lúc xem, app yêu cầu mở lại để kiểm tra. Nhân viên đã có phiếu trong tháng hiện **Tính lại phiếu** thay cho **Lập phiếu**, vẫn có thể đặt đơn giá cho nhân viên đang làm.
+
+Ví dụ: phiếu cũ có 0 giờ, đơn giá 0 đ/giờ, thưởng 0 đ và khấu trừ 25.000 đ nên thực lĩnh là −25.000 đ. Khi tính lại với 4 giờ và 26.000 đ/giờ, giữ thưởng/khấu trừ cũ, lương cơ bản là 104.000 đ và thực lĩnh là 79.000 đ. Chỉ bấm tải lại giờ công không thay số tiền của phiếu.
 
 ### 9. Báo cáo, Nhật ký và Thông báo
 
 | Màn hình / nút | Kết quả |
 | --- | --- |
-| **Tác vụ → Báo cáo** → `Tuần đang chọn` / `Tháng này` | Điền nhanh khoảng ngày. Có thể tự nhập `Từ ngày`, `Đến ngày`, mã nhân viên và phòng ban. |
+| **Tiện ích → Báo cáo** → `Tuần đang chọn` / `Tháng này` | Điền nhanh khoảng ngày. Có thể tự nhập `Từ ngày`, `Đến ngày`, mã nhân viên và phòng ban. |
 | Chip `Chấm công`, `Ngày công`, `Trễ/sớm`, `Nghỉ phép`, `Tăng ca`, `Thiết bị` | Chọn loại báo cáo. |
 | `Xuất CSV và chia sẻ` | Tạo tệp CSV từ dữ liệu đã tải và mở bảng chia sẻ của Android. |
 | `Thử lại` | Tải lại khi truy vấn lịch sử lỗi. Nếu app báo vượt giới hạn tải, thu hẹp khoảng ngày trước khi xuất. |
-| **Tác vụ → Nhật ký** → ô `Lọc hành động/đối tượng` | Tìm theo thao tác, đối tượng, người thực hiện hoặc nội dung. Nhật ký chỉ đọc. |
-| **Tác vụ → Thông báo** → chọn `Tất cả nhân viên` hoặc phòng ban → `Gửi thông báo` | Gửi thông báo có tiêu đề và nội dung; xem lại tại “Lịch sử đã gửi”. |
+| **Tiện ích → Nhật ký** → ô `Lọc hành động/đối tượng` | Tìm theo thao tác, đối tượng, người thực hiện hoặc nội dung. Nhật ký chỉ đọc. |
+| **Tiện ích → Thông báo** → chọn `Tất cả nhân viên` hoặc phòng ban → `Gửi thông báo` | Gửi thông báo có tiêu đề và nội dung; xem lại tại “Lịch sử đã gửi”. |
 
 ### 10. Tiện ích nhân viên
 
-Vào **Tác vụ → Tiện ích nhân viên** để quản lý nội dung hiển thị ở **Lịch họp, Khen thưởng, Tài liệu** của nhân viên.
+Vào **Tiện ích → Tiện ích nhân viên** để quản lý nội dung hiển thị ở **Lịch họp, Khen thưởng, Tài liệu** của nhân viên.
 
 | Nút/thao tác | Kết quả |
 | --- | --- |
@@ -233,23 +259,30 @@ Vào **Tác vụ → Tiện ích nhân viên** để quản lý nội dung hiể
 
 ### 1. Trang chủ
 
-Trang chủ cho biết ca hôm nay, giờ chấm vào/ra, số giờ làm, tăng ca, số lần đi trễ, ngày công và thông báo.
+Trang chủ cho biết ca hôm nay, giờ chấm vào/ra, số giờ làm, tăng ca, số lần đi trễ, ngày công và thông báo. Phần **Truy cập nhanh** chỉ giữ bốn lối tắt **Đăng ký ca, Đơn từ, Bảng lương, Hỗ trợ** để giảm số hàng trên màn hình.
+
+Thẻ **Việc của tôi** nằm ngay dưới khối **Trạng thái chấm công**, trước **Truy cập nhanh**; bấm thẻ để mở danh sách việc được giao.
 
 | Nút/thao tác | Kết quả |
 | --- | --- |
 | Dòng `Ca làm việc` | Mở **Lịch làm việc**. |
-| `Xem thêm` ở “Công việc hôm nay”, dòng `Trạng thái chấm công` | Mở **Chấm công của tôi**. |
-| `Xem tất cả` ở “Tiện ích” | Mở danh sách đầy đủ các tiện ích. |
+| `Xem thêm` ở “Ca làm hôm nay”, dòng `Trạng thái chấm công` | Mở **Chấm công của tôi**. |
+| `Xem tất cả` ở “Truy cập nhanh” | Mở **Tiện ích** với toàn bộ chức năng nhân viên. |
 | Biểu tượng chuông | Mở danh sách thông báo; badge đếm thông báo chưa đọc. `Xem nội dung` đánh dấu đúng thông báo đó đã đọc trên Firebase. |
-| `Đơn báo` | Mở **Đơn từ** để gửi và theo dõi đơn. |
+| `Đơn từ` | Mở danh sách đơn để gửi và theo dõi; badge đếm đơn và đăng ký tăng ca đang chờ duyệt. |
 | `Đăng ký ca` | Mở trực tiếp phần đăng ký ca tuần sau để chọn ca và gửi Admin duyệt. Cũng có thể vào **Lịch làm việc → Đăng ký tuần sau**. |
-| `Thông tin` | Mở **Cá nhân** để xem hồ sơ và lưu thông tin liên hệ. |
-| `Thâm niên` | Tính thời gian làm việc từ ngày vào làm trong hồ sơ. |
-| `Lịch họp` | Xem lịch họp được Admin chia sẻ cho bạn hoặc phòng ban; mở liên kết họp nếu có. |
-| `Tin tức` | Xem nội dung Admin đã gửi qua **Thông báo**. |
-| `Khen thưởng` | Xem ghi nhận Admin gửi cho riêng bạn. |
-| `Tài liệu` | Xem tài liệu được chia sẻ và mở liên kết HTTPS. |
+| `Bảng lương` | Xem bảng lương, giờ làm và tăng ca của bạn. |
 | `Hỗ trợ` | Gửi yêu cầu hỗ trợ vân tay tới Admin và theo dõi trạng thái, phản hồi. |
+
+Mục **Tiện ích** trên thanh dưới có ba nhóm:
+
+| Nhóm | Chức năng |
+| --- | --- |
+| **Ca làm & chấm công** | Đơn từ, Đăng ký ca, Lịch làm việc, Chấm công của tôi. |
+| **Thu nhập & hồ sơ** | Bảng lương, Cá nhân, Thâm niên, Khen thưởng. |
+| **Thông tin & hỗ trợ** | Thông báo, Tin tức, Lịch họp, Tài liệu, Hỗ trợ. |
+
+Danh sách hiển thị số đơn chờ duyệt, thông báo chưa đọc và yêu cầu hỗ trợ chờ phản hồi. Khi mở chức năng phụ, thanh dưới giữ **Tiện ích** được chọn; nút quay lại trở về màn hình trước đó.
 
 Dữ liệu lịch họp, khen thưởng và tài liệu được lưu tại `employeeResources`, theo dõi realtime theo quyền người nhận. Listener tải tối đa **200 mục cập nhật mới nhất, tính chung cả ba loại nội dung**, rồi từng màn hình lọc theo loại. Khi Admin chưa tạo nội dung, màn hình hiển thị danh sách trống; khi tải lỗi, có nút **Thử lại**.
 
@@ -284,7 +317,7 @@ Khi gửi, app kiểm tra tài khoản, hồ sơ và ca từ server, rồi ghi �
 
 ### 4. Đơn từ và đăng ký tăng ca
 
-Vào **Đơn từ**. Các loại đơn hiện có: **Nghỉ phép, Đi muộn, Về sớm, Ngoài văn phòng, Sửa chấm công, Đổi ca**.
+Vào **Tiện ích → Đơn từ** hoặc lối tắt **Đơn từ** trên Trang chủ. Các loại đơn hiện có: **Nghỉ phép, Đi muộn, Về sớm, Ngoài văn phòng, Sửa chấm công, Đổi ca**.
 
 | Nút/thao tác | Kết quả |
 | --- | --- |
@@ -298,11 +331,13 @@ Khu tăng ca hiển thị đơn chờ, đã duyệt và bị từ chối cùng p
 
 ### 5. Cá nhân
 
+**Hoạt động gần đây** mặc định hiển thị 3 lượt chấm mới nhất. `Xem thêm` mở thêm 3 lượt mỗi lần; `Thu gọn` trở về 3 lượt. Khi đổi tài khoản hoặc hồ sơ nhân viên, danh sách trở về mức hiển thị ban đầu.
+
 | Nút/thao tác | Kết quả |
 | --- | --- |
 | Sửa điện thoại/địa chỉ → `Lưu thông tin liên hệ` | Cập nhật phần liên hệ trong hồ sơ cá nhân. |
 | Nhập `Nội dung cần hỗ trợ` → `Gửi yêu cầu hỗ trợ` | Gửi yêu cầu liên quan đến vân tay cho Admin. |
-| `Tải thêm lịch sử` | Tải thêm lượt hoạt động/chấm công cũ trong hồ sơ. |
+| `Tải thêm lịch sử` | Xuất hiện khi đã xem hết các lượt đang có; tải thêm lượt chấm công cũ trong hồ sơ. |
 | `Đổi mật khẩu` | Mở hộp thoại đặt mật khẩu mới. |
 
 Thông tin chức vụ, mã nhân viên, phòng ban và trạng thái vân tay là phần hiển thị; nhân viên không tự sửa các dữ liệu quản trị này.
@@ -324,7 +359,7 @@ Admin quản lý nội dung; nhân viên đọc theo người nhận khi tài kh
 
 ## Cách hệ thống tính công trên Spark
 
-1. **Thiết bị nhận diện:** AS608 so mẫu đã đăng ký tại chỗ; cảm biến không tự tải mẫu từ Firebase. Khi Wi-Fi hoặc kết nối Firebase không khả dụng, firmware có thể **lưu lượt quét và mở cửa theo mẫu đang có trong AS608**, nếu đã có giờ NTP hợp lệ và lưu LittleFS thành công. Bản hiện tại `spark-anonymous-v14-command-status` giữ hành vi v12: chỉ mở cửa khi đúng mẫu lúc bật nguồn chưa có Wi-Fi; LCD báo `CHUA LUU CONG` và không tạo lượt chấm vì chưa có giờ. ESP8266 không lưu danh sách hay cache nhân viên; liên kết danh tính của lượt offline được tra khi kết nối trở lại. Lượt được lưu sẽ được gửi lại từng bản.
+1. **Thiết bị nhận diện:** AS608 so mẫu đã đăng ký tại chỗ; cảm biến không tự tải mẫu từ Firebase. Khi Wi-Fi hoặc kết nối Firebase không khả dụng, firmware có thể **lưu lượt quét và mở cửa theo mẫu đang có trong AS608**, nếu đã có giờ NTP hợp lệ và lưu LittleFS thành công. Bản hiện tại `spark-anonymous-v16-tls-memory` giữ hành vi v12: chỉ mở cửa khi đúng mẫu lúc bật nguồn chưa có Wi-Fi; LCD báo `CHUA LUU CONG` và không tạo lượt chấm vì chưa có giờ. ESP8266 không lưu danh sách hay cache nhân viên; liên kết danh tính của lượt offline được tra khi kết nối trở lại. Lượt được lưu sẽ được gửi lại từng bản.
 2. **Lưu lượt gốc:** ESP8266 dùng Firebase Anonymous Auth, ghi `attendance/{eventId}` dạng `SCAN/PENDING`. Thiết bị không tự quyết định đây là vào hay ra theo mốc 12 giờ.
 3. **Android phân giải:** app ghép lượt quét với `workSchedules`, `shifts`, các điều chỉnh và quyết định duyệt. Nó chống quét trùng, xác định lượt vào/ra, phát hiện thiếu lượt ra và tính công theo ca.
 4. **Ngoài lịch:** Admin tạo quyết định duyệt/từ chối. Trên Spark, quyết định có thể được lưu ban đầu ở trạng thái `PENDING`; Android đọc nó và áp dụng vào bản công hiệu lực. Duyệt sẽ bổ sung ca được chọn cho ngày đó để ghép các lượt quét; từ chối giữ ngoại lệ.
@@ -335,7 +370,9 @@ Admin quản lý nội dung; nhân viên đọc theo người nhận khi tài kh
 
 **Tải dữ liệu:** Dashboard giữ các cửa sổ lịch nhỏ theo tuần/tháng thay vì lắng nghe lịch mọi năm. Phiếu lương được đọc theo tháng. Khi xem kỳ cũ, app tải lượt quét theo trang và tải lịch, ca, nghỉ phép, tăng ca, điều chỉnh, phân loại và duyệt ngoài lịch của kỳ đó từ server. Có thêm ngày biên để ghép ca qua đêm; điều chỉnh được tìm theo ngày công, không theo ngày tạo. CSV và lưu lương chỉ được bật khi tải đủ đúng kỳ và phạm vi nhân viên; lỗi mạng hoặc vượt giới hạn 5.000 lượt quét sẽ yêu cầu tải lại hoặc thu hẹp kỳ.
 
-**Phản hồi thiết bị:** “Đã lưu, chờ đồng bộ” khác với “đã xác nhận”, “bị từ chối” và “không lưu được”. Khi online, xác nhận của lượt đang xử lý trong thời hạn cho phép mở cửa. Khi kết nối không khả dụng và có giờ hợp lệ, chính sách AS608 cho phép lượt đang xử lý đã lưu bền vững mở cửa một lần; LCD báo `OFFLINE: DA LUU`, chưa phải xác nhận công từ server. Trường hợp chưa có giờ chỉ mở cửa và báo `CHUA LUU CONG`. Hàng đợi gửi từng bản và retry khi lỗi tạm thời. Lượt mới thay thế quyền mở cửa trong RAM của lượt cũ, kể cả khi lượt mới bị từ chối hoặc không lưu được; bản cũ vẫn nằm trong hàng đợi. Xác nhận muộn, sau khởi động lại hoặc của lượt đã mở offline chỉ đồng bộ dữ liệu, không mở cửa thêm. `SYNC_ATTENDANCE` giữ `PROCESSING` cho đến khi hàng đợi rỗng; timeout không xóa các bản đã lưu. Wi-Fi vừa kết nối lại cho hàng đợi một lần retry ngay khi cửa đã đóng; hàng đợi được ưu tiên trước đọc lệnh mới và heartbeat. Hoãn HTTPS không đẩy lùi hạn retry thêm 30 giây. Lỗi gửi kết quả lệnh khi hàng đợi đã rỗng không làm LCD báo nhầm còn công chờ gửi.
+**Phản hồi thiết bị:** “Đã lưu, chờ đồng bộ” khác với “đã xác nhận”, “bị từ chối” và “không lưu được”. Khi online, xác nhận của lượt đang xử lý trong thời hạn cho phép mở cửa. Khi kết nối không khả dụng và có giờ hợp lệ, chính sách AS608 cho phép lượt đang xử lý đã lưu bền vững mở cửa một lần; LCD báo `OFFLINE: DA LUU`, chưa phải xác nhận công từ server. Trường hợp chưa có giờ chỉ mở cửa và báo `CHUA LUU CONG`. Hàng đợi gửi từng bản và retry khi lỗi tạm thời. Lượt mới thay thế quyền mở cửa trong RAM của lượt cũ, kể cả khi lượt mới bị từ chối hoặc không lưu được; bản cũ vẫn nằm trong hàng đợi. Xác nhận muộn, sau khởi động lại hoặc của lượt đã mở offline chỉ đồng bộ dữ liệu, không mở cửa thêm. `SYNC_ATTENDANCE` giữ `PROCESSING` cho đến khi hàng đợi rỗng; timeout không xóa các bản đã lưu. Wi-Fi vừa kết nối lại cho hàng đợi một lần retry ngay khi cửa đã đóng; hàng đợi được ưu tiên trước đọc lệnh mới. Lượt quét đang xử lý được ưu tiên trước heartbeat; khi đồng bộ nền, heartbeat đến hạn và lần gửi FIFO luân phiên quyền thử để lỗi ở đầu hàng đợi không chặn heartbeat kéo dài. Hoãn HTTPS không đẩy lùi hạn retry thêm 30 giây. Lỗi gửi kết quả lệnh khi hàng đợi đã rỗng không làm LCD báo nhầm còn công chờ gửi.
+
+**Heartbeat:** firmware v15 gửi cập nhật khoảng mỗi 30 giây khi điều kiện mạng và phần cứng cho phép, kể cả khi hàng đợi chưa rỗng hoặc chưa có giờ NTP. Firestore ghi `lastHeartbeat` bằng thời gian server (`REQUEST_TIME`) để đồng hồ thiết bị không làm sai trạng thái kết nối. Việc ghi lượt chấm mới vẫn cần giờ NTP hợp lệ như quy tắc bên dưới.
 
 **Điều kiện và giới hạn offline:**
 
@@ -383,7 +420,7 @@ Dự án dùng JDK 17, Gradle Wrapper 8.9 và Android SDK 35; app hỗ trợ t�
 .\gradlew.bat :app:assembleDebug
 ```
 
-APK debug nằm tại `app/build/outputs/apk/debug/app-debug.apk`. Với bản chuyển khu duyệt đăng ký tuần sang **Đơn từ**, cài APK mới trên **máy Admin**; nhân viên tiếp tục dùng luồng gửi lịch hiện có. Khi thay đổi quy tắc phân giải công, cần cập nhật cả Admin và nhân viên để dùng cùng quy tắc Spark. Chỉ build/cài app không tự cập nhật Firestore Rules hay firmware trên ESP8266.
+APK debug nằm tại `app/build/outputs/apk/debug/app-debug.apk`. Cài APK mới trên **máy Admin** để có khu duyệt đăng ký tuần trong **Đơn từ** và trên **máy nhân viên** để có mục **Tiện ích** cùng Trang chủ gọn hơn. Khi thay đổi quy tắc phân giải công, cần cập nhật cả Admin và nhân viên để dùng cùng quy tắc Spark. Chỉ build/cài app không tự cập nhật Firestore Rules hay firmware trên ESP8266.
 
 ### ESP8266 + AS608/R307
 
@@ -402,7 +439,7 @@ Cấp nguồn đúng cho cảm biến/servo và nối chung GND. Servo nên có 
 
 ### Đồng bộ giờ trước khi chấm công ngoại tuyến
 
-1. Nạp cả sketch v14, kiểm tra Serial 9600 baud hiện `FW: spark-anonymous-v14-command-status`. Giữ LittleFS khi nạp nếu còn lượt chờ gửi. Với lệnh đồng bộ, kiểm tra `Cap nhat lenh: HTTP 200` và trạng thái `COMPLETED` trên app; còi/đèn xanh chỉ báo thành công sau khi ghi được kết quả lệnh. Cờ `applied=true` của lệnh thông thường không thay thế trạng thái hoàn tất.
+1. Nạp cả sketch v16, kiểm tra Serial 9600 baud hiện `FW: spark-anonymous-v16-tls-memory`. Giữ LittleFS khi nạp nếu còn lượt chờ gửi. Bản này giảm RAM thường trực bằng cách đặt chuỗi LCD/log trong Flash và kiểm tra lại heap/block ngay trước TLS; nếu thiếu RAM, thiết bị hoãn HTTPS và giữ dữ liệu để thử lại. Với lệnh đồng bộ, kiểm tra `Cap nhat lenh: HTTP 200` và trạng thái `COMPLETED` trên app; còi/đèn xanh chỉ báo thành công sau khi ghi được kết quả lệnh. Cờ `applied=true` của lệnh thông thường không thay thế trạng thái hoàn tất.
 2. Cho thiết bị kết nối Wi-Fi **có Internet** để lấy giờ NTP, rồi đối chiếu ngày/giờ trên LCD với giờ Việt Nam. Chỉ thấy Wi-Fi hoặc Firebase đăng nhập thành công chưa đủ để kết luận đã có giờ hợp lệ.
 3. Giữ nguồn ESP, ngắt Wi-Fi và quét mẫu đã đăng ký: lượt được lưu trước khi mở cửa; LCD báo `OFFLINE: DA LUU`.
 4. Cho có mạng trở lại: hàng đợi gửi từng bản, giữ thời điểm quét ban đầu và không mở cửa thêm khi xác nhận muộn.
@@ -441,18 +478,20 @@ Nếu tắt nguồn/reset rồi bật lại khi chưa có Wi-Fi, ESP chưa biế
 
 ## Kiểm thử hồi quy
 
-Kết quả đã ghi nhận ngày **08/10/2026**; Android được chạy lại sau khi làm gọn ba nhóm **Đơn từ** của Admin:
+Bản Công việc ngày **09/10/2026**: Android **300/300** trong **48 bộ**, Firestore Emulator **56/56**, Functions **36/36**, firmware mô phỏng **79/79**. APK debug và firmware NodeMCU v2 đều biên dịch thành công. Chưa triển khai Rules/index mới lên online, cài APK hoặc nạp firmware trên thiết bị thật. Các kết quả dưới đây thuộc đợt trước; [tài liệu công việc](docs/QUAN_LY_CONG_VIEC.md) ghi phạm vi mới.
+
+Kết quả đã ghi nhận ngày **08/10/2026**; Android được chạy lại sau khi làm gọn ba nhóm **Đơn từ** của Admin và thêm **Tiện ích** cho nhân viên:
 
 | Nhóm kiểm chứng | Kết quả | Phạm vi |
 | --- | --- | --- |
-| Android | **284 kiểm thử / 45 bộ kiểm thử đạt**, không lỗi/thất bại/bỏ qua; build APK debug thành công sau làm gọn ba nhóm Admin | Chạy lại toàn bộ bộ kiểm thử hiện có; không bổ sung test mới cho lần đổi cách trình bày này. |
+| Android | **284 kiểm thử / 45 bộ kiểm thử đạt**, không lỗi/thất bại/bỏ qua; build APK debug thành công sau cập nhật giao diện Admin và nhân viên | Chạy lại toàn bộ bộ kiểm thử hiện có, cập nhật kiểm tra thứ tự thanh điều hướng nhân viên; không bổ sung test mới cho lần đổi cách trình bày này. |
 | Firestore Emulator | **49/49 kiểm thử đạt** trong đợt rà soát trước | Quyền đọc/ghi, transaction, phạm vi nhân viên; gồm 7 kiểm thử đăng ký tuần, 5 kiểm thử tiện ích và 3 kiểm thử thao tác Admin đồng thời. Rules không đổi; kiểm thử trên demo cục bộ. |
 | Backend Functions tùy chọn | **32/32 kiểm thử đạt** trong đợt rà soát trước | Các bài kiểm thử dưới `firebase/functions`; phần cốt lõi Spark dùng Rules và Android. |
 | Mô phỏng firmware | **69/69 kiểm thử đạt** | Trạng thái lệnh thiết bị, hàng đợi offline và runtime; không thay thế kiểm chứng cảm biến/cửa trên phần cứng thật. |
 
-Firestore **49/49**, Functions **32/32** và firmware **69/69** là kết quả đợt rà soát trước; không chạy lại ba nhóm này trong lần làm gọn Đơn từ Admin, vì thay đổi chỉ ở UI.
+Firestore **49/49**, Functions **32/32** và firmware **69/69** là kết quả đợt rà soát trước; không chạy lại ba nhóm này trong lần cập nhật giao diện Admin và nhân viên, vì thay đổi chỉ ở UI.
 
-APK debug mới được tạo lúc **12:29:26 giờ Việt Nam ngày 08/10/2026**, dung lượng **23.747.004 byte**. Đây là kết quả kiểm thử/build trên máy phát triển và kiểm tra Firebase chỉ đọc; chưa phải xác nhận bấm toàn bộ UI với hai tài khoản hoặc đo hiệu năng trên điện thoại thật. Việc chụp ảnh, đo phần cứng và thử end-to-end trên điện thoại/ESP8266 được theo dõi riêng trong báo cáo đồ án. [Checklist Admin/nhân viên](KIEM_TRA_CHUC_NANG_ADMIN_USER.txt) ghi từng nhóm đã rà soát, lỗi đã sửa, giới hạn và các kịch bản cần thử trực tiếp.
+APK debug được build lại từ mã nguồn hiện tại tại `app/build/outputs/apk/debug/app-debug.apk`. Đây là kết quả kiểm thử/build trên máy phát triển; lần thêm Tiện ích nhân viên chưa kiểm tra trực tiếp giao diện vì máy không có thiết bị hoặc emulator Android sẵn có. Việc chụp ảnh, đo phần cứng và thử end-to-end trên điện thoại/ESP8266 được theo dõi riêng trong báo cáo đồ án. [Checklist Admin/nhân viên](KIEM_TRA_CHUC_NANG_ADMIN_USER.txt) ghi từng nhóm đã rà soát, lỗi đã sửa, giới hạn và các kịch bản cần thử trực tiếp.
 
 Chạy build và kiểm thử Android:
 

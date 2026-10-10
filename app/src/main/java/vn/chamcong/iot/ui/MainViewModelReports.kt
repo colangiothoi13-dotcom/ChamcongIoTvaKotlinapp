@@ -86,6 +86,14 @@ internal class MainReportQueries(
     )
 
     fun reportCsv(type: ReportType, filter: ReportFilter): String = when (type) {
+        ReportType.WORK_ITEMS -> {
+            check(!_state.value.workItemsLoading && _state.value.workItemsError == null) {
+                "Cần tải đầy đủ công việc trước khi xuất báo cáo"
+            }
+            workItemsToCsv(vn.chamcong.iot.domain.filterWorkItemsForReport(
+                _state.value.workItems, filter, _state.value.employees, zoneId
+            ))
+        }
         ReportType.DEVICE_ACTIVITY -> vn.chamcong.iot.data.deviceRowsToCsv(reportDeviceRows())
         ReportType.ATTENDANCE, ReportType.WORK_SUMMARY, ReportType.LATE_EARLY, ReportType.LEAVE, ReportType.OVERTIME -> {
             check(_state.value.hasCompleteCalculationRange(filter.startDate, filter.endDate, filter.employeeId)) {

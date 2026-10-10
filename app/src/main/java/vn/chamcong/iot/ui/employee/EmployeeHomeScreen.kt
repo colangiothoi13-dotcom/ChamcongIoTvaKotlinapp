@@ -1,5 +1,7 @@
 package vn.chamcong.iot.ui.employee
 
+import vn.chamcong.iot.ui.workitems.WorkOverview
+
 import androidx.compose.ui.tooling.preview.Preview
 import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.background
@@ -20,15 +22,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.HeadsetMic
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
@@ -83,7 +81,6 @@ fun EmployeeHomeScreen(
     onOpenSchedule: () -> Unit = {},
     onOpenAttendance: () -> Unit = {},
     onOpenRequests: () -> Unit = {},
-    onOpenProfile: () -> Unit = {},
     onOpenUtility: (EmployeeDestination) -> Unit = {}
 ) {
     val employee = state.currentEmployee
@@ -110,7 +107,8 @@ fun EmployeeHomeScreen(
         if (it.overtimeSeconds > 0L) it.overtimeSeconds / 3600.0 else it.overtimeHours
     }
     val lateCount = summaries.count { it.lateMinutes > 0 }
-    val pendingRequests = state.employeeRequests.count { it.status == "PENDING" }
+    val pendingRequests = state.employeeRequests.count { it.status == "PENDING" } +
+        state.employeeOvertimeRequests.count { it.status == "PENDING" }
     val unreadNotifications = state.employeeNotifications.count { !it.read }
 
     LazyColumn(
@@ -162,7 +160,7 @@ fun EmployeeHomeScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Công việc hôm nay", color = Color.White, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    Text("Ca làm hôm nay", color = Color.White, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                     TextButton(onClick = onOpenAttendance) {
                         Text("Xem thêm", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyLarge)
                     }
@@ -191,26 +189,27 @@ fun EmployeeHomeScreen(
         }
 
         item {
+            Column(Modifier.padding(horizontal = AppSpacing.large)) {
+                WorkOverview(state) { onOpenUtility(EmployeeDestination.WORK_ITEMS) }
+            }
+        }
+
+        item {
             Column(
                 modifier = Modifier.padding(horizontal = AppSpacing.large),
                 verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Tiện ích", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { onOpenUtility(EmployeeDestination.UTILITIES) }) {
+                    Text("Truy cập nhanh", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { onOpenUtility(EmployeeDestination.TASKS) }) {
                         Text("Xem tất cả", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
                 val utilities = listOf(
-                    HomeUtility("Đăng ký ca", Icons.Default.CalendarMonth, AppColorTokens.green, Color(0xFFDFF3E5), onClick = { onOpenUtility(EmployeeDestination.SHIFT_REGISTRATION) }),
-                    HomeUtility("Đơn báo", Icons.Default.Description, AppColorTokens.orange, Color(0xFFFFEAC7), pendingRequests.takeIf { it > 0 }?.toString(), onOpenRequests),
-                    HomeUtility("Lịch họp", Icons.Default.Groups, AppColorTokens.blue, Color(0xFFD9EEFF), onClick = { onOpenUtility(EmployeeDestination.MEETINGS) }),
-                    HomeUtility("Thông tin", Icons.Default.Person, AppColorTokens.green, Color(0xFFDFF3E5), onClick = onOpenProfile),
-                    HomeUtility("Thâm niên", Icons.Default.Work, AppColorTokens.purple, Color(0xFFF0DFF8), onClick = { onOpenUtility(EmployeeDestination.TENURE) }),
-                    HomeUtility("Tin tức", Icons.Default.Event, AppColorTokens.pink, Color(0xFFF8DDE8), onClick = { onOpenUtility(EmployeeDestination.NEWS) }),
-                    HomeUtility("Khen thưởng", Icons.Default.Star, AppColorTokens.orange, Color(0xFFFFF0C8), onClick = { onOpenUtility(EmployeeDestination.REWARDS) }),
-                    HomeUtility("Tài liệu", Icons.Default.Folder, Color(0xFF557785), Color(0xFFE0EAED), onClick = { onOpenUtility(EmployeeDestination.DOCUMENTS) }),
-                    HomeUtility("Hỗ trợ", Icons.Default.HeadsetMic, Color(0xFF12AFC1), Color(0xFFD9F3F6), onClick = { onOpenUtility(EmployeeDestination.SUPPORT) })
+                    HomeUtility("Đăng ký ca", Icons.Default.CalendarMonth, MaterialTheme.colorScheme.onPrimaryContainer, MaterialTheme.colorScheme.primaryContainer, onClick = { onOpenUtility(EmployeeDestination.SHIFT_REGISTRATION) }),
+                    HomeUtility("Đơn từ", Icons.Default.Description, MaterialTheme.colorScheme.onTertiaryContainer, MaterialTheme.colorScheme.tertiaryContainer, pendingRequests.takeIf { it > 0 }?.toString(), onOpenRequests),
+                    HomeUtility("Bảng lương", Icons.Default.Payments, MaterialTheme.colorScheme.onSecondaryContainer, MaterialTheme.colorScheme.secondaryContainer, onClick = { onOpenUtility(EmployeeDestination.PAYROLL) }),
+                    HomeUtility("Hỗ trợ", Icons.Default.HeadsetMic, MaterialTheme.colorScheme.onPrimaryContainer, MaterialTheme.colorScheme.primaryContainer, onClick = { onOpenUtility(EmployeeDestination.SUPPORT) })
                 )
                 utilities.chunked(4).forEach { rowItems ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {

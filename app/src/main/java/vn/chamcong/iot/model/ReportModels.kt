@@ -10,6 +10,7 @@ data class ReportFilter(
 )
 
 enum class ReportType {
+    WORK_ITEMS,
     ATTENDANCE,
     WORK_SUMMARY,
     LATE_EARLY,

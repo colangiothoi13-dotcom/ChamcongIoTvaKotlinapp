@@ -30,6 +30,7 @@ import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.model.DeviceCommandType
 import vn.chamcong.iot.model.Employee
+import vn.chamcong.iot.model.Payroll
 import vn.chamcong.iot.model.EmployeeResource
 import vn.chamcong.iot.model.EmployeeDaySummary
 import vn.chamcong.iot.model.AttendanceReportRow
@@ -43,6 +44,7 @@ import vn.chamcong.iot.model.OvertimeRequestStatus
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
 import vn.chamcong.iot.model.WeeklyScheduleRequest
+import vn.chamcong.iot.ui.payroll.validatePayrollRecalculationSnapshot
 import vn.chamcong.iot.model.WeeklyScheduleRequestStatus
 import vn.chamcong.iot.work.AttendanceSyncWorker
 import java.time.LocalDate
@@ -59,7 +61,8 @@ class MainViewModel private constructor(application: Application, private val pr
 
     fun signIn(email: String, password: String) = viewModelScope.launch {
         if (_state.value.loading || _state.value.saving) return@launch
-        _state.update { it.copy(loading = true, error = null, message = null) }
+        _state.update { it.copy(loading = true, error = null, message = null,
+            feedbackGeneration = it.feedbackGeneration + 1) }
         try {
             repository.signIn(email, password)
             _state.update { it.copy(signedIn = true, loading = false) }
@@ -77,6 +80,10 @@ class MainViewModel private constructor(application: Application, private val pr
     internal var weeklyScheduleRequestsSubscription: Job? = null
     internal var employeeWeeklyScheduleRequestSubscription: Job? = null
     internal var employeeResourcesSubscription: Job? = null
+    internal var workItemsSubscription: Job? = null
+    internal var workItemHistorySubscription: Job? = null
+    internal var workItemOperation: Job? = null
+    internal var workItemSessionGeneration: Long = 0
     internal var subscriptionMode: String? = null
     internal var attendanceHistoryJob: Job? = null
     internal var attendanceHistoryRequestedKey: String? = null
@@ -86,7 +93,12 @@ class MainViewModel private constructor(application: Application, private val pr
     internal var employeeAttendanceHistoryHasMore = false
     internal var employeeAttendanceHistoryEmployeeId: String? = null
 
-    init { if (!previewMode && repository.isSignedIn) subscribe() }
+    init {
+        if (!previewMode) {
+            viewModelScope.launch { expireTransientFeedback(_state) }
+            if (repository.isSignedIn) subscribe()
+        }
+    }
 
     companion object {
         internal fun forPreview(state: MainUiState): MainViewModel = MainViewModel(Application(), true).apply {
@@ -100,7 +112,8 @@ class MainViewModel private constructor(application: Application, private val pr
         block: suspend () -> String
     ) = viewModelScope.launch {
         if (_state.value.saving) return@launch
-        _state.update { it.copy(saving=true, error=null, message=null) }
+        _state.update { it.copy(saving=true, error=null, message=null,
+            feedbackGeneration=it.feedbackGeneration + 1) }
         try {
             val message = block()
             _state.update { it.copy(saving=false, message=message) }
@@ -169,6 +182,20 @@ class MainViewModel private constructor(application: Application, private val pr
         }
         repository.savePayroll(employeeId, month, hoursWorked, bonus, deduction)
         "Đã lưu phiếu lương tháng $month"
+    }
+    fun recalculatePayroll(
+        previous: Payroll,
+        hoursWorked: Double,
+        hourlyRate: Long,
+        bonus: Long,
+        deduction: Long,
+        reason: String,
+        done: () -> Unit
+    ) = perform(done) {
+        val snapshot = _state.value
+        validatePayrollRecalculationSnapshot(snapshot, previous, hoursWorked, hourlyRate)
+        repository.recalculatePayroll(previous, hoursWorked, hourlyRate, bonus, deduction, reason)
+        "Đã tính lại phiếu lương tháng ${previous.month} và lưu lịch sử điều chỉnh"
     }
     fun saveShift(shift: WorkShift, done: () -> Unit) = perform(done) {
         repository.saveShift(shift)
@@ -423,11 +450,14 @@ class MainViewModel private constructor(application: Application, private val pr
         cancelDataSubscriptions()
         subscriptionMode = null
         repository.signOut()
-        _state.value = MainUiState()
+        _state.value = MainUiState(feedbackGeneration = _state.value.feedbackGeneration + 1)
     }
 
     fun clearError() = _state.update { it.copy(error = null) }
-    internal fun setError(error: Throwable) = _state.update { it.copy(error = userFacingErrorMessage(error)) }
+    internal fun setError(error: Throwable) = _state.update {
+        it.copy(error = userFacingErrorMessage(error),
+            feedbackGeneration = it.feedbackGeneration + 1)
+    }
 
     fun hasAdminAccess(): Boolean = canAccessAdmin("password", _state.value.userProfile)
     fun hasEmployeeAccess(): Boolean = canAccessEmployee("password", _state.value.userProfile)

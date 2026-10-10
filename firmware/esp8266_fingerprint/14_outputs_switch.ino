@@ -13,7 +13,7 @@ void initializeOutputsAndSwitch() {
   lastDoorSwitchReading = digitalRead(DOOR_SWITCH_PIN);
   stableDoorSwitchState = lastDoorSwitchReading;
   doorSwitchChangedAt = millis();
-  Serial.printf("NUT CUA D0: luc khoi dong %s (tha nut phai LOW)\n",
+  Serial.printf_P(PSTR("NUT CUA D0: luc khoi dong %s (tha nut phai LOW)\n"),
                 lastDoorSwitchReading == HIGH ? "HIGH" : "LOW");
 }
 
@@ -62,7 +62,7 @@ void handleDoorSwitch() {
   // Chi mo cua khi phat hien canh nhan LOW -> HIGH, khong toggle khi dang mo.
   int reading = digitalRead(DOOR_SWITCH_PIN);
   if (reading != lastDoorSwitchReading) {
-    Serial.printf("NUT CUA D0: tin hieu %s\n", reading == HIGH ? "HIGH" : "LOW");
+    Serial.printf_P(PSTR("NUT CUA D0: tin hieu %s\n"), reading == HIGH ? "HIGH" : "LOW");
     doorSwitchChangedAt = millis();
     lastDoorSwitchReading = reading;
   }
@@ -72,8 +72,8 @@ void handleDoorSwitch() {
 
   stableDoorSwitchState = reading;
   if (stableDoorSwitchState == HIGH) {
-    Serial.println("NUT CUA: da nhan, dang mo cua");
-    showLcd("DA NHAN NUT CUA", "DANG MO CUA");
+    Serial.println(F("NUT CUA: da nhan, dang mo cua"));
+    showLcd(F("DA NHAN NUT CUA"), F("DANG MO CUA"));
     openDoor();
     if (!pendingCommandExecution) showReadyScreen();
   }

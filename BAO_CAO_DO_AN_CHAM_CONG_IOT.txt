@@ -1,10 +1,10 @@
 ﻿BÁO CÁO ĐỒ ÁN
-HỆ THỐNG CHẤM CÔNG IoT BẰNG VÂN TAY
+HỆ THỐNG QUẢN LÝ CÔNG VIỆC KẾT HỢP CHẤM CÔNG IoT BẰNG VÂN TAY
 
-Phiên bản tài liệu: 1.1
+Phiên bản tài liệu: 1.2
 Ngày biên soạn: 27/09/2026
-Ngày cập nhật: 08/10/2026
-Ghi chú: Nội dung mô tả trạng thái mã nguồn hiện tại; kiểm tra chỉ đọc ngày 08/10/2026 đã xác nhận Firestore Rules đang hoạt động khớp source và index tiện ích đã READY trên Firebase online. Bản sửa UI duyệt tuần sau đã qua kiểm thử/build; cần cài APK mới trên máy Admin, không cần deploy Rules thêm. Kết quả kiểm thử mới, kết quả lịch sử và các phép đo phần cứng còn thiếu được phân biệt ở mục 3.7. Các vị trí có ký hiệu [CẦN BỔ SUNG] là phần nhóm tự điền thêm sau khi đo đạc, chụp ảnh hoặc hoàn thiện sơ đồ.
+Ngày cập nhật: 09/10/2026
+Ghi chú: Phiên bản 1.2 bổ sung đối tượng Công việc và quy trình giao, thực hiện, gửi kết quả, duyệt hoàn thành. Thay đổi mới có Firestore Rules/index, vì vậy kết quả đối chiếu Firebase online ngày 08/10/2026 chỉ áp dụng cho bản trước. Cần triển khai Rules/index mới và cài APK mới để dùng công việc online. Các mục 2.9 và 3.10 trình bày phạm vi công việc, dữ liệu, Use Case và kiểm thử bổ sung; các kết quả cũ ở mục 3.7 được giữ làm lịch sử. Các vị trí [CẦN BỔ SUNG] cần minh chứng trên phần cứng/điện thoại thật.
 
 
 MỤC LỤC
@@ -28,6 +28,7 @@ CHƯƠNG 2. PHÂN TÍCH VÀ THIẾT KẾ HỆ THỐNG
   2.6. Mô hình tác nhân và các sơ đồ Use Case
   2.7. Sơ đồ lớp và nguyên tắc tổ chức mã nguồn
   2.8. Thiết kế bảo mật và phân quyền
+  2.9. Thiết kế nghiệp vụ công việc
 CHƯƠNG 3. TRIỂN KHAI VÀ ĐÁNH GIÁ SẢN PHẨM
   3.1. Môi trường triển khai
   3.2. Triển khai firmware trên ESP8266
@@ -38,6 +39,7 @@ CHƯƠNG 3. TRIỂN KHAI VÀ ĐÁNH GIÁ SẢN PHẨM
   3.7. Kết quả kiểm thử hiện tại
   3.8. Đánh giá mức độ hoàn thành
   3.9. Hạn chế và hướng phát triển
+  3.10. Use Case và kiểm thử quản lý công việc
 KẾT LUẬN
 TÀI LIỆU THAM KHẢO
 PHỤ LỤC A. DANH SÁCH LINH KIỆN VÀ THÔNG SỐ CẦN BỔ SUNG
@@ -49,7 +51,7 @@ LỜI MỞ ĐẦU
 
 Trong doanh nghiệp, việc ghi nhận thời gian làm việc là cơ sở để quản lý nhân sự, tính lương, theo dõi tình trạng đi trễ về sớm và đánh giá mức độ tuân thủ lịch làm việc. Cách chấm công thủ công bằng giấy, bảng tính hoặc việc nhập dữ liệu bằng tay thường gây tốn thời gian, dễ sai lệch và khó truy vết khi có khiếu nại.
 
-Đề tài “Hệ thống chấm công IoT bằng vân tay” được thực hiện nhằm xây dựng một mô hình có khả năng nhận dạng người dùng bằng cảm biến vân tay, ghi nhận sự kiện chấm công trên thiết bị ESP8266, đồng bộ dữ liệu lên Firebase và cung cấp ứng dụng Android để nhân viên, quản trị viên theo dõi cũng như xử lý dữ liệu. Ngoài chức năng chấm công, hệ thống còn có các chức năng quản lý nhân viên, thiết bị, ca làm, lịch làm việc, đơn từ, tăng ca, bảng công, bảng lương, thông báo và nhật ký thao tác. Các tiện ích nhân viên đã có màn hình và luồng Firestore cho lịch họp, ghi nhận khen thưởng, tài liệu, tin tức và hỗ trợ vân tay; thâm niên được tính từ hồ sơ do Admin quản lý.
+Đề tài “Hệ thống quản lý công việc kết hợp chấm công IoT bằng vân tay” xây dựng một mô hình giao việc cho nhân viên, theo dõi tiến độ, nhận báo cáo kết quả và quản lý duyệt hoàn thành trên Android/Firebase. ESP8266 và cảm biến vân tay cung cấp dữ liệu có mặt trong ca để hỗ trợ quản lý. Vân tay chứng minh có mặt tại thiết bị; báo cáo kết quả và bước duyệt chứng minh hoàn thành công việc. Hệ thống vẫn giữ quản lý nhân viên, thiết bị, ca làm, đơn từ, tăng ca, bảng công, lương và các tiện ích nhân sự làm chức năng hỗ trợ.
 
 Điểm được chú trọng trong quá trình xây dựng là tách sự kiện chấm công gốc khỏi kết quả diễn giải. Thiết bị ghi nhận sự kiện trước; ứng dụng dựa trên ca làm, lịch làm và các quy tắc nghiệp vụ để xác định đi đúng giờ, đi trễ, về sớm, tăng ca hoặc cần xem xét. Cách làm này giúp hạn chế việc sửa trực tiếp dữ liệu gốc và hỗ trợ truy vết khi cần kiểm tra.
 
@@ -232,9 +234,13 @@ Các hạn chế cần trung thực nêu trong báo cáo:
 
 Mục tiêu tổng quát:
 
-Xây dựng một hệ thống chấm công IoT bằng vân tay gồm thiết bị ESP8266, cảm biến vân tay, Firebase và ứng dụng Android, có khả năng ghi nhận chấm công, quản lý nhân sự và hỗ trợ các nghiệp vụ liên quan.
+Xây dựng hệ thống quản lý công việc trên Android/Firebase kết hợp thiết bị ESP8266 và cảm biến vân tay để ghi nhận có mặt theo ca, với quy trình giao việc, thực hiện, báo cáo, duyệt kết quả và đánh giá đúng hạn.
 
 Mục tiêu cụ thể:
+
+Nghiệp vụ trung tâm: Tạo/giao công việc có người chịu trách nhiệm, thời gian, ưu tiên và yêu cầu kết quả; lưu tiến độ, báo cáo, phản hồi và lịch sử từng phiên bản. Đo hiệu suất bằng công việc hoàn thành đúng hạn/muộn, đang làm, chờ duyệt và phải làm lại.
+
+Các mục tiêu hỗ trợ:
 
 1. Đọc và xác thực vân tay trên thiết bị.
 2. Ghi nhận sự kiện chấm công có thời gian và định danh thiết bị.
@@ -685,6 +691,45 @@ Các lớp luật nghiệp vụ không nên phụ thuộc trực tiếp vào com
 - Không đưa Wi-Fi password hoặc thông tin bí mật thật vào file mã nguồn chia sẻ. Dùng secrets.h hoặc file cấu hình không commit.
 - Khi triển khai production, cần thay Anonymous bằng danh tính thiết bị có khả năng thu hồi, xoay vòng token hoặc một gateway an toàn hơn.
 - Không lưu mẫu ảnh vân tay thô trong Firestore nếu không cần thiết. Module vân tay giữ template; hệ thống chỉ lưu mã ánh xạ và metadata cần cho nghiệp vụ.
+
+
+2.9. Thiết kế nghiệp vụ công việc (bổ sung phiên bản 1.2)
+
+Công việc là đối tượng nghiệp vụ riêng, không phải menu các chức năng nhân sự. Quản lý tạo/giao việc; nhân viên chỉ thực hiện việc được giao cho mình. Menu Tác vụ cũ đổi nhãn thành Tiện ích; thanh chính có Công việc cho Admin và Việc của tôi cho nhân viên. Đơn từ nằm trong Tiện ích. Lịch phân ca có danh sách nhân viên/ca và nút Giao công việc điền sẵn người, ca, thời gian bắt đầu và hạn.
+
+Đối tượng workItems/{id}:
+- title, description, requiredResult: tên, mô tả, yêu cầu kết quả.
+- assignedById/Name: tài khoản và tên người giao; assigneeId/Name: hồ sơ và tên người thực hiện.
+- startAt, deadline: thời điểm bắt đầu và hạn hoàn thành; nhập giờ Việt Nam, lưu Timestamp.
+- priority: LOW/NORMAL/HIGH/URGENT; status: ASSIGNED/IN_PROGRESS/PENDING_REVIEW/COMPLETED.
+- completedAt: thời điểm quản lý duyệt, lấy thời gian server; chưa hoàn thành thì null.
+- resultReport: tiến độ/báo cáo và đường dẫn minh chứng; managerFeedback: phản hồi quản lý.
+- relatedScheduleId, relatedShiftId, relatedScheduleDate: liên kết tùy chọn tới lịch và đúng ca của người thực hiện.
+- version, reworkCount, createdAt, updatedAt, lastUpdatedById/Name: phiên bản, số lần làm lại và thông tin cập nhật.
+
+Mỗi workItems/{id}/history/{version} lưu action, actorId/Name, createdAt và snapshot before/after đầy đủ. Tạo/cập nhật việc và lịch sử là một transaction; Rules yêu cầu hai bản ghi khớp và cấm sửa/xóa lịch sử. Client gửi expectedVersion; khi người khác cập nhật trước, thao tác bị từ chối, form giữ nội dung đang nhập để người dùng kiểm tra và tải phiên bản mới.
+
+Quan hệ dữ liệu:
+users (1) ---- (N) workItems [assignedById]
+employees (1) ---- (N) workItems [assigneeId]
+employees (1) ---- (N) workSchedules ---- (N) workShifts
+workItems (N) ---- (0..1) workSchedules [relatedScheduleId]
+workItems (N) ---- (0..1) workShifts [relatedShiftId]
+workItems (1) ---- (N) history [mỗi phiên bản đúng một bản ghi]
+attendance ---- employees + ngày lịch + ca [đối chiếu dữ liệu có mặt]
+
+Luồng trạng thái:
+Được giao --nhân viên bắt đầu--> Đang thực hiện --gửi kết quả--> Chờ duyệt
+Chờ duyệt --quản lý duyệt--> Hoàn thành
+Chờ duyệt --quản lý yêu cầu làm lại, có lý do--> Đang thực hiện
+
+Đổi người thực hiện đưa việc về Được giao và xóa báo cáo/phản hồi hiện hành cùng số lần làm lại của lần giao cũ; history giữ toàn bộ dữ liệu. Người mới không nhận số lần làm lại của người trước trong hiệu suất. Sửa việc Chờ duyệt đưa về Đang thực hiện để gửi lại. Công việc đã duyệt hoàn thành khóa sửa nhằm bảo toàn kết quả và thời điểm. Quá hạn không là trạng thái lưu: deadline < hiện tại và chưa hoàn thành là Đang quá hạn; completedAt > deadline là Hoàn thành muộn. Đúng bằng deadline được tính đúng hạn. Việc chờ duyệt quá deadline vẫn là quá hạn tới khi quản lý duyệt.
+
+Chi tiết công việc tải dữ liệu lịch/quét đúng ngày, đúng nhân viên và đúng ca, gồm ca cũ ngoài tuần đang hiển thị. Chỉ hiển thị lượt hợp lệ; dữ liệu chưa tải đủ được báo rõ. Quét vân tay không tự bắt đầu, gửi duyệt hay hoàn thành công việc. Thiết bị chưa có thao tác chọn mã công việc, nên không ghi nhận bắt đầu/kết thúc từng việc.
+
+Hiệu suất và báo cáo lọc theo hạn trong tháng/khoảng ngày. Chỉ số: tổng việc được giao, đang thực hiện, chờ duyệt, hoàn thành, hoàn thành đúng hạn/muộn, đang quá hạn, số việc phải làm lại và tổng số lần yêu cầu làm lại. Tỷ lệ đúng hạn = số việc hoàn thành đúng hạn / số việc đã hoàn thành; chưa có việc hoàn thành thì chưa có tỷ lệ. Chấm công/tăng ca là dữ liệu hỗ trợ. CSV có trường công việc, kết quả, phản hồi, ca, phiên bản và hai cờ quá hạn/hoàn thành muộn, dùng thời điểm ISO UTC.
+
+Sơ đồ Mermaid và hướng dẫn thao tác/triển khai: docs/QUAN_LY_CONG_VIEC.md.
 
 
 CHƯƠNG 3. TRIỂN KHAI VÀ ĐÁNH GIÁ SẢN PHẨM
@@ -1348,6 +1393,44 @@ Hướng phát triển:
 9. Đưa bộ Rules Emulator đã có vào CI và bổ sung kiểm thử UI, integration test trên điện thoại/môi trường online sau triển khai.
 10. Đánh giá chi phí trên mỗi thiết bị và khả năng mở rộng nhiều chi nhánh.
 
+3.10. Use Case và kiểm thử quản lý công việc (phiên bản 1.2)
+
+UC-CV01 - Giao công việc
+Tác nhân: Admin. Tiền điều kiện: tài khoản hoạt động, nhân viên nhận việc hoạt động.
+Luồng: mở Công việc -> Tạo và giao việc -> nhập tên/mô tả/yêu cầu kết quả, chọn người, thời gian, ưu tiên và ca tùy chọn -> Giao việc. Hệ thống kiểm tra deadline sau startAt và ca thuộc nhân viên, ghi việc ASSIGNED cùng history phiên bản 1 bằng transaction.
+Ngoại lệ: trường thiếu, thời gian sai, nhân viên đã nghỉ hoặc lịch đã thay đổi thì không ghi việc.
+
+UC-CV02 - Cập nhật tiến độ
+Tác nhân: nhân viên thực hiện. Tiền điều kiện: việc của mình ở ASSIGNED hoặc IN_PROGRESS.
+Luồng: Việc của tôi -> chi tiết -> Bắt đầu thực hiện -> mở lại chi tiết -> nhập báo cáo -> Lưu tiến độ. Hệ thống ghi IN_PROGRESS và history; không ghi completedAt.
+Ngoại lệ: việc đổi người hoặc phiên bản thay đổi thì từ chối thao tác cũ, giữ nội dung form.
+
+UC-CV03 - Gửi kết quả
+Tác nhân: nhân viên thực hiện. Tiền điều kiện: IN_PROGRESS và báo cáo không rỗng.
+Luồng: nhập biên bản/nội dung/đường dẫn kết quả -> Gửi kết quả chờ duyệt. Hệ thống chuyển PENDING_REVIEW và lưu cả kết quả/history. Nhân viên không tự đánh dấu hoàn thành.
+
+UC-CV04 - Duyệt hoặc yêu cầu làm lại
+Tác nhân: Admin. Tiền điều kiện: PENDING_REVIEW, có kết quả.
+Luồng: đọc yêu cầu, báo cáo, lịch sử và dữ liệu có mặt trong ca -> nhập phản hồi -> Duyệt hoàn thành. Hệ thống chuyển COMPLETED, ghi completedAt server và history.
+Luồng thay thế: nhập lý do -> Yêu cầu làm lại -> IN_PROGRESS, tăng reworkCount, giữ báo cáo trước và lịch sử; nhân viên cập nhật rồi gửi lại.
+Ngoại lệ: hai Admin cùng duyệt/làm lại, chỉ một phiên bản tiếp theo được ghi; thao tác còn lại báo xung đột.
+
+Kiểm thử tự động bổ sung:
+- Chuỗi trạng thái hợp lệ; không gửi báo cáo rỗng; không duyệt việc chưa chờ; nhân viên không được duyệt hoặc sửa việc người khác.
+- Làm lại bắt buộc lý do; giữ kết quả cũ; phân biệt số việc làm lại với số lần yêu cầu.
+- Đổi người xóa báo cáo hiện hành và đặt ASSIGNED; thay deadline khi PENDING_REVIEW phải gửi lại; COMPLETED khóa sửa.
+- Hai transaction cùng expectedVersion: chỉ một commit; không mất history; history không sửa/xóa và snapshot phải khớp việc.
+- Ca phải thuộc người thực hiện và tồn tại; đọc danh sách/lịch sử đúng phạm vi nhân viên.
+- Quá hạn đang làm/chờ duyệt khác hoàn thành muộn; tỷ lệ chỉ dùng việc đã hoàn thành; bộ lọc báo cáo theo ngày deadline tại Việt Nam.
+- CSV giữ dấu tiếng Việt, dấu phẩy/ngoặc kép/xuống dòng của kết quả và hai cờ thời hạn.
+- Queue IoT sửa bản ghi ghi dở và giữ bản ghi live mới khi phục hồi; resolver Functions giữ nhân viên đã xác thực tại thời điểm tạo lượt quét, không đổi chủ khi mã mẫu được cấp lại.
+
+Kiểm thử trên thiết bị [CẦN BỔ SUNG]: tạo “Kiểm tra máy A”, giao nhân viên, gắn ca và hạn 16:00; quét vân tay rồi mở Việc của tôi; gửi biên bản; Admin đối chiếu có mặt, yêu cầu làm lại, nhận lại và duyệt; thử mất mạng/ghi dở LittleFS, đổi người, hai điện thoại cập nhật cùng lúc. Quét riêng lẻ phải giữ nguyên trạng thái công việc. Chụp màn hình nhỏ, chữ lớn, giao diện tối và video ESP8266 thật.
+
+Kết quả tự động ngày 09/10/2026: Android 300/300 kiểm thử trong 48 suite, Firestore Emulator 56/56, Functions 36/36, firmware mô phỏng 79/79; không có kiểm thử Android lỗi/bỏ qua. APK debug build thành công. Firmware compile thực tế thành công cho NodeMCU v2, chưa nạp thiết bị. Các phép đo phần cứng và thử giao diện trên điện thoại chưa thực hiện trong đợt này.
+
+Triển khai: Rules/index mới cần deploy trước khi dùng online; cập nhật APK cả hai vai trò và nạp firmware queue mới trên ESP8266. Cloud Functions là tùy chọn của cấu hình hiện tại; sửa resolver chỉ có hiệu lực tại nơi triển khai Functions. Kết quả này tách khỏi số liệu lịch sử mục 3.7; xem docs/QUAN_LY_CONG_VIEC.md.
+
 
 KẾT LUẬN
 
@@ -1355,7 +1438,7 @@ KẾT LUẬN
 
 Điểm đáng chú ý về mặt thiết kế là sự tách biệt giữa attendance event gốc và kết quả phân loại. Nhờ đó, hệ thống có thể giải thích một bản ghi được xử lý ra sao, hỗ trợ điều chỉnh có lý do và lưu audit. Việc có hàng đợi offline cũng giúp mô hình sát hơn với điều kiện sử dụng thực tế, nơi Wi-Fi có thể không ổn định.
 
-Ở phiên bản mã nguồn cập nhật, các tiện ích nhân viên đã có luồng dữ liệu và xử lý nghiệp vụ cụ thể, cùng kiểm tra quyền theo người nhận. Rules/index trên Firebase online đã được kiểm tra chỉ đọc và khớp cấu hình hiện tại; bản sửa Admin duyệt tuần sau cần APK mới và kiểm tra giao diện trên điện thoại. Kết quả kiểm thử được nêu rõ theo lần chạy tại mục 3.7. Các minh chứng phần cứng và phép đo còn đánh dấu [CẦN BỔ SUNG] chưa được thay bằng kết quả tự động.
+Phiên bản 1.2 đã bổ sung đối tượng Công việc, giao việc theo người/ca, cập nhật và báo cáo, duyệt/làm lại, lịch sử và kiểm tra phiên bản khi cập nhật đồng thời. Chấm công hỗ trợ chứng minh có mặt, hiệu suất dựa trên kết quả được quản lý duyệt. Rules/index mới đã qua Emulator, APK và firmware đã biên dịch; cần deploy cấu hình mới, cài APK và nạp firmware để thử online. Kết quả mới nằm ở mục 3.10; số liệu cũ ở mục 3.7 giữ làm lịch sử. Các minh chứng phần cứng và phép đo [CẦN BỔ SUNG] vẫn cần thử thật.
 
 Sản phẩm hiện tại nên được trình bày đúng là prototype phục vụ học tập và chứng minh kiến thức hệ thống nhúng, IoT, Android, Firebase và thiết kế phần mềm. Để nâng cấp thành sản phẩm thực tế, nhóm cần tiếp tục hoàn thiện nguồn, bảo mật thiết bị, đo lường độ chính xác, thiết kế cơ khí, khả năng mở rộng và kiểm thử thực địa.
 

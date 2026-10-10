@@ -18,6 +18,7 @@ bool inspectAttendanceOutbox(const char* path, size_t& recordCount) {
   if (!LittleFS.exists(path)) return false;
   File input = LittleFS.open(path, "r");
   if (!input) return false;
+  bool clean = true;
   while (input.available()) {
     String line = input.readStringUntil('\n');
     line.trim();
@@ -25,14 +26,15 @@ bool inspectAttendanceOutbox(const char* path, size_t& recordCount) {
     String eventId;
     String payload;
     if (!parseAttendanceOutboxRecord(line, eventId, payload)) {
-      input.close();
-      return false;
+      clean = false;
+      yield();
+      continue;
     }
     ++recordCount;
     yield();
   }
   input.close();
-  return true;
+  return clean;
 }
 
 // Replace a file using a temporary file and a backup. If power is lost
@@ -98,9 +100,11 @@ void recoverAttendanceOutbox() {
   const bool tempClean = inspectAttendanceOutbox(ATTENDANCE_OUTBOX_TMP_PATH, tempCount);
   const bool backupClean = inspectAttendanceOutbox(ATTENDANCE_OUTBOX_BACKUP_PATH, backupCount);
 
-  // Prefer the live file when it is complete. A server event ID is immutable,
-  // so retrying a record after an interrupted write remains idempotent.
-  if (mainClean) {
+  // The live file owns newer appends. Even when one append was torn, a stale
+  // clean backup must not replace its surviving records. Flush discards only
+  // damaged lines; immutable IDs keep any interrupted acknowledgment safe.
+  if (mainClean || mainCount > 0) {
+    if (!mainClean) setLatestError(F("Hang doi LittleFS co ban ghi khong hop le"));
     promoteAttendanceOutbox(ATTENDANCE_OUTBOX_PATH);
     return;
   }
@@ -117,12 +121,12 @@ void recoverAttendanceOutbox() {
   }
   if (candidate != nullptr) {
     if (!promoteAttendanceOutbox(candidate)) {
-      setLatestError("Khong khoi phuc duoc hang doi LittleFS");
+      setLatestError(F("Khong khoi phuc duoc hang doi LittleFS"));
     }
   } else if (LittleFS.exists(ATTENDANCE_OUTBOX_PATH)) {
     // Keep a torn main file; flushAttendanceOutbox() will retain valid records
     // and discard only the bad line without loading the full queue at once.
-    setLatestError("Hang doi LittleFS co ban ghi khong hop le");
+    setLatestError(F("Hang doi LittleFS co ban ghi khong hop le"));
   }
 }
 
@@ -152,14 +156,14 @@ bool reserveAttendanceEventId(String& eventId) {
   if (!littleFsReady) return false;
   uint32_t sequence = nextAttendanceSequence();
   if (sequence == 0xFFFFFFFFUL) {
-    setLatestError("Het bo dem ma su kien");
+    setLatestError(F("Het bo dem ma su kien"));
     return false;
   }
   // Reserve the next value before adding the event to the outbox. A crash can
   // skip an ID, but it can never reuse an ID for a different scan.
   if (!installLittleFsText(ATTENDANCE_SEQUENCE_PATH, ATTENDANCE_SEQUENCE_TMP_PATH,
                            ATTENDANCE_SEQUENCE_BACKUP_PATH, String(sequence + 1))) {
-    setLatestError("Khong luu duoc bo dem su kien");
+    setLatestError(F("Khong luu duoc bo dem su kien"));
     return false;
   }
   eventId = String(DEVICE_ID) + "-" + String(ESP.getChipId(), HEX) + "-" + String(sequence);
@@ -178,25 +182,55 @@ bool enqueueAttendanceEvent(const String& eventId, const String& payload) {
     serializeJson(record, line);
   }
   line += '\n';
-  const size_t existingBytes = attendanceOutboxBytes();
-  if (existingBytes + line.length() > ATTENDANCE_OUTBOX_MAX_BYTES) {
-    Serial.printf("OUTBOX DAY: tu choi event %s, queue da day (%u/%u bytes)\n",
+  // An interrupted append can leave a partial JSON record without its newline.
+  // Separate that tail before adding another scan, so recovery discards only
+  // the damaged record rather than also losing the next successful enqueue.
+  File input = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "r");
+  if (!input && LittleFS.exists(ATTENDANCE_OUTBOX_PATH)) {
+    setLatestError(F("Khong doc duoc hang doi LittleFS truoc khi ghi"));
+    return false;
+  }
+  const size_t existingBytes = input ? input.size() : 0;
+  bool needsSeparator = false;
+  if (existingBytes > 0) {
+    if (!input.seek(existingBytes - 1)) {
+      input.close();
+      setLatestError(F("Khong kiem tra duoc duoi hang doi LittleFS"));
+      return false;
+    }
+    const int lastByte = input.read();
+    if (lastByte < 0) {
+      input.close();
+      setLatestError(F("Khong doc duoc duoi hang doi LittleFS"));
+      return false;
+    }
+    needsSeparator = lastByte != '\n';
+  }
+  if (input) input.close();
+  const size_t separatorBytes = needsSeparator ? 1 : 0;
+  if (existingBytes + separatorBytes + line.length() > ATTENDANCE_OUTBOX_MAX_BYTES) {
+    Serial.printf_P(PSTR("OUTBOX DAY: tu choi event %s, queue da day (%u/%u bytes)\n"),
                   eventId.c_str(), static_cast<unsigned>(existingBytes),
                   static_cast<unsigned>(ATTENDANCE_OUTBOX_MAX_BYTES));
-    setLatestError("HANG DOI DAY - KHONG LUU DUOC SU KIEN");
+    setLatestError(F("HANG DOI DAY - KHONG LUU DUOC SU KIEN"));
     return false;
   }
   File output = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "a");
   if (!output) return false;
+  if (needsSeparator && output.print('\n') != 1) {
+    output.close();
+    setLatestError(F("Khong tach duoc ban ghi hang doi LittleFS"));
+    return false;
+  }
   size_t written = output.print(line);
   output.flush();
   output.close();
   if (written != line.length()) {
-    setLatestError("Khong ghi duoc su kien vao LittleFS");
+    setLatestError(F("Khong ghi duoc su kien vao LittleFS"));
     return false;
   }
-  Serial.printf("OUTBOX them event %s, bytes=%u\n", eventId.c_str(),
-                static_cast<unsigned>(existingBytes + line.length()));
+  Serial.printf_P(PSTR("OUTBOX them event %s, bytes=%u\n"), eventId.c_str(),
+                static_cast<unsigned>(existingBytes + separatorBytes + line.length()));
   return true;
 }
 
@@ -222,9 +256,16 @@ int postAttendanceEvent(const String& eventId, const String& payload) {
     HTTPClient https;
     if (https.begin(client, url)) {
       began = true;
+      url = String();
       https.setTimeout(5000);
       https.addHeader("Content-Type", "application/json");
       https.addHeader("Authorization", "Bearer " + firebaseIdToken);
+      if (!canStartHttpsRequest("dong bo cham cong", true)) {
+        https.end();
+        client.stop();
+        firebaseSyncStatus = "PENDING";
+        return -1;
+      }
       code = https.POST(reinterpret_cast<const uint8_t*>(payload.c_str()), payload.length());
       https.end();
     }
@@ -234,11 +275,11 @@ int postAttendanceEvent(const String& eventId, const String& payload) {
   if (!began) {
     firebaseSyncStatus = "ERROR";
     deferHttpsRequests("dong bo cham cong");
-    setLatestError("Khong tao duoc ket noi dong bo cham cong");
+    setLatestError(F("Khong tao duoc ket noi dong bo cham cong"));
     return -1;
   }
   recordHttpsResult("dong bo cham cong", code);
-  Serial.printf("ATTENDANCE HTTP %d\n", code);
+  Serial.printf_P(PSTR("ATTENDANCE HTTP %d\n"), code);
   if (code == 401) {
     // Force a fresh anonymous token on the next attempt. A stale token is a
     // transient auth failure and must not be discarded from the outbox.
@@ -248,7 +289,7 @@ int postAttendanceEvent(const String& eventId, const String& payload) {
   if (!httpResponseAcknowledgesEvent(code)) {
     firebaseSyncStatus = "ERROR";
     if (code == 403) {
-      setLatestError("Attendance 403: mapping/nhan vien/Rules tu choi");
+      setLatestError(F("Attendance 403: mapping/nhan vien/Rules tu choi"));
     } else {
       setLatestError(String("Dong bo cham cong HTTP ") + code);
     }
@@ -335,7 +376,7 @@ bool removeAttendanceOutboxHead(size_t tailOffset) {
 AttendanceSyncResult flushAttendanceOutbox() {
   if (!littleFsReady) {
     firebaseSyncStatus = "ERROR";
-    setLatestError("Khong mo duoc hang doi LittleFS");
+    setLatestError(F("Khong mo duoc hang doi LittleFS"));
     return AttendanceSyncResult::STORAGE_ERROR;
   }
   if (!canStartHttpsRequest("hang doi cham cong")) {
@@ -345,7 +386,7 @@ AttendanceSyncResult flushAttendanceOutbox() {
   File input = LittleFS.open(ATTENDANCE_OUTBOX_PATH, "r");
   if (!input && LittleFS.exists(ATTENDANCE_OUTBOX_PATH)) {
     firebaseSyncStatus = "ERROR";
-    setLatestError("Khong doc duoc hang doi LittleFS");
+    setLatestError(F("Khong doc duoc hang doi LittleFS"));
     return AttendanceSyncResult::STORAGE_ERROR;
   }
   if (!input || input.size() == 0) {
@@ -361,7 +402,7 @@ AttendanceSyncResult flushAttendanceOutbox() {
     const bool removed = removeAttendanceOutboxHead(tailOffset);
     if (!removed) {
       firebaseSyncStatus = "ERROR";
-      setLatestError("Khong cap nhat duoc hang doi LittleFS");
+      setLatestError(F("Khong cap nhat duoc hang doi LittleFS"));
     }
     return removed ? AttendanceSyncResult::ACKNOWLEDGED : AttendanceSyncResult::STORAGE_ERROR;
   }
@@ -381,8 +422,8 @@ AttendanceSyncResult flushAttendanceOutbox() {
   if (!validRecord) {
     const bool removed = removeAttendanceOutboxHead(tailOffset);
     firebaseSyncStatus = "ERROR";
-    if (!removed) setLatestError("Khong cap nhat duoc hang doi LittleFS");
-    else setLatestError("Bo qua ban ghi hang doi khong hop le");
+    if (!removed) setLatestError(F("Khong cap nhat duoc hang doi LittleFS"));
+    else setLatestError(F("Bo qua ban ghi hang doi khong hop le"));
     return removed ? AttendanceSyncResult::REJECTED : AttendanceSyncResult::STORAGE_ERROR;
   }
 
@@ -398,7 +439,7 @@ AttendanceSyncResult flushAttendanceOutbox() {
   const int code = preparationCode == 200 ? postAttendanceEvent(eventId, payload) : preparationCode;
   if (!httpResponseAcknowledgesEvent(code) && !isPermanentAttendanceFailure(code)) {
     firebaseSyncStatus = WiFi.status() == WL_CONNECTED ? "ERROR" : "PENDING";
-    Serial.printf("OUTBOX giu event %s, HTTP %d\n", eventId.c_str(), code);
+    Serial.printf_P(PSTR("OUTBOX giu event %s, HTTP %d\n"), eventId.c_str(), code);
     if (OFFLINE_AS608_ACCESS_ENABLED && attendanceTransportUnavailable(code)) {
       // The saved foreground scan was already matched by the AS608. Grant it
       // once under the selected offline policy; old/restored scans cannot open.
@@ -410,21 +451,21 @@ AttendanceSyncResult flushAttendanceOutbox() {
   const bool permanentFailure = isPermanentAttendanceFailure(code);
   if (permanentFailure) {
     lastRejectedAttendanceEventId = eventId;
-    if (preparationCode != 200) setLatestError("Luot ngoai tuyen bi tu choi: mapping khong hop le");
-    Serial.printf("OUTBOX bo qua event %s, loi vinh vien HTTP %d\n", eventId.c_str(), code);
+    if (preparationCode != 200) setLatestError(F("Luot ngoai tuyen bi tu choi: mapping khong hop le"));
+    Serial.printf_P(PSTR("OUTBOX bo qua event %s, loi vinh vien HTTP %d\n"), eventId.c_str(), code);
   } else {
     lastAcknowledgedAttendanceEventId = eventId;
-    Serial.printf("OUTBOX da dong bo event %s\n", eventId.c_str());
+    Serial.printf_P(PSTR("OUTBOX da dong bo event %s\n"), eventId.c_str());
   }
 
   if (!removeAttendanceOutboxHead(tailOffset)) {
     firebaseSyncStatus = "ERROR";
-    setLatestError("Khong cap nhat duoc hang doi LittleFS");
+    setLatestError(F("Khong cap nhat duoc hang doi LittleFS"));
     // The server acknowledgment is still valid. A replay after a failed local
     // rewrite is idempotent; it must never grant a second door opening.
     handleAttendanceDelivery(eventId, permanentFailure ? AttendanceDelivery::REJECTED : AttendanceDelivery::CONFIRMED);
     return AttendanceSyncResult::STORAGE_ERROR;
-  }
+   }
   firebaseSyncStatus = permanentFailure
       ? "ERROR"
       : (attendanceOutboxBytes() == 0 && WiFi.status() == WL_CONNECTED ? "ONLINE" : "PENDING");

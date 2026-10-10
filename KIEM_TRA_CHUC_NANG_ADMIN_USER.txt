@@ -1,6 +1,30 @@
 KIỂM TRA NÚT BẤM VÀ CHỨC NĂNG ADMIN / NHÂN VIÊN
 Ngày kiểm tra: 08/10/2026
 
+BỔ SUNG NGÀY 09/10/2026 — QUẢN LÝ CÔNG VIỆC
+
+- Công việc / Việc của tôi là mục riêng; Tác vụ cũ đổi thành Tiện ích.
+- Tạo/giao việc, sửa yêu cầu, đổi người, thay deadline, liên kết ca đều nối
+  Repository/transaction và Rules. Đổi người đưa về ASSIGNED, xóa báo cáo/phản hồi
+  và số lần làm lại hiện tại của người cũ; history giữ đầy đủ before/after.
+- Nhân viên bắt đầu/cập nhật/gửi kết quả; Admin duyệt hoặc yêu cầu làm lại có lý do.
+  Hoàn thành lấy thời gian server. Nhân viên không được tự duyệt hoặc sửa việc người khác.
+- Hai người cập nhật cùng phiên bản: một thành công; bên còn lại báo xung đột,
+  giữ form và có thể kiểm tra phiên bản mới. History bất biến, ghi cùng transaction.
+- Tổng quan/Home có việc hôm nay, sắp hạn, quá hạn, chờ duyệt; Phân ca/Lịch có
+  Giao công việc theo ca. Chi tiết tải lượt có mặt đúng người/ngày/ca, gồm lượt
+  cũ chưa có nhãn ca và ca qua đêm. Vân tay không đổi trạng thái công việc.
+- Hiệu suất dùng công việc có hạn trong tháng; phân biệt số việc làm lại/số lần;
+  tỷ lệ đúng hạn chỉ dùng việc đã hoàn thành. Báo cáo Công việc có bộ lọc và CSV.
+- Queue sửa ghi dở nối mất lượt sau, backup cũ ghi đè bản ghi mới; resolver giữ
+  danh tính tại lúc tạo lượt quét, không chuyển chủ sau khi mẫu vân tay được gán lại.
+- Đạt Android 300/300 (48 suite), Firestore 56/56, Functions 36/36, firmware79/79.
+  Build APK debug và compile firmware NodeMCU v2 thực tế đều thành công.
+- Chưa deploy Rules/index mới online, chưa cài APK/nạp firmware hoặc thử điện thoại
+  thật. Xem docs/QUAN_LY_CONG_VIEC.md và báo cáo mục 2.9/3.10 cho phạm vi mới.
+
+Các mục bên dưới giữ kết quả rà soát của bản ngày 08/10/2026.
+
 PHƯƠNG PHÁP VÀ PHẠM VI
 
 Đối chiếu các nút đang mở trong menu với callback, ViewModel, Repository,
@@ -59,8 +83,13 @@ ADMIN — CÁC NHÓM ĐÃ ĐỐI CHIẾU
     Kiểm tra online, khả năng thiết bị và lệnh đang xử lý. Gửi lệnh thành công
     không đồng nghĩa thiết bị đã thực thi; kết quả phải xem trạng thái command.
 12. Lương / hiệu suất / bảng công: chọn kỳ, xem chi tiết và lưu lương có dữ liệu
-    tính toán đúng kỳ; kỳ lỗi/thiếu dữ liệu bị chặn lưu/xuất. Phiếu lương không bị
-    ghi đè. Số tiền, giờ và tháng được kiểm tra; khóa field khi lưu.
+    tính toán đúng kỳ; kỳ lỗi/thiếu dữ liệu bị chặn lưu/xuất. Tải lại giờ công
+    không tự sửa tiền của phiếu đã lưu. Admin dùng Tính lại phiếu, xem cũ/mới,
+    nhập lý do rồi lưu; giữ lịch sử trước/sau và nhật ký trong cùng giao dịch.
+    Phiếu/giờ/đơn giá thay đổi khi đang xem thì chặn lưu và yêu cầu kiểm tra lại.
+    Đã có phiếu trong tháng hiện Tính lại, vẫn có Đặt lương cho người đang làm.
+    Số tiền, giờ và tháng được kiểm tra; khóa field khi lưu. Kiểm tra hồi quy:
+    4 giờ x 26.000 đ/giờ + 0 thưởng - 25.000 đ khấu trừ = 79.000 đ.
 13. Báo cáo: mã hiển thị như NV0004 được đổi thành document ID trước truy vấn.
     Mã NV không tìm thấy báo lỗi riêng, ngày sai có hướng dẫn yyyy-MM-dd;
     vẫn hỗ trợ ID trực tiếp cho lịch sử. CSV chờ đủ dữ liệu và bắt lỗi tạo/chia sẻ.

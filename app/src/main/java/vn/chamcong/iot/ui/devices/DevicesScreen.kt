@@ -51,10 +51,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.DeviceCommandType
+import vn.chamcong.iot.model.DeviceConnectionState
 import vn.chamcong.iot.model.DeviceSnapshot
+import vn.chamcong.iot.model.connectionState
 import vn.chamcong.iot.model.commandStatusLabel
 import vn.chamcong.iot.model.deviceCommandLabel
-import vn.chamcong.iot.model.isOnline
 import vn.chamcong.iot.ui.AppSpacing
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
@@ -110,7 +111,8 @@ fun DevicesScreen(state: MainUiState, vm: MainViewModel) {
 private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewModel, now: Instant) {
     var editing by remember(device.id) { mutableStateOf(false) }
     var restartConfirm by remember(device.id) { mutableStateOf(false) }
-    val online = device.isOnline(now)
+    val connection = device.connectionState(now)
+    val online = connection == DeviceConnectionState.ONLINE
     val deviceCommands = state.commands.filter { it["deviceId"]?.toString() == device.id }
     val pending = deviceCommands.any {
         it["status"] in listOf("REQUESTED", "PROCESSING") ||
@@ -131,8 +133,11 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
                     Text(device.name.ifBlank { device.id }, fontWeight = FontWeight.Bold)
                     Text(device.location.ifBlank { "Chưa cập nhật vị trí" }, style = MaterialTheme.typography.bodySmall)
                 }
-                Text(deviceStatusLabel(if (online) "ONLINE" else "OFFLINE"), color = statusColor)
                 IconButton({ editing = true }, enabled = !state.saving) { Icon(Icons.Default.Edit, "Sửa cấu hình") }
+            }
+            Text(connectionLabel(connection), color = statusColor, style = MaterialTheme.typography.labelMedium)
+            connectionExplanation(connection)?.let { explanation ->
+                Text(explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text("Mã: ${device.id}")
             Text("Phiên bản: ${device.firmwareVersion.ifBlank { "Chưa có dữ liệu" }}")
@@ -143,12 +148,15 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
                     "Cảm biến: ${reportedStatus(online, device.sensorStatus)}"
             )
             Text("Cửa: ${reportedStatus(online, device.doorStatus)}")
-            Text("Quét lỗi trong 5 phút: ${device.failedScanCount}")
+            Text(if (online) "Quét lỗi trong 5 phút: ${device.failedScanCount}"
+                else "Quét lỗi báo lần cuối (trong 5 phút): ${device.failedScanCount}")
             if (device.lastError.isNotBlank()) Text("Lỗi gần nhất: ${device.lastError}", color = MaterialTheme.colorScheme.error)
             if (device.pendingAttendanceCount > 0) {
-                Text("Lượt chấm chờ đồng bộ: ${device.pendingAttendanceCount}", color = MaterialTheme.colorScheme.error)
+                Text(if (online) "Lượt chấm chờ đồng bộ: ${device.pendingAttendanceCount}"
+                    else "Lượt chấm chờ đồng bộ báo lần cuối: ${device.pendingAttendanceCount}", color = MaterialTheme.colorScheme.error)
             } else {
-                Text("Không có lượt chấm chờ đồng bộ", style = MaterialTheme.typography.bodySmall)
+                Text(if (online) "Không có lượt chấm chờ đồng bộ" else "Lần cập nhật cuối không có lượt chấm chờ đồng bộ",
+                    style = MaterialTheme.typography.bodySmall)
             }
             if (device.pendingAttendanceCapacity > 0) {
                 val queueColor = if (device.attendanceOutboxStatus in setOf("WARNING", "FULL")) {
@@ -215,6 +223,21 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
 
 private fun reportedStatus(online: Boolean, status: String): String =
     if (online) status else "Không cập nhật (lần cuối: $status)"
+
+private fun connectionLabel(connection: DeviceConnectionState): String = when (connection) {
+    DeviceConnectionState.ONLINE -> deviceStatusLabel("ONLINE")
+    DeviceConnectionState.NO_HEARTBEAT, DeviceConnectionState.STALE_HEARTBEAT -> "Chưa nhận tín hiệu gần đây"
+    DeviceConnectionState.REPORTED_OFFLINE -> "Thiết bị báo mất kết nối"
+    DeviceConnectionState.CLOCK_SKEW -> "Thời gian tín hiệu chưa khớp"
+}
+
+private fun connectionExplanation(connection: DeviceConnectionState): String? = when (connection) {
+    DeviceConnectionState.ONLINE -> null
+    DeviceConnectionState.NO_HEARTBEAT -> "Chưa nhận được tín hiệu thiết bị trên Firebase. Cảm biến vẫn có thể quét vân tay cục bộ."
+    DeviceConnectionState.STALE_HEARTBEAT -> "Tín hiệu Firebase đã quá 2 phút. Thiết bị có thể vẫn quét vân tay cục bộ; hãy kiểm tra Wi-Fi và đồng bộ."
+    DeviceConnectionState.REPORTED_OFFLINE -> "Tín hiệu gần nhất báo mất kết nối mạng. Hãy kiểm tra Wi-Fi của thiết bị."
+    DeviceConnectionState.CLOCK_SKEW -> "Thời gian tín hiệu đi trước đồng hồ điện thoại. Hãy kiểm tra ngày giờ tự động trên điện thoại và thời gian thiết bị."
+}
 
 @Composable
 private fun DeviceActionButton(type: DeviceCommandType, enabled: Boolean, vm: MainViewModel, deviceId: String) {
