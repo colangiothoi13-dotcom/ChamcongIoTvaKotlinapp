@@ -12,6 +12,7 @@ import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.ShiftCategory
 import vn.chamcong.iot.model.WorkSchedule
 import vn.chamcong.iot.model.WorkShift
+import vn.chamcong.iot.data.CalculationData
 import vn.chamcong.iot.ui.MainUiState
 
 class AttendanceRowPresentationTest {
@@ -122,6 +123,55 @@ class AttendanceRowPresentationTest {
         assertEquals(Instant.parse("2026-09-17T02:00:00Z"), target.currentCheckIn!!.toDate().toInstant())
         assertEquals(Instant.parse("2026-09-17T09:00:00Z"), target.currentCheckOut!!.toDate().toInstant())
         assertEquals(6.5, target.currentWorkedHours!!, 0.0)
+        assertEquals(6.5, target.currentWorkedHoursOverride!!, 0.0)
         assertNull(attendanceAdjustmentTarget(row.copy(employeeId = ""), MainUiState()))
+    }
+
+    @Test fun multishiftTargetUsesTheClickedShiftPairAndWholeDayHours() {
+        val date = "2026-10-10"
+        val morning = WorkShift(id = "am", name = "Ca sáng", startTime = "08:00", endTime = "12:00", category = "MORNING")
+        val afternoon = morning.copy(id = "pm", name = "Ca chiều", startTime = "13:00", endTime = "17:00", category = "EVENING")
+        fun scan(id: String, type: String, time: String, shift: String) = row.copy(id = id, type = type, scheduleDate = date,
+            shiftId = shift, timestamp = Timestamp(Date.from(Instant.parse("2026-10-10T${time}:00Z"))))
+        val rows = listOf(scan("am-in", "CHECK_IN", "01:00", "am"), scan("am-out", "CHECK_OUT", "05:00", "am"),
+            scan("pm-in", "CHECK_IN", "06:00", "pm"), scan("pm-out", "CHECK_OUT", "10:00", "pm"))
+        val state = MainUiState(attendance = rows, shifts = listOf(morning, afternoon),
+            schedules = listOf(WorkSchedule(employeeId = "e1", date = date, shiftId = "am", shiftIds = listOf("am", "pm"))))
+        val target = attendanceAdjustmentTarget(rows[2], state)!!
+        assertEquals(Instant.parse("2026-10-10T06:00:00Z"), target.currentCheckIn!!.toDate().toInstant())
+        assertEquals(Instant.parse("2026-10-10T10:00:00Z"), target.currentCheckOut!!.toDate().toInstant())
+        assertEquals(8.0, target.currentWorkedHours!!, 0.0)
+        val ambiguous = attendanceAdjustmentTarget(rows[2].copy(shiftId = null), state)!!
+        assertNull(ambiguous.currentCheckIn); assertNull(ambiguous.currentCheckOut)
+        assertEquals(8.0, ambiguous.currentWorkedHours!!, 0.0)
+    }
+
+    @Test fun adjustmentInOneShiftDoesNotReplaceAnotherShiftPair() {
+        val date = "2026-10-10"
+        val morning = WorkShift(id = "am", name = "Ca sáng", startTime = "08:00", endTime = "12:00", category = "MORNING")
+        val afternoon = morning.copy(id = "pm", name = "Ca chiều", startTime = "13:00", endTime = "17:00", category = "EVENING")
+        val start = row.copy(id = "am-in", scheduleDate = date, shiftId = "am", timestamp = Timestamp(Date.from(Instant.parse("2026-10-10T01:00:00Z"))))
+        val end = start.copy(id = "am-out", type = "CHECK_OUT", timestamp = Timestamp(Date.from(Instant.parse("2026-10-10T05:00:00Z"))))
+        val correction = AttendanceAdjustment(employeeId = "e1", employeeName = "An", scheduleDate = date,
+            checkInAt = Instant.parse("2026-10-10T06:30:00Z"), checkOutAt = Instant.parse("2026-10-10T10:00:00Z"),
+            reason = "Sửa ca chiều", actorId = "admin", actorName = "Admin")
+        val state = MainUiState(attendance = listOf(start, end), shifts = listOf(morning, afternoon),
+            schedules = listOf(WorkSchedule(employeeId = "e1", date = date, shiftId = "am", shiftIds = listOf("am", "pm"))),
+            attendanceAdjustments = listOf(correction))
+        val target = attendanceAdjustmentTarget(start, state)!!
+        assertEquals(Instant.parse("2026-10-10T01:00:00Z"), target.currentCheckIn!!.toDate().toInstant())
+        assertEquals(Instant.parse("2026-10-10T05:00:00Z"), target.currentCheckOut!!.toDate().toInstant())
+    }
+
+    @Test fun historicalHoursOverrideIsCarriedIntoTheAdjustmentTarget() {
+        val source = row.copy(id = "in", scheduleDate = "2026-09-17",
+            timestamp = Timestamp(Date.from(Instant.parse("2026-09-17T01:00:00Z"))))
+        val correction = AttendanceAdjustment(id = "historical-correction", employeeId = "e1", employeeName = "An",
+            scheduleDate = "2026-09-17", checkInAt = Instant.parse("2026-09-17T02:00:00Z"), workedHoursOverride = 6.5,
+            reason = "Chốt giờ tháng cũ", actorId = "admin", actorName = "Admin")
+        val target = attendanceAdjustmentTarget(source, MainUiState(attendance = listOf(source),
+            historicalCalculationData = CalculationData(adjustments = listOf(correction))))!!
+        assertEquals(6.5, target.currentWorkedHoursOverride!!, 0.0)
+        assertEquals(Instant.parse("2026-09-17T02:00:00Z"), target.currentCheckIn!!.toDate().toInstant())
     }
 }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,9 +29,12 @@ import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.terminationLocalDate
 import vn.chamcong.iot.ui.attendance.AttendanceScreen
 import vn.chamcong.iot.ui.attendance.attendanceAdjustmentDate
+import vn.chamcong.iot.ui.attendance.attendanceMethodLabel
 import vn.chamcong.iot.ui.attendance.attendanceResolutionPresentation
 import vn.chamcong.iot.ui.attendance.attendanceZone
 import vn.chamcong.iot.ui.dashboard.DashboardScreen
+import vn.chamcong.iot.ui.dashboard.AdminDashboardAction
+import vn.chamcong.iot.ui.dashboard.AdminNotificationsCard
 import vn.chamcong.iot.ui.devices.DevicesScreen
 import vn.chamcong.iot.ui.employees.EmployeesScreen
 import vn.chamcong.iot.ui.schedule.ScheduleScreen
@@ -60,22 +64,28 @@ import vn.chamcong.iot.ui.departments.DepartmentsScreen
 import vn.chamcong.iot.ui.notifications.AnnouncementsScreen
 import vn.chamcong.iot.ui.reports.MonthlyTimesheetScreen
 import vn.chamcong.iot.ui.workitems.WorkItemsScreen
+import vn.chamcong.iot.ui.camera.CameraPreviewScreen
+import vn.chamcong.iot.ui.employees.EmployeeAccountDialog
+import vn.chamcong.iot.data.observeEmployeeAccounts
+import vn.chamcong.iot.model.UserProfile
+import kotlinx.coroutines.CancellationException
 
 enum class AppDestination(val title: String) {
     DASHBOARD("Tổng quan"),
-    TASKS("Tiện ích"),
+    TASKS("Danh mục"),
     WORK_ITEMS("Công việc"),
     REQUESTS("Đơn từ"),
     SHIFT_MANAGEMENT("Phân ca"),
     EMPLOYEES("Nhân viên"),
     ATTENDANCE("Chấm công"),
-    DEVICES("Thiết bị"),
-    PAYROLL("Lương"),
+    DEVICES("Thiết bị IoT"),
+    CAMERA("Camera & khuôn mặt"),
+    PAYROLL("Bảng lương"),
     PERFORMANCE("Hiệu suất"),
     SHIFTS("Ca làm"),
-    SCHEDULE("Lịch"),
+    SCHEDULE("Lịch làm việc"),
     PRESENCE("Có mặt"),
-    REPORTS("Báo cáo"),
+    REPORTS("Báo cáo & bảng công"),
     AUDIT("Nhật ký"),
     SETTINGS("Cài đặt"),
     MONTHLY_TIMESHEET("B\u1ea3ng c\u00f4ng th\u00e1ng"),
@@ -115,21 +125,25 @@ val adminPrimaryDestinations = listOf(
 )
 
 val adminTaskDestinations = listOf(
-    AppDestination.REQUESTS,
+    AppDestination.DASHBOARD,
+    AppDestination.WORK_ITEMS,
     AppDestination.ATTENDANCE,
     AppDestination.PRESENCE,
-    AppDestination.DEVICES,
-    AppDestination.SHIFT_MANAGEMENT,
-    AppDestination.SHIFTS,
+    AppDestination.EMPLOYEES,
     AppDestination.SCHEDULE,
+    AppDestination.SHIFTS,
+    AppDestination.REQUESTS,
+    AppDestination.SHIFT_MANAGEMENT,
     AppDestination.PAYROLL,
-    AppDestination.PERFORMANCE,
     AppDestination.REPORTS,
     AppDestination.MONTHLY_TIMESHEET,
-    AppDestination.AUDIT,
+    AppDestination.PERFORMANCE,
+    AppDestination.CAMERA,
+    AppDestination.DEVICES,
     AppDestination.DEPARTMENTS,
     AppDestination.ANNOUNCEMENTS,
-    AppDestination.EMPLOYEE_RESOURCES
+    AppDestination.EMPLOYEE_RESOURCES,
+    AppDestination.AUDIT
 )
 
 val employeePrimaryDestinations = listOf(
@@ -255,6 +269,9 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var initialRequestGroup by remember { mutableStateOf(AdminRequestGroup.WEEKLY_SCHEDULE) }
     val backStack = remember { mutableStateListOf<AppDestination>() }
     var showAdd by remember { mutableStateOf(false) }
+    var createWorkRequest by remember { mutableIntStateOf(0) }
+    var assignmentRequest by remember { mutableIntStateOf(0) }
+    var adjustmentRequest by remember { mutableIntStateOf(0) }
     var employeeToEdit by remember { mutableStateOf<Employee?>(null) }
     var employeeToEnroll by remember { mutableStateOf<Employee?>(null) }
     var employeeToRemove by remember { mutableStateOf<Employee?>(null) }
@@ -262,6 +279,21 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     var salaryEmployee by remember { mutableStateOf<Employee?>(null) }
     var showChangePassword by remember { mutableStateOf(false) }
     var showAccountMenu by remember { mutableStateOf(false) }
+    var accountEmployee by remember { mutableStateOf<Employee?>(null) }
+    var employeeAccounts by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
+    var employeeAccountsLoading by remember { mutableStateOf(false) }
+    var employeeAccountsError by remember { mutableStateOf<String?>(null) }
+    var accountRetry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(accountEmployee?.id, state.userProfile?.uid, accountRetry) {
+        employeeAccounts = emptyList(); employeeAccountsError = null
+        val employee = accountEmployee
+        if(employee == null) { employeeAccountsLoading = false; return@LaunchedEffect }
+        employeeAccountsLoading = true
+        try {
+            vm.repository.observeEmployeeAccounts(employee.id).collect { rows -> employeeAccounts = rows; employeeAccountsLoading = false }
+        } catch(cancelled: CancellationException) { throw cancelled }
+        catch(failure: Exception) { employeeAccountsLoading = false; employeeAccountsError = userFacingErrorMessage(failure) }
+    }
     fun navigate(destination: AppDestination) {
         if (destination == AppDestination.REQUESTS) initialRequestGroup = AdminRequestGroup.WEEKLY_SCHEDULE
         if (destination != selected) {
@@ -284,7 +316,10 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { TopAppBar(
-            title = { Text(selected.title) },
+            title = { Column {
+                Text("Chấm công IoT", style = MaterialTheme.typography.titleMedium)
+                Text("Không gian quản trị", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } },
             navigationIcon = {
                 if (backStack.isNotEmpty()) IconButton(onClick = {
                     selected = backStack.removeAt(backStack.lastIndex)
@@ -309,7 +344,7 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
         ) },
         bottomBar = { NavigationBar(
             containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp
+            tonalElevation = 0.dp
         ) {
             adminPrimaryDestinations.forEachIndexed { index, destination ->
                 NavigationBarItem(
@@ -327,19 +362,29 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 )
             }
         } },
-        floatingActionButton = { if (selected == AppDestination.EMPLOYEES) FloatingActionButton({ vm.clearError(); showAdd = true }) { Icon(Icons.Default.PersonAdd, "Thêm nhân viên") } }
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().padding(horizontal = AppSpacing.large, vertical = AppSpacing.medium)) {
             state.error?.let { Text(it, color=MaterialTheme.colorScheme.error) }
             state.message?.let { Text(it, color=MaterialTheme.colorScheme.primary, modifier=Modifier.padding(bottom=AppSpacing.small)) }
             if (state.saving) LinearProgressIndicator(Modifier.fillMaxWidth())
             when (selected) {
-                AppDestination.DASHBOARD -> DashboardScreen(state, vm) { destination ->
+                AppDestination.DASHBOARD -> DashboardScreen(state, vm, onShortcut = { action ->
+                    vm.clearError()
+                    navigate(action.destination)
+                    when(action) {
+                        AdminDashboardAction.ADD_EMPLOYEE -> showAdd = true
+                        AdminDashboardAction.CREATE_WORK -> createWorkRequest++
+                        AdminDashboardAction.ASSIGN_SCHEDULE -> assignmentRequest++
+                        AdminDashboardAction.ADJUST_ATTENDANCE -> adjustmentRequest++
+                        AdminDashboardAction.REVIEW_REQUESTS -> initialRequestGroup = AdminRequestGroup.OTHER_REQUESTS
+                        AdminDashboardAction.MANAGE_PAYROLL -> Unit
+                    }
+                }) { destination ->
                     navigate(destination)
                     if (destination == AppDestination.REQUESTS) initialRequestGroup = AdminRequestGroup.OTHER_REQUESTS
                 }
                 AppDestination.TASKS -> AdminTasksScreen { destination -> navigate(destination) }
-                AppDestination.WORK_ITEMS -> WorkItemsScreen(state, vm)
+                AppDestination.WORK_ITEMS -> WorkItemsScreen(state, vm, initialCreateRequest = createWorkRequest, onCreateRequestHandled = { createWorkRequest = 0 })
                 AppDestination.SHIFT_MANAGEMENT -> ShiftManagementScreen(
                     onOpenWeeklyRegistrations = {
                         vm.selectWeeklyRegistrationWeek()
@@ -353,18 +398,20 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                     onEdit = { vm.clearError(); employeeToEdit = it },
                     onEnroll = { vm.clearError(); employeeToEnroll = it },
                     onSalary = { vm.clearError(); salaryEmployee = it },
+                    onAccount = { vm.clearError(); accountEmployee = it },
                     onRemove = { employee, removeAll ->
                         vm.clearError()
                         employeeToRemove = employee
                         retire = removeAll
                     }
                 )
-                AppDestination.ATTENDANCE -> AttendanceScreen(state, vm)
+                AppDestination.ATTENDANCE -> AttendanceScreen(state, vm, initialAdjustmentRequest = adjustmentRequest, onAdjustmentRequestHandled = { adjustmentRequest = 0 })
                 AppDestination.PAYROLL -> PayrollScreen(state, vm)
                 AppDestination.PERFORMANCE -> PerformanceScreen(state, vm)
                 AppDestination.DEVICES -> DevicesScreen(state, vm)
+                AppDestination.CAMERA -> CameraPreviewScreen(onOpenEmployees = { navigate(AppDestination.EMPLOYEES) })
                 AppDestination.SHIFTS -> ShiftsScreen(state, vm)
-                AppDestination.SCHEDULE -> ScheduleScreen(state, vm)
+                AppDestination.SCHEDULE -> ScheduleScreen(state, vm, initialAssignmentRequest = assignmentRequest, onAssignmentRequestHandled = { assignmentRequest = 0 })
                 AppDestination.PRESENCE -> PresenceScreen(state, vm)
                 AppDestination.REQUESTS -> RequestsScreen(state, vm, initialGroup = initialRequestGroup)
                 AppDestination.REPORTS -> ReportsScreen(state, vm)
@@ -402,6 +449,14 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                     departments = state.departments,
                     saving = state.saving,
                     onSend = { target, title, body, onSent -> vm.sendAnnouncement(target, title, body, onSent) },
+                    error = state.error,
+                    incomingContent = {
+                        if(state.visibleAdminNotifications.isNotEmpty()) AdminNotificationsCard(
+                            notifications = state.visibleAdminNotifications,
+                            saving = state.saving,
+                            onMarkRead = { ids -> ids.forEach { vm.markNotificationRead(it) } }
+                        )
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
                 AppDestination.AUDIT -> AuditScreen(state)
@@ -409,6 +464,12 @@ private fun AdminHomeScreen(state: MainUiState, vm: MainViewModel) {
                 AppDestination.SETTINGS -> Placeholder("Cài đặt đang phát triển", "Mục này chưa được mở trong menu Admin để tránh tạo kỳ vọng về các cấu hình chưa có chức năng.", Icons.Default.Settings)
             }
         }
+    }
+    accountEmployee?.let { selectedEmployee ->
+        val current = state.employees.firstOrNull { it.id == selectedEmployee.id } ?: selectedEmployee
+        EmployeeAccountDialog(current, employeeAccounts, employeeAccountsLoading, state.saving, employeeAccountsError,
+            onDismiss = { if(!state.saving) accountEmployee = null }, onRetry = { accountRetry++ },
+            onCreate = { input, done -> vm.provisionEmployeeAccount(current.id, input, done) }, operationError = state.error)
     }
     if(showAdd) EmployeeDialog(state,
         onDismiss={ if(!state.saving) showAdd=false },
@@ -625,17 +686,24 @@ private fun Dashboard(state: MainUiState) {
     Card(modifier) { Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary); Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label) } }
 }
 
-@Composable internal fun EmployeeList(employees: List<Employee>, commands: List<Map<String,Any>>, onEdit: (Employee)->Unit, onEnroll: (Employee)->Unit, onSalary: (Employee)->Unit, onRemove: (Employee,Boolean)->Unit) {
+@Composable internal fun EmployeeList(employees: List<Employee>, commands: List<Map<String,Any>>, onEdit: (Employee)->Unit, onEnroll: (Employee)->Unit, onSalary: (Employee)->Unit, onRemove: (Employee,Boolean)->Unit, faceContent: @Composable (Employee) -> Unit = {}, onAccount: ((Employee)->Unit)? = null, header: @Composable ColumnScope.() -> Unit = {}) {
     LazyColumn(verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
+        item { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium), content = header) }
         if(employees.isEmpty()) item { Text("Chưa có nhân viên trong danh sách này") }
         items(employees,key={it.id}) { e ->
+            var managing by remember(e.id) { mutableStateOf(false) }
             val command=commands.firstOrNull { it["employeeId"] == e.id }
             val busy=command?.get("status") in listOf("REQUESTED","PROCESSING") || (command?.get("status")=="COMPLETED" && command["applied"]!=true)
             val hasTemplate=e.fingerprintTemplateId!=null || e.pendingTemplateId!=null || (command?.get("type")=="ENROLL_FINGERPRINT" && command["status"]=="FAILED")
-            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(AppSpacing.large),verticalArrangement=Arrangement.spacedBy(AppSpacing.small)) {
-                TextButton({ onEdit(e) }, enabled = e.active) { Text("S\u1eeda h\u1ed3 s\u01a1") }
-                Text(e.fullName,fontWeight=FontWeight.Bold)
-                Text("${e.code} • ${e.department}${if(!e.active) " • Đã nghỉ" else ""}")
+            AdminSectionCard {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
+                    Column(Modifier.weight(1f)) {
+                        Text(e.fullName, style = MaterialTheme.typography.titleMedium)
+                        Text("${e.code} · ${e.department.ifBlank { "Chưa có phòng ban" }}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Text(if(e.active) "Đang làm việc" else "Đã nghỉ", color = if(e.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
                 if (!e.active) {
                     Text(
                         e.terminationLocalDate()?.let { "Ngày nghỉ việc: ${it.format(employeeTerminationDateFormatter)}" }
@@ -643,8 +711,20 @@ private fun Dashboard(state: MainUiState) {
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Text("Lương cơ bản: ${money(e.baseSalary)}")
+                Text("Đơn giá giờ: ${money(e.baseSalary)} / giờ")
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    OutlinedButton({ managing = !managing }, shape = MaterialTheme.shapes.small) { Text(if(managing) "Thu gọn" else "Xem / quản lý") }
+                    if(e.active) TextButton({ onEdit(e) }) { Text("Sửa hồ sơ") }
+                }
+                if(managing) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("Tài khoản & đơn giá giờ", style = MaterialTheme.typography.titleMedium)
+                onAccount?.let { open -> TextButton({ open(e) }) { Text("Tài khoản đăng nhập") } }
+                if(e.active) TextButton({onSalary(e)}) { Text("Đặt đơn giá giờ") }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("Vân tay", style = MaterialTheme.typography.titleMedium)
                 e.fingerprintTemplateId?.let { Text("Mẫu vân tay #$it",color=MaterialTheme.colorScheme.primary) }
+                if(e.fingerprintTemplateId == null) Text("Chưa đăng ký vân tay", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 command?.let { c ->
                     val label=when(c["status"]) {
                         "REQUESTED" -> "Đang chờ thiết bị — hãy bật máy và kết nối Wi-Fi"
@@ -656,12 +736,17 @@ private fun Dashboard(state: MainUiState) {
                     Text("${if(c["type"]=="DELETE_FINGERPRINT") "Xóa vân tay" else "Đăng ký"}: $label",style=MaterialTheme.typography.bodySmall)
                 }
                 if(e.active) {
-                    TextButton({onSalary(e)}) { Text("Thiết lập lương") }
-                    if(!hasTemplate) FilledTonalButton({onEnroll(e)},enabled=!busy) { Text("Đăng ký vân tay") }
+                    if(!hasTemplate) FilledTonalButton({onEnroll(e)},enabled=!busy, shape = MaterialTheme.shapes.small) { Text("Đăng ký vân tay") }
                 }
                 if(hasTemplate) TextButton({onRemove(e,false)},enabled=!busy) { Text("Xóa vân tay") }
-                if(e.active) TextButton({onRemove(e,true)},enabled=!busy) { Text("Xóa nhân viên",color=MaterialTheme.colorScheme.error) }
-            } }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("Khuôn mặt", style = MaterialTheme.typography.titleMedium)
+                faceContent(e)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("Tình trạng nhân viên", style = MaterialTheme.typography.titleMedium)
+                if(e.active) TextButton({onRemove(e,true)},enabled=!busy) { Text("Chuyển sang đã nghỉ",color=MaterialTheme.colorScheme.error) }
+                }
+            }
         }
     }
 }
@@ -683,11 +768,12 @@ private fun Dashboard(state: MainUiState) {
     onAdjust: ((Attendance) -> Unit)? = null,
     onReviewScan: ((Attendance) -> Unit)? = null,
     onReviewUnscheduled: ((Attendance) -> Unit)? = null,
+    onDetail: ((Attendance) -> Unit)? = null,
     header: @Composable ColumnScope.() -> Unit
 ) = LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
     item { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium), content = header) }
     if (attendance.isEmpty()) item { Text("Chưa có lượt chấm phù hợp") }
-    items(attendance, key = { it.id }) { AttendanceRow(it, adjustmentEnabled, onAdjust, onReviewScan, onReviewUnscheduled, it.id in scanReviewIds) }
+    items(attendance, key = { it.id }) { AttendanceRow(it, adjustmentEnabled, onAdjust, onReviewScan, onReviewUnscheduled, it.id in scanReviewIds, onDetail) }
 }
 
 @Composable private fun AttendanceRow(
@@ -696,7 +782,8 @@ private fun Dashboard(state: MainUiState) {
     onAdjust: ((Attendance) -> Unit)? = null,
     onReviewScan: ((Attendance) -> Unit)? = null,
     onReviewUnscheduled: ((Attendance) -> Unit)? = null,
-    scanReviewAvailable: Boolean = false
+    scanReviewAvailable: Boolean = false,
+    onDetail: ((Attendance) -> Unit)? = null
 ) {
     val time = remember(item.timestamp) {
         SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale("vi", "VN")).apply {
@@ -710,15 +797,17 @@ private fun Dashboard(state: MainUiState) {
             resolution.label.startsWith("Đã ghi nhận từ thiết bị") -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.error
     }
-    Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically) {
+    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically) {
         Icon(if (resolution.accepted) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = tint)
         Spacer(Modifier.width(AppSpacing.medium))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
             Text(item.employeeName.ifBlank { item.employeeId }, fontWeight = FontWeight.Bold)
-            Text("$time • ${item.deviceId} • ${item.type}", style = MaterialTheme.typography.bodySmall)
+            val typeLabel = when(item.type) { "CHECK_IN" -> "Vào ca"; "CHECK_OUT" -> "Ra ca"; "SCAN" -> "Lượt quét gốc"; "UNSCHEDULED" -> "Ngoài lịch"; else -> "Chưa rõ" }
+            Text("$time · ${item.deviceId} · $typeLabel", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Phương thức: ${attendanceMethodLabel(item)}", style = MaterialTheme.typography.bodySmall)
             Text(resolution.label, color = tint, style = MaterialTheme.typography.labelLarge)
             Text(
-                if (item.type == "SCAN" && item.resolutionStatus == "PENDING") "Đã lưu lượt quét trên Firebase"
+                if (item.type == "SCAN" && item.resolutionStatus == "PENDING") "Đã ghi nhận lượt quét"
                 else if (item.syncStatus == "PENDING_SYNC") "Đang chờ đồng bộ từ thiết bị"
                 else "Đã đồng bộ lên hệ thống",
                 color = if (item.syncStatus == "PENDING_SYNC") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -731,16 +820,17 @@ private fun Dashboard(state: MainUiState) {
                 TextButton(
                     onClick = { onReviewUnscheduled(item) },
                     enabled = adjustmentEnabled
-                ) { Text(if (item.offScheduleReviewStatus == "PENDING") "Duyệt ngoài lịch" else "Xử lý chấm ngoài lịch") }
+                ) { Text(if (item.offScheduleReviewStatus == "PENDING") "Duyệt ngoài lịch" else "Xử lý ngoài lịch") }
             }
             if (scanReviewAvailable && onReviewScan != null) TextButton(
                 onClick = { onReviewScan(item) },
                 enabled = adjustmentEnabled && item.employeeId.isNotBlank() && attendanceAdjustmentDate(item) != null
-            ) { Text("Xác nhận / Xóa") }
-            else if (onAdjust != null && item.offScheduleReviewStatus != "REJECTED") TextButton(
+            ) { Text("Sửa phân loại") }
+            if (onAdjust != null && item.offScheduleReviewStatus != "REJECTED") TextButton(
                 onClick = { onAdjust(item) },
                 enabled = adjustmentEnabled && item.employeeId.isNotBlank() && attendanceAdjustmentDate(item) != null
-            ) { Text("Điều chỉnh") }
+            ) { Text("Điều chỉnh công") }
+            onDetail?.let { detail -> TextButton({ detail(item) }, enabled=adjustmentEnabled) { Text("Chi tiết") } }
         }
     } }
 }

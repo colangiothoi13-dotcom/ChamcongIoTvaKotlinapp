@@ -1,6 +1,7 @@
 package vn.chamcong.iot.ui.dashboard
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -55,7 +57,7 @@ internal fun AdminNotificationsCard(
     val unreadGroups = groups.count { it.unreadCount > 0 }
     val visibleGroups = if (showAll) groups else groups.take(3)
 
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(horizontal = AppSpacing.large, vertical = AppSpacing.small)) {
             Row(
                 Modifier.fillMaxWidth().padding(vertical = AppSpacing.small),
@@ -63,7 +65,7 @@ internal fun AdminNotificationsCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Thông báo trong app",
+                    "Thông báo quản trị",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold

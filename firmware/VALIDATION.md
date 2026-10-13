@@ -1,6 +1,40 @@
-# Kiểm chứng firmware ESP8266
+# Kiểm chứng firmware ESP8266 và camera
 
-Ngày cập nhật: 09/10/2026. Firmware hiện tại là `spark-anonymous-v16-tls-memory`, giữ sửa kết quả lệnh của v14, heartbeat của v15 và hành vi ngoại tuyến của v12. Phép đo cửa trực tiếp ngày 04/10 thuộc bản v9; log người dùng cung cấp sau đó thuộc v10, v11, v14 và v15. Người dùng đã xác nhận cửa hoạt động trở lại; chưa coi một chu kỳ cửa là nghiệm thu toàn bộ thiết bị hoặc luồng mạng.
+Ngày cập nhật: 11/10/2026. Firmware hiện tại là `spark-anonymous-v16-tls-memory`, giữ sửa kết quả lệnh của v14, heartbeat của v15 và hành vi ngoại tuyến của v12. Phép đo cửa trực tiếp ngày 04/10 thuộc bản v9; log người dùng cung cấp sau đó thuộc v10, v11, v14 và v15. Người dùng đã xác nhận cửa hoạt động trở lại; chưa coi một chu kỳ cửa là nghiệm thu toàn bộ thiết bị hoặc luồng mạng.
+
+## Chuyển camera sang ESP32-S3 N16R8 — 11/10/2026
+
+Người dùng đã mua board ESP32-S3-WROOM-1 N16R8 CAM hai Type-C, chưa thao tác phần cứng. Tên sản phẩm ghi OV2640 nhưng người dùng báo cáp camera ghi OV5640. Firmware để driver tự dò cảm biến, in tên/PID, dung lượng flash/PSRAM ra Serial và `/health`; không ép cảm biến thành OV2640. SDK S3 `qio_opi` của core 3.3.12 bật cả `CONFIG_OV2640_SUPPORT=1` và `CONFIG_OV5640_SUPPORT=1`.
+
+`camera_board.h` tự chọn profile theo chip ESP-IDF và từ chối profile/chip không khớp khi biên dịch. S3 dùng pinout [S3N16R8 của tác giả esp32cam](https://github.com/yoursunny/esp32cam/blob/main/src/esp32cam/pins.hpp), không điều khiển đèn GPIO4 vì đây là SDA camera. Nếu thiếu PSRAM, S3 báo lỗi và không khởi tạo camera bằng DRAM; AI Thinker cũ giữ chế độ QVGA dự phòng. Giao thức JPEG/token/frame ID, dịch vụ laptop và cấu trúc dữ liệu Android/Firebase được giữ nguyên.
+
+Biên dịch đầy đủ bằng `firmware/esp32_cam/compile.ps1`, core Espressif **3.3.12**:
+
+| Cấu hình camera | Flash ứng dụng | RAM tĩnh | Kết quả |
+| --- | --- | --- | --- |
+| ESP32S3 Dev Module, flash QIO 16MB, OPI PSRAM, UART/CDC Disabled | 995.294 / 3.145.728 byte (31%) | 57.608 / 327.680 byte (17%) | Đạt |
+| Cùng board S3, USB tích hợp/CDC Enabled, Hardware CDC and JTAG | 1.012.231 / 3.145.728 byte (32%) | 57.980 / 327.680 byte (17%) | Đạt |
+| Hồi quy AI Thinker ESP32-CAM, flash QIO 4MB, PSRAM, ứng dụng 3MB | 1.051.406 / 3.145.728 byte (33%) | 60.292 / 327.680 byte (18%) | Đạt |
+
+FQBN S3 dùng `FlashMode=qio,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB,USBMode=hwcdc`; `CDCOnBoot=default` cho UART và `cdc` cho USB tích hợp. Script giữ nguyên flags PSRAM/USB của Espressif, bổ sung thư viện S3 còn thiếu vào SDK riêng trong `.gradle/esp32-arduino` bằng archive có kích thước/SHA-256 đúng index chính thức. Không thay SDK Arduino IDE toàn máy. Output nằm trong `.gradle/esp32-camera-build-s3n16r8-uart` và `.gradle/esp32-camera-build-s3n16r8-native-cdc`.
+
+Hồi quy classic dùng `esp32:esp32:esp32cam:CPUFreq=240,FlashMode=qio,PartitionScheme=huge_app`, output tại `.gradle/esp32-camera-build-ai-thinker`. SHA-256 của sketch và header trong cả ba thư mục staging khớp nguồn cuối cùng; sau biên dịch không còn ánh xạ ổ đĩa SUBST tạm.
+
+Kiểm chứng phần mềm: **118/118** bài `node --test firmware/test/*.test.cjs` đạt, gồm 9 bài camera. Bốn bài mới chạy hàm khởi tạo thực với thiết bị giả: thiếu PSRAM, dò OV5640/cấu hình JPEG PSRAM và không ghi GPIO4, AI Thinker dùng flash/QVGA DRAM, lỗi dò cảm biến rồi phục hồi. Bốn phép biên dịch cú pháp C++ riêng xác nhận tự chọn hai profile và từ chối cả hai trường hợp profile/chip không khớp. **11/11** bài Python nguồn ảnh/chẩn đoán đạt; đây là phần kiểm tra liên quan camera, không phải chạy lại toàn bộ suite Python. Script PowerShell parse và `git diff --check` đạt.
+
+**Giới hạn tại thời điểm biên dịch:** chưa nạp hoặc thử camera thật. Các bản biên dịch dùng sketch sao chép với Wi-Fi/token giả, không đọc bí mật thật, không truy cập COM và không dùng output để nạp trực tiếp. Chữ ESP32-S3 WROOM/N16R8 không xác nhận pinout của mọi PCB. Giữ `ATTENDANCE_GATEWAY_MODE=0` cho đến khi dịch vụ laptop và luồng Firebase thật đã sẵn sàng.
+
+**Cập nhật thử camera thật ngày 11/10/2026:** người dùng tự nạp và cung cấp log nhận OV5640 (`PID 0x5640`), flash **16.777.216 byte**, PSRAM **8.388.608 byte**, JPEG VGA, IP LAN `192.168.0.110`. Sau lần khởi động lại, laptop đọc `/health` HTTP 200 với `cameraReady=true`, `cameraError=0` và dung lượng bộ nhớ khớp log. Đã lấy JPEG **640×480, 12.360 byte**, lưu tại `services/face_attendance/data/preview/camera-test.jpg` được Git bỏ qua và mở trong trình xem ảnh. Ảnh hiển thị được nhưng đang xoay ngang; cần chỉnh tư thế đặt board trước khi thu mẫu. `run.ps1 doctor --camera` báo `ok=true`, `cameraReady=true`, `readyForRecognition=false` vì chưa có hồ sơ mặt. Chưa thu/đăng ký mẫu nhân viên, tạo lượt công hoặc kiểm tra Wi-Fi/nguồn dài hạn; chưa chuyển ESP8266 sang gateway. Lần kết nối ban đầu đã timeout, chưa xác định nguyên nhân và không coi một ảnh thành công là đã xác nhận độ ổn định.
+
+## Xóa vân tay bị kẹt đồng bộ — 11/10/2026
+
+Log v16 có lệnh `DELETE_FINGERPRINT` ở `COMPLETED`, PATCH kết quả HTTP 200 nhưng commit hoàn tất HTTP 403. LCD hiện `CHO DONG BO` / `KIEM TRA MANG`, app hiện “Đã xong, đang đồng bộ”. Đọc trực tiếp Firebase xác nhận mẫu 14 đã được báo xóa, `applied=false`, hồ sơ còn `fingerprintTemplateId=14` và `pendingTemplateId=14` nhưng thiếu trường `fingerprintDeviceId`; mapping vẫn được giữ và tắt. Các Rules vân tay đang triển khai khớp mã nguồn.
+
+Nguyên nhân: mô hình Kotlin có giá trị mặc định `GATE-01`, nên app vẫn tạo lệnh hợp lệ dù hồ sơ cũ thiếu trường trong Firestore. Rules đọc trường thực tế để kiểm tra đồng bộ nguyên tử giữa lệnh, hồ sơ và mapping. `removeEmployeeOrFingerprint()` nay lưu cả `fingerprintDeviceId=commandRef.id` và `pendingTemplateId` trong transaction tạo lệnh xóa, áp dụng cả trường hợp cho nhân viên nghỉ.
+
+Đã sửa hồ sơ đang kẹt bằng transaction chỉ bổ sung mã thiết bị; trước khi ghi kiểm tra đúng request, nhân viên, mẫu, trạng thái lệnh và mapping. ESP tự thử lại và hoàn tất lúc **08:59:37 ngày 11/10/2026 (UTC+7)**: lệnh `COMPLETED/applied=true`, hai trường mẫu trong hồ sơ về null và mapping 14 không còn. Đây là bằng chứng hoàn tất đồng bộ trên Firebase; chưa quan sát trực tiếp LCD hoặc thử quét lại mẫu đã xóa.
+
+Kiểm chứng: 4/4 kiểm thử Firestore emulator đạt, tái hiện hồ sơ thiếu/rỗng mã thiết bị trả 403 và xác nhận cùng lệnh hoàn tất sau khi Admin bổ sung trường; thiết bị Anonymous không được tự sửa mã thiết bị. 7/7 kiểm thử kết quả lệnh firmware và 369/369 kiểm thử Android đạt; `:app:assembleDebug` thành công. APK mới ở `app/build/outputs/apk/debug/app-debug.apk`, cần cài để tránh lỗi lặp lại khi tạo lệnh xóa cho hồ sơ cũ. Lần sửa này không thay đổi Rules hoặc firmware thực thi. Lỗi đọc AS608 mã 32 trong log đã được firmware kết nối lại; kết quả đồng bộ trên không xác nhận lỗi UART/nguồn đã được xử lý.
 
 ## Bản sửa bộ nhớ HTTPS v16
 
@@ -131,3 +165,30 @@ Dùng đúng board/cổng COM được xác nhận, nguồn servo riêng ổn đ
 | SYNC còn bản chưa gửi quá 180 giây | Lệnh báo thất bại do hết hạn; hàng đợi giữ các bản chưa gửi và tiếp tục retry nền |
 
 V12 chỉ ghi công khi đã có giờ NTP hợp lệ. Khởi động hoàn toàn offline chưa có giờ chỉ mở cửa theo mẫu và báo `CHUA LUU CONG`; không lưu lượt này để gửi lại. Các bài thử ở bảng trên vẫn cần log và đo trực tiếp trên phần cứng.
+
+## Chuẩn bị ESP32-CAM và gateway laptop — 10/10/2026
+
+Chưa có ESP32-CAM thực tế; lần chuẩn bị này không nạp hoặc truy cập cổng COM. Đã tạo firmware `firmware/esp32_cam/` cho AI Thinker/OV2640: JPEG `/capture`, `/health`, token qua `X-Camera-Token`, thử lại Wi-Fi/camera, bỏ framebuffer cũ để lấy ảnh mới. Header `X-Frame-Id` kết hợp nonce mỗi lần khởi động và bộ đếm; ảnh có `Cache-Control: no-store`, thời điểm UTC khi NTP sẵn sàng. Firmware không nhận diện trên board và không đưa ảnh lên Firestore.
+
+ESP8266 có đường gửi laptop trong `35_attendance_gateway.ino`. `ATTENDANCE_GATEWAY_MODE` mặc định **0** khi thiếu cấu hình trong `secrets.h`, giữ luồng vân tay hiện tại. Đặt thành **1** chỉ khi cả điểm chấm chuyển sang dịch vụ laptop: endpoint `http://<IP-laptop>:8765/v1/fingerprint`, token `X-Device-Token`, cùng `stationId` trong cấu hình laptop. Lệnh thiết bị và heartbeat vẫn dùng Firebase; riêng dữ liệu chấm công trong chế độ gateway không fallback về ghi Firestore trực tiếp. Mất Internet gây backoff TLS không chặn lần gửi gateway còn liên lạc được qua LAN.
+
+Gateway bảo toàn LittleFS, bộ đếm, mã sự kiện và giờ quét gốc. Chỉ biên nhận JSON đúng `sourceEventId` cùng `ACCEPTED_SYNCED`/`DUPLICATE_SYNCED` và `attendanceId` mới xác nhận đồng bộ. `DUPLICATE_SYNCED` không phát còi thành công hoặc mở cửa. `QUEUED`, lỗi body/ID hoặc mất phản hồi giữ bản gốc cho retry; từ chối nghiệp vụ `REJECTED` phải có biên nhận đúng mã sự kiện. Mã HTTP 2xx/409 riêng lẻ không đủ để xóa hàng đợi gateway. Payload cũ `offlineScan` và Firestore có thể chuyển sang schema nguồn mà không đổi giờ/mã, nhưng trước khi đổi chế độ nên xả hết hàng đợi bằng firmware cũ để tránh trường hợp bản direct đã được ghi mà mất ACK. Không format/xóa LittleFS để đổi chế độ.
+
+Chính sách cửa ngoại tuyến AS608 đã chọn được giữ riêng: mất kết nối laptop có thể mở một lần cho lượt hiện tại đã lưu, còn hạn; ACK muộn và dữ liệu khôi phục không mở lại. Laptop trả `QUEUED` chưa được coi là đã đồng bộ và không kích hoạt mở cửa theo ACK. Chưa có giờ NTP vẫn là `ACCESS_ONLY`, không tạo lượt công bằng giờ gửi lại.
+
+Chạy `node --test firmware/test/*.test.cjs`: **114/114 đạt**, không thất bại hoặc bỏ qua (99 bài hồi quy hiện có + 10 bài gateway + 5 bài camera). Các bài mới chạy quyết định của mã firmware với HTTP, JSON, thời gian và thiết bị giả: auth camera, sở hữu/độ mới framebuffer, mất ảnh, đổi ID qua khởi động, gateway không fallback, chuyển payload cũ, giữ timestamp, body ACK sai, QUEUED/retry, duplicate không mở cửa, lỗi cập nhật LittleFS, từ chối và khôi phục sau reset.
+
+Sau khi tìm được Arduino CLI tại `D:/IoT/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe`, đã biên dịch ESP8266 core **3.1.2**, FQBN `esp8266:esp8266:nodemcuv2:eesz=4M2M,wipe=none` cho cả hai chế độ. Dùng bản sao sketch trong `.gradle/face-firmware-validation*` với `secrets.h.example`/token giả dùng riêng cho biên dịch; không đọc, in hoặc sửa bí mật thiết bị thực tế, không nạp board. Lần biên dịch đầu phát hiện Arduino sinh prototype `GatewayReceipt` trước include; đã bổ sung khai báo tường minh trong main sketch rồi biên dịch lại thành công.
+
+| Chế độ kiểm tra | RAM | IRAM | Flash | Kết quả |
+| --- | --- | --- | --- | --- |
+| Gateway OFF, cấu hình mẫu | 34.880 / 80.192 byte (43%) | 64.103 / 65.536 byte (97%) | 464.976 / 1.048.576 byte (44%) | Đạt |
+| Gateway ON, token giả phục vụ biên dịch | 34.864 / 80.192 byte (43%) | 64.103 / 65.536 byte (97%) | 464.048 / 1.048.576 byte (44%) | Đạt |
+
+Thư viện sử dụng: ESP8266WiFi 1.0, ESP8266HTTPClient 1.2, Adafruit Fingerprint 2.1.4, EspSoftwareSerial 8.0.1, ArduinoJson 7.4.3, Wire 1.0, LiquidCrystal_I2C 2.0.0, Servo 1.0.2, LittleFS 0.1.0. Công cụ vẫn cảnh báo tương thích kiến trúc LiquidCrystal_I2C như bản cũ; cần kiểm tra LCD thực tế. Đây là số bộ nhớ của cấu hình mẫu, không thay cho đo bộ nhớ runtime khi TLS/mất mạng. Output nằm trong `.gradle/face-gateway-build-off` và `.gradle/face-gateway-build-on`.
+
+Đã cài ESP32 core **3.3.12** từ [index stable chính thức Espressif](https://espressif.github.io/arduino-esp32/package_esp32_index.json) vào `.gradle/esp32-arduino`; chỉ tải toolchain/thư viện cho classic ESP32. Các archive giữ nguyên URL, phiên bản và checksum SHA-256 của index; Arduino CLI kiểm checksum khi cài, đồng thời đã đối chiếu SHA-256 của compiler, core, ESP32 libs và esptool đã tải. SDK Arduino toàn máy không thay đổi. Script `firmware/esp32_cam/compile.ps1` tái lập việc cài bằng `-InstallCore`, các lần sau dùng SDK đã có. Trên Windows, script ánh xạ tạm một ổ đĩa trống vào đúng workspace để GCC không vượt giới hạn đường dẫn, rồi gỡ ánh xạ khi kết thúc, kể cả khi biên dịch lỗi.
+
+Firmware camera đã **biên dịch thành công** với FQBN `esp32:esp32:esp32cam`: cấu hình AI Thinker của core bật PSRAM, flash 4 MB, phân vùng ứng dụng 3 MB. Flash **1.050.554 / 3.145.728 byte (33%)**, RAM tĩnh **60.284 / 327.680 byte (18%)**. Bản sao sketch tại `.gradle/esp32-camera-validation/esp32_cam` dùng Wi-Fi/token giả từ `secrets.h.example`; output ở `.gradle/esp32-camera-build`, không dùng để nạp trực tiếp. Không đọc/sửa `secrets.h` thật, không truy cập COM hay nạp board.
+
+**Chưa thử trên phần cứng camera.** Kết quả biên dịch và 5 bài kiểm thử host của camera chưa xác nhận OV2640, PSRAM, nguồn, chất lượng ảnh hoặc Wi-Fi thực tế. Khi có camera, giữ bản firmware vân tay đã chạy, cấu hình camera và kiểm tra camera/nguồn/LAN/đăng ký 3–4 người theo hướng dẫn `firmware/esp32_cam/README.md` và dịch vụ laptop.

@@ -62,6 +62,8 @@ internal fun MainViewModel.cancelDataSubscriptions() {
     workItemsSubscription = null
     workItemHistorySubscription?.cancel()
     workItemHistorySubscription = null
+    performanceReviewsSubscription?.cancel()
+    performanceReviewsSubscription = null
     employeeWeeklyScheduleRequestSubscription?.cancel()
     employeeWeeklyScheduleRequestSubscription = null
     weeklyScheduleRequestsSubscription?.cancel()
@@ -79,6 +81,7 @@ internal fun MainViewModel.cancelDataSubscriptions() {
     employeeAttendanceHistoryEmployeeId = null
     dataSubscriptions.forEach { it.cancel() }
     dataSubscriptions.clear()
+    faceEnrollmentSubscription = null
     scheduleSubscription?.cancel()
     scheduleSubscription = null
     _state.update {
@@ -106,9 +109,21 @@ internal fun MainViewModel.cancelDataSubscriptions() {
             attendanceClassificationOverrides = emptyList(),
             offScheduleAttendanceReviews = emptyList(),
             payroll = emptyList(),
+            payrollLoading = false,
+            payrollError = null,
+            payrollLoadedMonth = null,
+            payrollReloadGeneration = 0,
             employeePayroll = emptyList(),
+            performanceReviews = emptyList(),
+            performanceReviewsLoading = false,
+            performanceReviewsError = null,
             commands = emptyList(),
             devices = emptyList(),
+            faceProfiles = emptyList(),
+            faceStations = emptyList(),
+            faceEnrollmentCommands = emptyList(),
+            faceEnrollmentLoading = false,
+            faceEnrollmentError = null,
             departments = emptyList(),
             announcements = emptyList(),
             employeeResources = emptyList(),
@@ -148,6 +163,8 @@ internal fun MainViewModel.subscribeAdmin() {
     retryWorkItems()
     subscribeEmployeeResources()
     subscribeAdminWeeklyScheduleRequests()
+    subscribeAdminFaceEnrollment()
+    subscribePerformanceReviews()
     dataSubscriptions += viewModelScope.launch {
         try {
             repository.ensureDefaultScheduleShifts()
@@ -173,10 +190,13 @@ internal fun MainViewModel.subscribeAdmin() {
         }
     }
     dataSubscriptions += viewModelScope.launch {
-        _state.map { it.selectedPayrollMonth }.distinctUntilChanged().collectLatest { month ->
-            _state.update { it.copy(payroll = emptyList()) }
-            repository.observePayroll(month.toString()).catch { e -> setError(e) }.collect { rows ->
-                _state.update { it.copy(payroll=rows) }
+        _state.map { it.selectedPayrollMonth to it.payrollReloadGeneration }.distinctUntilChanged().collectLatest { (month, _) ->
+            _state.update { it.copy(payroll = emptyList(), payrollLoading = true, payrollError = null, payrollLoadedMonth = null) }
+            repository.observeServerPayroll(month.toString()).catch { e ->
+                if(e is CancellationException) throw e
+                _state.update { it.copy(payrollLoading = false, payrollError = userFacingErrorMessage(e)) }
+            }.collect { rows ->
+                _state.update { it.copy(payroll=rows, payrollLoading=false, payrollError=null, payrollLoadedMonth=month) }
             }
         }
     }

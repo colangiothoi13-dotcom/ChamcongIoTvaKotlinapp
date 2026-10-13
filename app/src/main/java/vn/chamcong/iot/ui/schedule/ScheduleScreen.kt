@@ -3,6 +3,13 @@ package vn.chamcong.iot.ui.schedule
 import androidx.compose.ui.tooling.preview.Preview
 import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AdminPageHeader
+import vn.chamcong.iot.ui.AdminSectionCard
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +46,7 @@ import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.loadAttendanceRange
 import vn.chamcong.iot.ui.retryAttendanceRange
 import vn.chamcong.iot.ui.workitems.WorkItemEditorDialog
+import vn.chamcong.iot.ui.removeWorkSchedule
 import kotlinx.coroutines.delay
 import vn.chamcong.iot.model.Attendance
 import java.time.DayOfWeek
@@ -50,11 +58,19 @@ import java.time.ZoneId
 private val adminScheduleZone = ZoneId.of("Asia/Ho_Chi_Minh")
 
 @Composable
-fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
+@OptIn(ExperimentalLayoutApi::class)
+fun ScheduleScreen(state: MainUiState, vm: MainViewModel, initialAssignmentRequest: Int = 0, onAssignmentRequestHandled: () -> Unit = {}) {
     var monthMode by remember { mutableStateOf(false) }
     var assignment by remember { mutableStateOf<AssignmentTarget?>(null) }
     var bulkAssignment by remember { mutableStateOf(false) }
     var workSchedule by remember { mutableStateOf<WorkSchedule?>(null) }
+    LaunchedEffect(initialAssignmentRequest) {
+        if (initialAssignmentRequest > 0 && vm.hasAdminAccess()) {
+            vm.clearError()
+            bulkAssignment = true
+            onAssignmentRequestHandled()
+        }
+    }
     val dates = weekDates(state.selectedWeekStart)
     val activeEmployees = state.operationalEmployees.filter { it.active }
     val attendance = state.attendanceForSummaries
@@ -72,50 +88,54 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
         }
     }
     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
-        Text("Lịch phân ca", style = MaterialTheme.typography.titleLarge)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-            TextButton(onClick = { vm.moveWeek(-1) }) { Text("‹ Tuần trước") }
-            Text("Tuần ${state.selectedWeekStart} – ${dates.last()}", modifier = Modifier.padding(top = AppSpacing.medium))
-            TextButton(onClick = { vm.moveWeek(1) }) { Text("Tuần sau ›") }
-        }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-            Button(onClick = { vm.selectWeek(LocalDate.now()) }, modifier = Modifier.widthIn(min = 112.dp)) {
-                Text("Tuần này", maxLines = 1, softWrap = false)
+        AdminPageHeader("Lịch làm việc", "Phân ca và theo dõi lịch làm việc theo tuần.")
+        AdminSectionCard {
+            Text("Lịch làm việc", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                TextButton(onClick = { vm.moveWeek(-1) }) { Text("‹ Tuần trước") }
+                Text("Tuần ${state.selectedWeekStart} – ${dates.last()}", modifier = Modifier.padding(top = AppSpacing.medium))
+                TextButton(onClick = { vm.moveWeek(1) }) { Text("Tuần sau ›") }
             }
-            Button(onClick = { vm.clearError(); bulkAssignment = true }, enabled = !state.saving, modifier = Modifier.widthIn(min = 176.dp)) {
-                Text("Phân cho nhân viên", maxLines = 1, softWrap = false)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                TextButton(onClick = { vm.selectWeek(LocalDate.now()) }) {
+                    Text("Tuần này", maxLines = 1, softWrap = false)
+                }
+                Button(onClick = { vm.clearError(); bulkAssignment = true }, enabled = !state.saving, shape = MaterialTheme.shapes.small) {
+                    Text("Phân ca", maxLines = 1, softWrap = false)
+                }
+                OutlinedButton(onClick = { vm.clearError(); assignment = AssignmentTarget(null, dates.first(), true) }, enabled = !state.saving, shape = MaterialTheme.shapes.small) {
+                    Text("Phân ca phòng ban", maxLines = 1, softWrap = false)
+                }
+                OutlinedButton(onClick = { vm.clearError(); vm.copyPreviousWeek {} }, enabled = !state.saving, shape = MaterialTheme.shapes.small) {
+                    Text("Sao chép tuần trước", maxLines = 1, softWrap = false)
+                }
             }
-            Button(onClick = { vm.clearError(); assignment = AssignmentTarget(null, dates.first(), true) }, enabled = !state.saving, modifier = Modifier.widthIn(min = 184.dp)) {
-                Text("Phân cho phòng ban", maxLines = 1, softWrap = false)
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                FilterChip(selected = !monthMode, onClick = { monthMode = false }, label = { Text("Tuần") })
+                FilterChip(selected = monthMode, onClick = { monthMode = true }, label = { Text("Tháng") })
             }
-            Button(onClick = { vm.clearError(); vm.copyPreviousWeek {} }, enabled = !state.saving, modifier = Modifier.widthIn(min = 172.dp)) {
-                Text("Sao chép tuần trước", maxLines = 1, softWrap = false)
+            if (state.attendanceHistoryLoading) Text("Đang tải lịch và lượt chấm trong khoảng đang xem…")
+            state.attendanceHistoryError?.let { error ->
+                Text(error, color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { vm.retryAttendanceRange() }) { Text("Tải lại dữ liệu") }
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-            FilterChip(selected = !monthMode, onClick = { monthMode = false }, label = { Text("Tuần") })
-            FilterChip(selected = monthMode, onClick = { monthMode = true }, label = { Text("Tháng") })
-        }
-        if (state.attendanceHistoryLoading) Text("Đang tải lịch và lượt chấm trong khoảng đang xem…")
-        state.attendanceHistoryError?.let { error ->
-            Text(error, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = { vm.retryAttendanceRange() }) { Text("Tải lại dữ liệu") }
-        }
-        if (state.attendanceHistoryTruncated) {
-            Text("Chưa tải đủ lượt chấm trong khoảng đang xem.", color = MaterialTheme.colorScheme.error)
-        }
-        if (monthMode) {
-            MonthScheduleGrid(state, YearMonth.from(state.selectedWeekStart)) { date ->
-                vm.clearError()
-                assignment = AssignmentTarget(null, date, false)
+            if (state.attendanceHistoryTruncated) {
+                Text("Chưa tải đủ lượt chấm trong khoảng đang xem.", color = MaterialTheme.colorScheme.error)
             }
-        } else {
-            WeeklyScheduleGrid(state, dates, activeEmployees, attendance, now) { employee, date ->
-                vm.clearError()
-                assignment = AssignmentTarget(employee, date, false)
+            if (monthMode) {
+                MonthScheduleGrid(state, YearMonth.from(state.selectedWeekStart)) { date ->
+                    vm.clearError()
+                    assignment = AssignmentTarget(null, date, false)
+                }
+            } else {
+                WeeklyScheduleGrid(state, dates, activeEmployees, attendance, now) { employee, date ->
+                    vm.clearError()
+                    assignment = AssignmentTarget(employee, date, false)
+                }
             }
+            Text("Chọn ô lịch để sửa phân ca. Tăng ca 18:00–22:00 được quản lý tại Ca làm hoặc Đơn từ.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text("Giao công việc theo ca", style = MaterialTheme.typography.titleLarge)
+        Text("Giao công việc theo ca", style = MaterialTheme.typography.titleMedium)
         val period = YearMonth.from(state.selectedWeekStart)
         val rangeStart = if (monthMode) period.atDay(1) else dates.first()
         val rangeEnd = if (monthMode) period.atEndOfMonth() else dates.last()
@@ -126,12 +146,10 @@ fun ScheduleScreen(state: MainUiState, vm: MainViewModel) {
         }.sortedWith(compareBy({ it.date }, { it.employeeName }))
         if (availableSchedules.isEmpty()) Text("Phân ca cho nhân viên trước để giao công việc theo ca.")
         availableSchedules.forEach { schedule ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(AppSpacing.medium)) {
-                    Text("${schedule.employeeName} · ${schedule.date} · ${schedule.shiftName}")
-                    TextButton(onClick = { vm.clearError(); workSchedule = schedule }, enabled = !state.saving) {
-                        Text("Giao công việc")
-                    }
+            AdminSectionCard {
+                Text("${schedule.employeeName} · ${schedule.date} · ${schedule.shiftName}")
+                TextButton(onClick = { vm.clearError(); workSchedule = schedule }, enabled = !state.saving) {
+                    Text("Giao công việc")
                 }
             }
         }
@@ -166,9 +184,11 @@ private fun WeeklyScheduleGrid(
                 Text("${employee.code}\n${employee.fullName}", Modifier.width(150.dp).padding(AppSpacing.small), style = MaterialTheme.typography.bodySmall)
                 dates.forEach { date ->
                     val schedule = state.effectiveSchedules.firstOrNull { it.employeeId == employee.id && it.date == date.toString() }
-                    Card(
+                    OutlinedCard(
                         onClick = { onCell(employee, date) },
                         enabled = !state.saving,
+                        shape = MaterialTheme.shapes.small,
+                        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
                         modifier = Modifier
                             .width(92.dp)
                             .padding(AppSpacing.xSmall)
@@ -239,9 +259,11 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
                         } else {
                             val canAssign = date.dayOfWeek != DayOfWeek.SUNDAY
                             val count = state.effectiveSchedules.count { it.date == date.toString() && it.employeeId in operationalIds }
-                            Card(
+                            OutlinedCard(
                                 onClick = { if (canAssign) onDay(date) },
                                 enabled = canAssign && !state.saving,
+                                shape = MaterialTheme.shapes.small,
+                                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 modifier = Modifier.size(AppTouchTarget.minimum)
                             ) {
                                 Column(Modifier.padding(AppSpacing.xSmall)) {
@@ -262,17 +284,18 @@ private fun MonthScheduleGrid(state: MainUiState, month: YearMonth, onDay: (Loca
 
 @Composable
 private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarget, vm: MainViewModel, onDismiss: () -> Unit) {
-    val existing = state.calculationSchedules.firstOrNull { it.employeeId == target.employee?.id && it.date == target.date.toString() }
+    var selectedEmployee by remember(target.date, target.employee?.id) { mutableStateOf(target.employee ?: state.operationalEmployees.firstOrNull { it.active }) }
+    val existing = if (target.departmentMode) null else state.calculationSchedules.firstOrNull { it.employeeId == selectedEmployee?.id && it.date == target.date.toString() }
+    var removingSchedule by remember { mutableStateOf<WorkSchedule?>(null) }
     val assignableShifts = assignableScheduleShifts(state.calculationShifts + vn.chamcong.iot.domain.defaultShiftTemplates().map { it.resolve() })
-    var selectedShiftIds by remember(target.date, target.employee?.id, assignableShifts, existing?.shiftIds) {
+    var selectedShiftIds by remember(target.date, selectedEmployee?.id, assignableShifts, existing?.shiftIds, existing?.shiftId) {
         val existingIds = existing?.let { it.shiftIds.ifEmpty { listOf(it.shiftId) } }.orEmpty()
             .filter { id -> assignableShifts.any { it.id == id } }
         mutableStateOf(existingIds.ifEmpty { listOfNotNull(assignableShifts.firstOrNull()?.id) })
     }
     var selectedDepartment by remember(target.date, target.employee?.id) { mutableStateOf(state.operationalEmployees.map { it.department }.firstOrNull { it.isNotBlank() }.orEmpty()) }
-    var selectedEmployee by remember(target.date, target.employee?.id) { mutableStateOf(target.employee ?: state.operationalEmployees.firstOrNull { it.active }) }
-    var overrideHours by remember(target.date, target.employee?.id) { mutableStateOf(existing?.workedHoursOverride?.toString().orEmpty()) }
-    var adjustmentNote by remember(target.date, target.employee?.id) { mutableStateOf(existing?.adjustmentNote.orEmpty()) }
+    var overrideHours by remember(target.date, selectedEmployee?.id) { mutableStateOf(existing?.workedHoursOverride?.toString().orEmpty()) }
+    var adjustmentNote by remember(target.date, selectedEmployee?.id) { mutableStateOf(existing?.adjustmentNote.orEmpty()) }
     AlertDialog(
         onDismissRequest = { if (!state.saving) onDismiss() },
         title = { Text(if (target.departmentMode) "Phân ca cho phòng ban" else "Phân ca cho nhân viên") },
@@ -331,6 +354,10 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                 }
                 Text("Tăng ca 18:00–22:00 do nhân viên gửi đơn và Admin duyệt trong mục đơn từ.")
                 if (!target.departmentMode) {
+                    if (existing != null) {
+                        Text("Lưu phân ca thay bằng các ca được chọn; giờ điều chỉnh và ghi chú đang có được điền sẵn.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(enabled = !state.saving, onClick = { vm.clearError(); removingSchedule = existing }) { Text("Bỏ lịch ngày này") }
+                    }
                     androidx.compose.material3.OutlinedTextField(
                         value = overrideHours,
                         onValueChange = { value ->
@@ -363,12 +390,27 @@ private fun ScheduleAssignmentDialog(state: MainUiState, target: AssignmentTarge
                 if (target.departmentMode) {
                     vm.assignShiftToDepartment(selectedDepartment, listOf(target.date.toString()), selectedShifts, 0) { onDismiss() }
                 } else if (selectedEmployee != null) {
-                    vm.assignShift(WorkSchedule(employeeId = selectedEmployee!!.id, employeeName = selectedEmployee!!.fullName, department = selectedEmployee!!.department, shiftId = shift.id, shiftIds = selectedShifts.map { it.id }, shiftName = selectedShifts.joinToString(" + ") { it.name }, date = target.date.toString(), overtimeHours = 0, workedHoursOverride = overrideHours.replace(',', '.').toDoubleOrNull(), adjustmentNote = adjustmentNote.trim())) { onDismiss() }
+                    vm.assignShift((existing ?: WorkSchedule()).copy(employeeId = selectedEmployee!!.id, employeeName = selectedEmployee!!.fullName, department = selectedEmployee!!.department, shiftId = shift.id, shiftIds = selectedShifts.map { it.id }, shiftName = selectedShifts.joinToString(" + ") { it.name }, date = target.date.toString(), workedHoursOverride = overrideHours.replace(',', '.').toDoubleOrNull(), adjustmentNote = adjustmentNote.trim())) { onDismiss() }
                 }
             }, enabled = !state.saving && selectedShiftIds.isNotEmpty() && (target.departmentMode && selectedDepartment.isNotBlank() || !target.departmentMode && selectedEmployee != null && (overrideHours.isBlank() || overrideHours.replace(',', '.').toDoubleOrNull()?.let { it in 0.0..24.0 } == true && adjustmentNote.isNotBlank()))) { Text("Lưu phân ca") }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !state.saving) { Text("Hủy") } }
     )
+    removingSchedule?.let { schedule ->
+        AlertDialog(onDismissRequest = { if (!state.saving) removingSchedule = null },
+            title = { Text("Bỏ lịch làm việc ngày này?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    Text("${schedule.employeeName} • ${schedule.date} • ${schedule.shiftName}")
+                    Text("Công đang tính từ lịch có thể thay đổi. Lượt quét gốc và lịch sử lương được giữ.")
+                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = { Button(enabled = !state.saving, onClick = {
+                vm.removeWorkSchedule(schedule) { removingSchedule = null; onDismiss() }
+            }) { Text(if (state.saving) "Đang lưu…" else "Bỏ lịch") } },
+            dismissButton = { TextButton(enabled = !state.saving, onClick = { removingSchedule = null }) { Text("Hủy") } })
+    }
 }
 
 @Preview(showBackground = true, showSystemUi = true)

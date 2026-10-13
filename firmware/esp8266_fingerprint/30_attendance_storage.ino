@@ -237,6 +237,8 @@ bool enqueueAttendanceEvent(const String& eventId, const String& payload) {
 bool httpResponseAcknowledgesEvent(int code);
 
 int postAttendanceEvent(const String& eventId, const String& payload) {
+  // Guard the legacy writer even if a future caller bypasses outbox routing.
+  if (ATTENDANCE_GATEWAY_ENABLED) return -1;
   if (WiFi.status() != WL_CONNECTED) {
     firebaseSyncStatus = "PENDING";
     return -1;
@@ -379,7 +381,8 @@ AttendanceSyncResult flushAttendanceOutbox() {
     setLatestError(F("Khong mo duoc hang doi LittleFS"));
     return AttendanceSyncResult::STORAGE_ERROR;
   }
-  if (!canStartHttpsRequest("hang doi cham cong")) {
+  if (!(ATTENDANCE_GATEWAY_ENABLED ? canStartGatewayRequest()
+                                  : canStartHttpsRequest("hang doi cham cong"))) {
     firebaseSyncStatus = "PENDING";
     return AttendanceSyncResult::DEFERRED;
   }
@@ -430,6 +433,11 @@ AttendanceSyncResult flushAttendanceOutbox() {
   // Resolve raw offline scans one at a time, without an employee list in RAM
   // or flash. Discard temporary JSON/text before the TLS POST allocates memory.
   line = "";
+  if (ATTENDANCE_GATEWAY_ENABLED) {
+    // This route owns attendance exclusively. It neither resolves an employee
+    // on-device nor calls the direct Firestore writer, including during outage.
+    return flushGatewayAttendanceHead(eventId, payload, tailOffset);
+  }
   int preparationCode = 200;
   {
     String resolvedPayload;

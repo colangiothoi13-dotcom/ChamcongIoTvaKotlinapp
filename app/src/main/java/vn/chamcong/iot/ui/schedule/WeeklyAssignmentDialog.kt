@@ -18,6 +18,7 @@ import vn.chamcong.iot.ui.AppTouchTarget
 import vn.chamcong.iot.domain.*
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.retryAttendanceRange
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -62,6 +63,7 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
     var template by remember(week) { mutableStateOf(templates.first()) }
     var start by remember(template) { mutableStateOf("") }
     var end by remember(template) { mutableStateOf("") }
+    var replaceExistingShifts by remember(week) { mutableStateOf(false) }
     val resolved = runCatching { template.resolve(start, end) }
     val validation = resolved.exceptionOrNull()?.localizedMessage
     val unavailableEmployees = unavailableWeeklyEmployeeIds(state.operationalEmployees, employees)
@@ -69,6 +71,7 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
         runCatching { weeklyAssignmentPayload(state.operationalEmployees, employees, week, dates, shift, "preview") }
     }
     val validSelection = selectionValidation?.isSuccess == true
+    val replacePreviewReady = state.hasCompleteCalculationRange(weekDates(week).first(), weekDates(week).last())
     AlertDialog(
         onDismissRequest = { if (!state.saving) onDismiss() },
         title = { Text("Phân ca tuần cho nhân viên") },
@@ -108,7 +111,24 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
                         label = { Text("Giờ kết thúc (HH:mm)") }, isError = validation != null)
                     validation?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
-                Text("${employees.size * dates.size} lịch sẽ được lưu. Ca cùng loại trong ngày sẽ được cập nhật; ca sáng hoặc ca chiều đã phân vẫn được giữ lại.")
+                Text("Cách áp dụng", style = MaterialTheme.typography.titleSmall)
+                FilterChip(selected = !replaceExistingShifts, onClick = { replaceExistingShifts = false }, enabled = !state.saving,
+                    label = { Text("Thêm / thay ca cùng loại, giữ ca khác") })
+                FilterChip(selected = replaceExistingShifts, onClick = { replaceExistingShifts = true }, enabled = !state.saving,
+                    label = { Text("Chỉ giữ ca đang chọn") })
+                val affectedSchedules = state.calculationSchedules.filter { schedule ->
+                    schedule.employeeId in employees && runCatching { LocalDate.parse(schedule.date) in dates }.getOrDefault(false)
+                }
+                val selectedShiftId = resolved.getOrNull()?.id
+                val dropped = affectedSchedules.count { schedule -> scheduledShiftIds(schedule).any { it != selectedShiftId } }
+                Text("${employees.size * dates.size} lịch sẽ được lưu. " + if (replaceExistingShifts && replacePreviewReady)
+                    "$dropped lịch đang có ca khác sẽ chỉ còn ca đang chọn."
+                    else if (replaceExistingShifts) "Đang chờ đầy đủ lịch tuần để xem những ca sẽ bị bỏ."
+                    else "Ca cùng loại được cập nhật; ca khác trong ngày được giữ lại.")
+                if (replaceExistingShifts && !replacePreviewReady) TextButton(enabled = !state.saving, onClick = { vm.retryAttendanceRange() }) {
+                    Text("Tải lại lịch tuần")
+                }
+                Text("Giờ tăng ca, giờ công đã điều chỉnh và ghi chú được giữ; mỗi lần lưu có nhật ký.", style = MaterialTheme.typography.bodySmall)
                 selectionValidation?.exceptionOrNull()?.localizedMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
@@ -116,9 +136,9 @@ internal fun WeeklyAssignmentDialog(state: MainUiState, vm: MainViewModel, onDis
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
-        confirmButton = { Button(enabled = !state.saving && validSelection, onClick = {
-            vm.assignWeeklyShift(employees, week, dates, template, start, end, onDismiss)
-        }) { Text("Lưu phân ca") } },
+        confirmButton = { Button(enabled = !state.saving && validSelection && (!replaceExistingShifts || replacePreviewReady), onClick = {
+            vm.assignWeeklyShift(employees, week, dates, template, start, end, replaceExistingShifts = replaceExistingShifts, done = onDismiss)
+        }) { Text(if (replaceExistingShifts) "Thay ca trên ${employees.size * dates.size} lịch" else "Lưu phân ca") } },
         dismissButton = { TextButton(enabled = !state.saving, onClick = onDismiss) { Text("Hủy") } }
     )
 }

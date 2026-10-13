@@ -89,7 +89,7 @@ suspend fun FirebaseRepository.saveSchedule(schedule: WorkSchedule) {
 }
 
 /** Keep existing shift settings and the other shift already assigned to each employee/day. */
-suspend fun FirebaseRepository.saveWeeklySchedules(shift: WorkShift, schedules: List<WorkSchedule>) {
+suspend fun FirebaseRepository.saveWeeklySchedules(shift: WorkShift, schedules: List<WorkSchedule>, replaceExistingShifts: Boolean = false) {
     validateScheduleShift(shift)
     require(schedules.isNotEmpty())
     require(schedules.all { it.shiftId == shift.id } &&
@@ -100,11 +100,19 @@ suspend fun FirebaseRepository.saveWeeklySchedules(shift: WorkShift, schedules: 
         "Không thể phân ca vào Chủ nhật"
     }
     val shiftRef = db.collection("shifts").document(shift.id)
+    val actorId = currentUserId
+    require(actorId.isNotBlank()) { "Chưa đăng nhập" }
     var saved = 0
     try {
         schedules.chunked(400).forEach { chunk ->
             val auditRef = db.collection("audit_logs").document()
             db.runTransaction { transaction ->
+                val actor = transaction.get(db.collection("users").document(actorId)).toObject(UserProfile::class.java)
+                require(actor?.active == true && actor.role == UserRole.ADMIN.name) { "Chỉ quản lý được phân ca" }
+                val employees = chunk.map { it.employeeId }.distinct().associateWith { employeeId ->
+                    transaction.get(db.collection("employees").document(employeeId)).toObject(Employee::class.java)
+                        ?.takeIf { it.active } ?: error("Nhân viên đã ngừng hoạt động hoặc không còn tồn tại")
+                }
                 val snapshot = transaction.get(shiftRef)
                 val stored = if (snapshot.exists()) snapshot.toObject(WorkShift::class.java)?.copy(id = shift.id)
                     ?: error("Không thể đọc ca mẫu đã lưu") else null
@@ -117,7 +125,7 @@ suspend fun FirebaseRepository.saveWeeklySchedules(shift: WorkShift, schedules: 
                     if (previous.exists()) previous.toObject(WorkSchedule::class.java)
                         ?: error("Không thể đọc lịch đã phân") else null
                 }
-                val previousShiftIds = previousSchedules.values.filterNotNull()
+                val previousShiftIds = if (replaceExistingShifts) emptyList() else previousSchedules.values.filterNotNull()
                     .flatMap(::scheduledShiftIds).distinct().filterNot { it == shift.id }
                 val shiftsById = previousShiftIds.associateWith { id ->
                     val previous = transaction.get(db.collection("shifts").document(id))
@@ -127,19 +135,21 @@ suspend fun FirebaseRepository.saveWeeklySchedules(shift: WorkShift, schedules: 
 
                 if (stored == null) transaction.set(shiftRef, shift.copy(id = ""))
                 chunk.forEach { schedule ->
-                    val merged = mergeWeeklyAssignment(schedule, previousSchedules[schedule], selectedShift, shiftsById)
+                    val employee = employees.getValue(schedule.employeeId)
+                    val merged = mergeWeeklyAssignment(schedule.copy(employeeName = employee.fullName, department = employee.department),
+                        previousSchedules[schedule], selectedShift, shiftsById, replaceExistingShifts)
                     // Merge only schedule fields so earlier hour adjustments and notes remain intact.
                     transaction.set(scheduleRefs.getValue(schedule),
                         mapOf("id" to "", "employeeId" to merged.employeeId, "employeeName" to merged.employeeName,
                             "department" to merged.department, "date" to merged.date, "shiftId" to merged.shiftId,
                             "shiftIds" to merged.shiftIds,
-                            "shiftName" to merged.shiftName, "overtimeHours" to merged.overtimeHours, "assignedBy" to currentUserId,
+                            "shiftName" to merged.shiftName, "overtimeHours" to merged.overtimeHours, "assignedBy" to actorId,
                             "source" to "ADMIN"), SetOptions.merge())
                 }
-                transaction.set(auditRef, AuditLog(actorId = currentUserId, actorName = currentUserName,
+                transaction.set(auditRef, AuditLog(actorId = actorId, actorName = actor.displayName.ifBlank { currentUserName },
                     action = AuditAction.SHIFT_UPDATE.name, targetType = "workSchedule",
                     targetId = scheduleDocumentId(chunk.first().employeeId, chunk.first().date),
-                    details = "Phân ca tuần: ${chunk.size} lịch; ${chunk.joinToString { it.id }}").toFirestoreData())
+                    details = "Phân ca tuần (${if (replaceExistingShifts) "chỉ giữ ca chọn" else "thêm / thay ca cùng loại"}): ${chunk.size} lịch; ${chunk.joinToString { it.id }}").toFirestoreData())
             }.await()
             saved += chunk.size
         }

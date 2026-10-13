@@ -3,10 +3,10 @@ package vn.chamcong.iot.ui.requests
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Search
@@ -15,14 +15,24 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.model.Department
+import vn.chamcong.iot.model.Employee
 import java.text.Normalizer
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -39,10 +49,10 @@ internal fun AdminRequestStatusBadge(label: String, tone: AdminRequestStatusTone
         AdminRequestStatusTone.REVISION -> colors.errorContainer to colors.onErrorContainer
         AdminRequestStatusTone.NEUTRAL -> colors.surfaceVariant to colors.onSurfaceVariant
     }
-    Surface(color = background, contentColor = foreground, shape = RoundedCornerShape(8.dp)) {
+    Surface(color = background, contentColor = foreground, shape = MaterialTheme.shapes.extraSmall) {
         Text(
             label,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = AppSpacing.small, vertical = AppSpacing.xSmall),
             style = MaterialTheme.typography.labelMedium,
             maxLines = 1
         )
@@ -63,17 +73,17 @@ internal fun AdminRequestSummaryCard(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.padding(AppSpacing.large),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.small),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -88,7 +98,7 @@ internal fun AdminRequestSummaryCard(
             }
             Text(
                 subtitle,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -97,7 +107,7 @@ internal fun AdminRequestSummaryCard(
                 Text(
                     summary,
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -121,8 +131,34 @@ internal fun AdminRequestSearchField(value: String, onValueChange: (String) -> U
         placeholder = { Text("Tên, mã NV, phòng ban") },
         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
         singleLine = true,
-        shape = RoundedCornerShape(12.dp)
+        shape = MaterialTheme.shapes.small
     )
+}
+
+@Composable
+internal fun AdminRequestDepartmentField(departments: List<Department>, selectedId: String?, onSelect: (String?) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
+        Text("Phòng ban", style = MaterialTheme.typography.labelLarge)
+        Box {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
+                Text(departments.firstOrNull { it.id == selectedId }?.name ?: "Tất cả phòng ban")
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                DropdownMenuItem(text = { Text("Tất cả phòng ban") }, onClick = { onSelect(null); expanded = false })
+                departments.sortedBy { it.name }.forEach { department ->
+                    DropdownMenuItem(text = { Text(department.name) }, onClick = { onSelect(department.id); expanded = false })
+                }
+            }
+        }
+    }
+}
+
+internal fun adminRequestMatchesDepartment(selectedId: String?, employee: Employee?, departmentName: String, departments: List<Department>): Boolean {
+    if (selectedId.isNullOrBlank()) return true
+    val selected = departments.firstOrNull { it.id == selectedId }
+    return employee?.departmentId == selectedId || employee?.department == selectedId || departmentName == selectedId ||
+        (selected != null && (employee?.department == selected.name || departmentName == selected.name))
 }
 
 private val requestSearchMarks = Regex("\\p{M}+")

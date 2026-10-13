@@ -1,0 +1,20 @@
+{
+  "employees": {
+    "demo-01": {"fullName":"Nhân viên demo 1","active":true,"fingerprintTemplateId":1,"fingerprintDeviceId":"GATE-01"},
+    "demo-02": {"fullName":"Nhân viên demo 2","active":true,"fingerprintTemplateId":2,"fingerprintDeviceId":"GATE-01"},
+    "demo-03": {"fullName":"Nhân viên demo 3","active":true,"fingerprintTemplateId":3,"fingerprintDeviceId":"GATE-01"},
+    "demo-04": {"fullName":"Nhân viên demo 4","active":true,"fingerprintTemplateId":4,"fingerprintDeviceId":"GATE-01"}
+  },
+  "fingerprintMappings": {
+    "1":{"employeeId":"demo-01","enabled":true},
+    "2":{"employeeId":"demo-02","enabled":true},
+    "3":{"employeeId":"demo-03","enabled":true},
+    "4":{"employeeId":"demo-04","enabled":true}
+  },
+  "faceProfiles": {
+    "demo-01":{"employeeId":"demo-01","enabled":true,"version":1},
+    "demo-02":{"employeeId":"demo-02","enabled":true,"version":1},
+    "demo-03":{"employeeId":"demo-03","enabled":true,"version":1},
+    "demo-04":{"employeeId":"demo-04","enabled":true,"version":1}
+  }
+}

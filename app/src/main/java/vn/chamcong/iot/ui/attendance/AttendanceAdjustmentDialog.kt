@@ -5,6 +5,7 @@ import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -25,7 +26,8 @@ data class AttendanceAdjustmentTarget(
     val scheduleDate: String,
     val currentCheckIn: Timestamp?,
     val currentCheckOut: Timestamp?,
-    val currentWorkedHours: Double?
+    val currentWorkedHours: Double?,
+    val currentWorkedHoursOverride: Double? = null
 )
 
 @Composable
@@ -33,24 +35,32 @@ fun AttendanceAdjustmentDialog(
     target: AttendanceAdjustmentTarget,
     state: MainUiState,
     onDismiss: () -> Unit,
-    onSubmit: (AttendanceAdjustment) -> Unit
+    onSubmit: (AttendanceAdjustment) -> Unit,
+    selectorContent: (@Composable ColumnScope.() -> Unit)? = null,
+    dataReady: Boolean = true,
+    keepDraftOnTargetChange: Boolean = false
 ) {
-    var checkIn by rememberSaveable(target.employeeId, target.scheduleDate) { mutableStateOf("") }
-    var checkOut by rememberSaveable(target.employeeId, target.scheduleDate) { mutableStateOf("") }
-    var hours by rememberSaveable(target.employeeId, target.scheduleDate) { mutableStateOf("") }
-    var reason by rememberSaveable(target.employeeId, target.scheduleDate) { mutableStateOf("") }
+    val draftKey = if (keepDraftOnTargetChange) "manual" else "${target.employeeId}|${target.scheduleDate}"
+    var checkIn by rememberSaveable(draftKey) { mutableStateOf("") }
+    var checkOut by rememberSaveable(draftKey) { mutableStateOf("") }
+    var hours by rememberSaveable(draftKey) { mutableStateOf("") }
+    var reason by rememberSaveable(draftKey) { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(target.employeeId, target.scheduleDate) { validationError = null }
     fun currentTime(value: Timestamp?) = value?.toDate()?.toInstant()?.atZone(attendanceZone)
         ?.format(adjustmentTimeFormat) ?: "Chưa có"
 
     AlertDialog(
         onDismissRequest = { if (!state.saving) onDismiss() },
-        title = { Text("Điều chỉnh chấm công") },
+        title = { Text("Điều chỉnh công") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                Text("${target.employeeName} (${target.employeeId})")
-                Text("Ngày ca: ${target.scheduleDate}")
-                Text("Hiện tại — Vào: ${currentTime(target.currentCheckIn)}\nRa: ${currentTime(target.currentCheckOut)}\nGiờ công: ${target.currentWorkedHours ?: "Chưa có"}")
+                selectorContent?.invoke(this)
+                if (selectorContent == null) {
+                    Text("${target.employeeName} (${target.employeeId})")
+                    Text("Ngày ca: ${target.scheduleDate}")
+                }
+                if (dataReady) Text("Hiện tại — Vào: ${currentTime(target.currentCheckIn)}\nRa: ${currentTime(target.currentCheckOut)}\nGiờ công: ${target.currentWorkedHours ?: "Chưa có"}")
                 Text("Múi giờ Asia/Ho_Chi_Minh. Giờ theo yyyy-MM-dd HH:mm. Để trống để giữ giá trị hiện tại; không dùng để xóa giờ chấm.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(checkIn, { checkIn = it; validationError = null }, Modifier.fillMaxWidth(),
                     label = { Text("Giờ vào (tùy chọn)") }, singleLine = true, enabled = !state.saving)
@@ -66,8 +76,8 @@ fun AttendanceAdjustmentDialog(
             }
         },
         confirmButton = {
-            Button(enabled = !state.saving, onClick = {
-                if (!state.saving) {
+            Button(enabled = !state.saving && dataReady, shape = MaterialTheme.shapes.small, onClick = {
+                if (!state.saving && dataReady) {
                     val parsed = runCatching {
                         parseAttendanceAdjustmentInput(checkIn, checkOut, hours, reason,
                             target.currentCheckIn?.toDate()?.toInstant(),
@@ -82,8 +92,8 @@ fun AttendanceAdjustmentDialog(
                             scheduleDate = target.scheduleDate,
                             checkInAt = input.checkInAt ?: target.currentCheckIn?.toDate()?.toInstant(),
                             checkOutAt = input.checkOutAt ?: target.currentCheckOut?.toDate()?.toInstant(),
-                            workedHoursOverride = input.workedHoursOverride ?: latestAdjustment(
-                                state.attendanceAdjustments, target.employeeId, LocalDate.parse(target.scheduleDate)
+                            workedHoursOverride = input.workedHoursOverride ?: target.currentWorkedHoursOverride ?: latestAdjustment(
+                                state.calculationAdjustments, target.employeeId, LocalDate.parse(target.scheduleDate)
                             )?.workedHoursOverride,
                             reason = input.reason
                         ))

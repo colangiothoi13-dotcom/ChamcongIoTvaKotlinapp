@@ -1,5 +1,13 @@
 # Quản lý công việc kết hợp chấm công IoT bằng vân tay
 
+**Web admin trên máy tính:** đã bổ sung giao diện quản trị dùng chung Firebase với app trong [`web-admin/`](web-admin/README.md). Nhấp đúp `web-admin/mo-web-admin.cmd`, mở **http://localhost:4173** và đăng nhập bằng tài khoản Admin; có chế độ dữ liệu mẫu để xem thử. Xem [kiến trúc và kiểm chứng web](docs/WEB_ADMIN.md).
+
+**Camera và đăng ký khuôn mặt:** web local có mục **Camera & khuôn mặt → Bắt đầu xem**; cả web Admin và APK **1.2.0 (versionCode 3)** có **Nhân viên → Đăng ký khuôn mặt**, tiến độ lấy 10 ảnh, đăng ký lại, xóa mẫu và hủy yêu cầu. Laptop chạy `services/face_attendance/mo-tram-khuon-mat.cmd` để nhận yêu cầu từ web hoặc app. Cần xác thực Firebase Admin riêng trên laptop, cấu hình chế độ Firebase và triển khai Firestore Rules mới; xem [cách cấu hình và sử dụng](services/face_attendance/README.md). Xem ảnh trên web local không cần khóa Admin.
+
+Web đã đối chiếu các nhóm chức năng Admin với app: nhân sự, vân tay/khuôn mặt, công việc và tệp lịch sử, lịch/duyệt đơn, công/lương và chi tiết ngày/ca, báo cáo, thiết bị, thông báo, tiện ích và nhật ký. **Thêm/Sửa hồ sơ** gộp tài khoản, vân tay và khuôn mặt; bấm tên mở chi tiết. Lịch có tuần/tháng, phân nhiều nhân viên/từng ngày và hai ca chính như app. Ngày 12/10/2026, **179/179 kiểm thử web đạt** với Firestore Emulator và build thành công. Đây là kiểm chứng local; chưa đăng ký mặt nhân viên hoặc thử nghiệp vụ trên Firebase production. [Hướng dẫn thao tác web](web-admin/README.md).
+
+Board **ESP32-S3-WROOM-1 N16R8, USB Type-C** đã được nạp và trả ảnh thật **OV5640, JPEG 640×480** ngày 11/10/2026; chưa đánh giá độ chính xác trên 3–4 nhân viên. Xem [hướng dẫn nạp board S3](firmware/esp32_cam/README.md). Gateway ESP8266 mặc định tắt, chỉ chuyển sau khi nhận diện riêng và đồng bộ hàng đợi cũ hoàn tất. Sau mất điện, đọc lại địa chỉ camera trong Serial Monitor vì router có thể cấp IP mới.
+
 Ứng dụng Android dành cho **Admin** và **nhân viên**, kết hợp ESP8266 với cảm biến AS608/R307 và Firebase. Tài liệu này mô tả đường đi đến từng màn hình, ý nghĩa các nút và điều gì xảy ra sau khi thao tác. Dự án đang vận hành theo **Firebase Spark**: không cần Cloud Functions để đăng ký vân tay hoặc để Android hiển thị công đã phân giải.
 
 Cập nhật tài liệu ngày **09/10/2026** theo mã nguồn hiện tại. [Báo cáo đồ án](BAO_CAO_DO_AN_CHAM_CONG_IOT.txt) trình bày kiến trúc, thiết kế dữ liệu, Use Case và đánh giá sản phẩm.

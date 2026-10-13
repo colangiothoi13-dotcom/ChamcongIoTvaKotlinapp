@@ -12,6 +12,10 @@ import vn.chamcong.iot.model.AttendanceReportRow
 import vn.chamcong.iot.model.DeviceActivityRow
 import vn.chamcong.iot.model.ReportFilter
 import vn.chamcong.iot.model.ReportType
+import vn.chamcong.iot.model.Payroll
+import vn.chamcong.iot.domain.workSummaryReportRows
+import vn.chamcong.iot.domain.filterPayrollReportRows
+import vn.chamcong.iot.domain.payrollReportMonth
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -85,6 +89,15 @@ internal class MainReportQueries(
         failedCommands = _state.value.commands
     )
 
+    fun reportPayrollRows(filter: ReportFilter): List<Payroll> {
+        val month = payrollReportMonth(filter)
+        val current = _state.value
+        check(!current.payrollLoading && current.payrollError == null && current.payrollLoadedMonth == month) {
+            "Cần tải đầy đủ phiếu lương đã lưu của tháng trước khi xuất báo cáo"
+        }
+        return filterPayrollReportRows(current.payroll, current.employees, filter)
+    }
+
     fun reportCsv(type: ReportType, filter: ReportFilter): String = when (type) {
         ReportType.WORK_ITEMS -> {
             check(!_state.value.workItemsLoading && _state.value.workItemsError == null) {
@@ -95,12 +108,15 @@ internal class MainReportQueries(
             ))
         }
         ReportType.DEVICE_ACTIVITY -> vn.chamcong.iot.data.deviceRowsToCsv(reportDeviceRows())
+        ReportType.PAYROLL -> payrollRowsToCsv(reportPayrollRows(filter))
         ReportType.ATTENDANCE, ReportType.WORK_SUMMARY, ReportType.LATE_EARLY, ReportType.LEAVE, ReportType.OVERTIME -> {
             check(_state.value.hasCompleteCalculationRange(filter.startDate, filter.endDate, filter.employeeId)) {
                 "Cần tải đủ lịch, lượt quét, nghỉ phép, tăng ca và điều chỉnh trước khi xuất báo cáo"
             }
             val rows = filterAttendanceReportRows(reportAttendanceRows(filter), type)
-            vn.chamcong.iot.data.attendanceRowsToCsv(rows)
+            if (type == ReportType.WORK_SUMMARY) workSummaryRowsToCsv(workSummaryReportRows(rows,
+                vn.chamcong.iot.domain.filterEmployees(_state.value.historicalEmployees(YearMonth.from(filter.startDate)), filter)))
+            else vn.chamcong.iot.data.attendanceRowsToCsv(rows)
         }
     }
 }

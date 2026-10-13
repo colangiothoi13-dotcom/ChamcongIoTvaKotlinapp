@@ -3,8 +3,9 @@
 
 // Shared by the sketch and the host regression checks. Durations use unsigned
 // subtraction so the policies keep working across the millis() rollover.
-enum class AttendanceDelivery : uint8_t { NOT_STORED, QUEUED, CONFIRMED, REJECTED, LOCAL_ACCEPTED, ACCESS_ONLY };
+enum class AttendanceDelivery : uint8_t { NOT_STORED, QUEUED, CONFIRMED, REJECTED, LOCAL_ACCEPTED, ACCESS_ONLY, DUPLICATE };
 enum class AttendanceSyncResult : uint8_t { EMPTY, DEFERRED, RETRY, ACKNOWLEDGED, REJECTED, STORAGE_ERROR };
+enum class GatewayReceipt : uint8_t { RETRY, TRANSPORT_UNAVAILABLE, QUEUED, ACCEPTED_SYNCED, DUPLICATE_SYNCED, REJECTED };
 enum class EnrollmentStage : uint8_t { IDLE, FIRST_IMAGE, FIRST_CONVERSION, REMOVE_FINGER, SECOND_GAP, SECOND_IMAGE, SECOND_CONVERSION, CREATE_MODEL, STORE_MODEL };
 
 inline bool elapsedAtLeast(uint32_t now, uint32_t started, uint32_t duration) {

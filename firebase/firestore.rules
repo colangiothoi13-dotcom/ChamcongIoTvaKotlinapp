@@ -930,6 +930,173 @@ service cloud.firestore {
     match /attendanceSessions/{id} {
       allow read, write: if false;
     }
+    // Laptop gateway state is server-only. Admin SDK transactions bypass these rules.
+    match /attendanceReceipts/{path=**} {
+      allow read, write: if false;
+    }
+    match /attendanceGates/{path=**} {
+      allow read, write: if false;
+    }
+    function faceCommandPath(id) {
+      return /databases/$(database)/documents/faceEnrollmentCommands/$(id);
+    }
+    function faceStationPath(id) {
+      return /databases/$(database)/documents/faceStations/$(id);
+    }
+    function faceEnrollmentLockPath(id) {
+      return /databases/$(database)/documents/faceEnrollmentLocks/$(id);
+    }
+    function validFaceId(id) {
+      return id is string && id.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+    function facePreviousCommandFinished(id) {
+      return id == null || (validFaceId(id) && exists(faceCommandPath(id))
+        && get(faceCommandPath(id)).data.status in ['COMPLETED', 'FAILED', 'CANCELLED']);
+    }
+    function faceStationReady(data, id) {
+      return data.stationId == id && validFaceId(data.faceDeviceId)
+        && validFaceId(data.sessionId) && data.mode == 'firebase'
+        && data.cameraReady == true && data.lastSeenAt is timestamp
+        && data.lastSeenAt <= request.time
+        && data.lastSeenAt >= request.time - duration.value(90, 's');
+    }
+    function validFaceCaptureOptions(data) {
+      // Older Android clients omit all three fields and retain automatic capture.
+      let keys = ['captureMode', 'captureRequestSeq', 'captureConsumedSeq'];
+      return !data.keys().hasAny(keys)
+        || (data.keys().hasAll(keys) && data.action == 'ENROLL'
+          && data.captureMode == 'MANUAL'
+          && data.captureRequestSeq is int && data.captureRequestSeq == 0
+          && data.captureConsumedSeq is int && data.captureConsumedSeq == 0);
+    }
+    function validFaceSamplePlan(data) {
+      // Preserve in-flight ten-photo enrollments. The guided six-photo plan
+      // is a separate exact contract, never an arbitrary smaller sample count.
+      return data.sampleCount is int
+        && ((data.action == 'ENROLL'
+          && ((data.sampleCount == 10 && !('capturePlan' in data))
+            || (data.sampleCount == 6 && data.get('captureMode', null) == 'MANUAL'
+              && data.get('capturePlan', null) == 'FRONT_LEFT_RIGHT_V1')))
+          || (data.action == 'DELETE' && data.sampleCount == 0 && !('capturePlan' in data)));
+    }
+    function validFaceEnrollmentCreate(data, id) {
+      let station = faceStationPath(data.stationId);
+      let lock = faceEnrollmentLockPath(data.employeeId);
+      return data.keys().hasAll(['requestId', 'employeeId', 'stationId', 'deviceId',
+          'sessionId', 'action', 'status', 'requestedBy', 'requestedAt',
+          'sampleCount', 'samplesCaptured', 'cancelRequested', 'message'])
+        && data.keys().hasOnly(['requestId', 'employeeId', 'stationId', 'deviceId',
+          'sessionId', 'action', 'status', 'requestedBy', 'requestedAt',
+          'sampleCount', 'samplesCaptured', 'cancelRequested', 'message', 'updatedAt',
+          'captureMode', 'captureRequestSeq', 'captureConsumedSeq', 'capturePlan'])
+        && validFaceId(id) && data.requestId == id
+        && validFaceId(data.employeeId) && validFaceId(data.stationId)
+        && data.status == 'PENDING' && data.requestedBy == request.auth.uid
+        && data.requestedAt == request.time
+        && (!('updatedAt' in data) || data.updatedAt == request.time)
+        && data.sampleCount is int && data.samplesCaptured is int
+        && data.samplesCaptured == 0 && data.cancelRequested == false && data.message == ''
+        && validFaceSamplePlan(data)
+        && validFaceCaptureOptions(data)
+        && activeWorkEmployee(data.employeeId)
+        && exists(station) && faceStationReady(get(station).data, data.stationId)
+        && data.deviceId == get(station).data.faceDeviceId
+        && data.sessionId == get(station).data.sessionId
+        && facePreviousCommandFinished(get(station).data.get('pendingCommandId', null))
+        && (!exists(lock) || facePreviousCommandFinished(get(lock).data.get('commandId', null)))
+        && getAfter(station).data.pendingCommandId == id
+        && existsAfter(lock) && getAfter(lock).data.commandId == id
+        && getAfter(lock).data.stationId == data.stationId
+        && getAfter(lock).data.employeeId == data.employeeId;
+    }
+    function validFaceStationReservation(data, id) {
+      let command = getAfter(faceCommandPath(data.pendingCommandId)).data;
+      return faceStationReady(resource.data, id)
+        && data.diff(resource.data).affectedKeys().hasOnly(['pendingCommandId', 'updatedAt'])
+        && data.updatedAt == request.time && validFaceId(data.pendingCommandId)
+        && facePreviousCommandFinished(resource.data.get('pendingCommandId', null))
+        && command.requestId == data.pendingCommandId && command.stationId == id
+        && command.deviceId == resource.data.faceDeviceId
+        && command.sessionId == resource.data.sessionId
+        && command.status == 'PENDING' && command.requestedBy == request.auth.uid
+        && command.requestedAt == request.time;
+    }
+    function validFaceEmployeeReservation(data, id) {
+      let command = getAfter(faceCommandPath(data.commandId)).data;
+      return data.keys().hasAll(['employeeId', 'commandId', 'stationId', 'updatedAt'])
+        && data.keys().hasOnly(['employeeId', 'commandId', 'stationId', 'updatedAt'])
+        && data.employeeId == id && validFaceId(data.commandId) && validFaceId(data.stationId)
+        && data.updatedAt == request.time
+        && command.requestId == data.commandId && command.employeeId == id
+        && command.stationId == data.stationId && command.status == 'PENDING'
+        && command.requestedBy == request.auth.uid && command.requestedAt == request.time
+        && getAfter(faceStationPath(data.stationId)).data.pendingCommandId == data.commandId;
+    }
+    function validFaceCancelRequest() {
+      return resource.data.status in ['PENDING', 'CAPTURING']
+        && resource.data.get('cancelRequested', false) == false
+        && request.resource.data.cancelRequested == true
+        && request.resource.data.cancelRequestedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['cancelRequested', 'cancelRequestedAt', 'updatedAt'])
+        && (!('updatedAt' in request.resource.data)
+          || request.resource.data.updatedAt == resource.data.get('updatedAt', null)
+          || request.resource.data.updatedAt == request.time);
+    }
+    function validFaceCaptureRequest(id) {
+      let existing = resource.data;
+      let updated = request.resource.data;
+      let station = faceStationPath(existing.stationId);
+      let lock = faceEnrollmentLockPath(existing.employeeId);
+      // A click only asks the laptop for one frame; clients never acknowledge it
+      // or change progress, status, stored face data, or station reservations.
+      return existing.requestId == id && existing.requestedBy == request.auth.uid
+        && existing.action == 'ENROLL' && existing.captureMode == 'MANUAL'
+        && existing.status == 'CAPTURING' && existing.cancelRequested == false
+        && validFaceSamplePlan(existing) && existing.samplesCaptured is int
+        && existing.samplesCaptured >= 0 && existing.samplesCaptured < existing.sampleCount
+        && existing.captureRequestSeq is int && existing.captureRequestSeq >= 0
+        && existing.captureRequestSeq < 100
+        && existing.captureConsumedSeq is int && existing.captureConsumedSeq >= 0
+        && existing.captureConsumedSeq <= 100
+        && existing.captureRequestSeq == existing.captureConsumedSeq
+        && updated.captureRequestSeq is int
+        && updated.captureRequestSeq == existing.captureRequestSeq + 1
+        && updated.captureRequestedAt == request.time
+        && updated.diff(existing).affectedKeys().hasOnly(['captureRequestSeq', 'captureRequestedAt'])
+        && activeWorkEmployee(existing.employeeId)
+        && exists(station) && faceStationReady(get(station).data, existing.stationId)
+        && get(station).data.sessionId == existing.sessionId
+        && get(station).data.faceDeviceId == existing.deviceId
+        && get(station).data.pendingCommandId == id
+        && exists(lock) && get(lock).data.employeeId == existing.employeeId
+        && get(lock).data.commandId == id && get(lock).data.stationId == existing.stationId;
+    }
+    // Clients request work; only the laptop can report capture/profile success.
+    match /faceEnrollmentCommands/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && validFaceEnrollmentCreate(request.resource.data, id);
+      allow update: if isAdmin() && (validFaceCancelRequest() || validFaceCaptureRequest(id));
+      allow delete: if false;
+    }
+    match /faceStations/{id} {
+      allow read: if isAdmin();
+      allow create, delete: if false;
+      allow update: if isAdmin() && validFaceStationReservation(request.resource.data, id);
+    }
+    match /faceEnrollmentLocks/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && validFaceEmployeeReservation(request.resource.data, id);
+      allow update: if isAdmin()
+        && facePreviousCommandFinished(resource.data.get('commandId', null))
+        && validFaceEmployeeReservation(request.resource.data, id);
+      allow delete: if false;
+    }
+    // Metadata only; enrollment embeddings stay on the laptop.
+    match /faceProfiles/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
     match /attendanceAdjustments/{id} {
       allow read: if isAdmin() || isOwnEmployee(resource.data.employeeId);
       allow create: if isAdmin() && validAdjustment(request.resource.data)

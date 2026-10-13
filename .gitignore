@@ -13,6 +13,14 @@ local.properties
 # ESP8266/IoT
 firmware/build/
 /firmware/esp8266_fingerprint/secrets.h
+/firmware/esp32_cam/secrets.h
+/services/face_attendance/config.json
+/services/face_attendance/*.local.json
+/services/face_attendance/data/
+/services/face_attendance/private/
+/services/face_attendance/.venv/
+__pycache__/
+*.pyc
 *.bin
 *.elf
 *.map
@@ -22,3 +30,9 @@ firmware/build/
 
 # Feature worktrees
 .worktrees/
+
+# Web admin: generated client config, build output and dependencies
+/web-admin/firebase-config.js
+/web-admin/dist/
+/web-admin/node_modules/
+/web-admin/.camera-mobile/

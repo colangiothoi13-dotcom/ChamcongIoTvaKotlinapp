@@ -5,7 +5,11 @@ import vn.chamcong.iot.ui.PreviewStateScreen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -22,7 +26,9 @@ import androidx.compose.ui.Modifier
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.attendanceStatusLabel
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AttendanceScanReviewDialog(
     row: Attendance,
@@ -30,52 +36,53 @@ internal fun AttendanceScanReviewDialog(
     busy: Boolean,
     error: String?,
     onDismiss: () -> Unit,
-    onSubmit: (AttendanceClassificationOverride) -> Unit
+    onSubmit: (AttendanceClassificationOverride) -> Unit,
+    previousOverride: AttendanceClassificationOverride? = null
 ) {
-    var choice by remember(source.id) { mutableStateOf(if (row.type == "CHECK_OUT") "CHECK_OUT" else "CHECK_IN") }
+    val initial = initialAttendanceClassificationSelection(row, previousOverride)
+    var choice by remember(source.id, previousOverride?.id) { mutableStateOf(initial.type) }
+    var status by remember(source.id, previousOverride?.id) { mutableStateOf(initial.status) }
     var reason by remember(source.id) { mutableStateOf("") }
+    var validationError by remember(source.id) { mutableStateOf<String?>(null) }
     val date = attendanceAdjustmentDate(row)
-    fun correction(type: String) = AttendanceClassificationOverride(
-        attendanceId = source.id,
-        employeeId = source.employeeId,
-        employeeName = source.employeeName.ifBlank { row.employeeName.ifBlank { source.employeeId } },
-        scheduleDate = date.orEmpty(),
-        sourceTimestamp = source.timestamp.toDate().toInstant(),
-        sourceType = source.type,
-        sourceStatus = source.status,
-        sourceResolutionStatus = source.resolutionStatus,
-        previousType = source.type,
-        previousStatus = source.status,
-        correctedType = type,
-        correctedStatus = if (type == "DISCARDED") "DISCARDED"
-            else row.status.takeIf { it in listOf("NORMAL", "ON_TIME", "LATE", "EARLY_LEAVE") } ?: "NORMAL",
-        reason = reason.trim()
-    )
+    val changed = choice != (previousOverride?.correctedType ?: source.type) || status != (previousOverride?.correctedStatus ?: source.status)
+    fun submit(type: String, newStatus: String) {
+        runCatching { attendanceClassificationDraft(row, source, previousOverride, type, newStatus, reason) }
+            .onSuccess(onSubmit).onFailure { validationError = it.message }
+    }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Xác nhận hoặc xóa lượt quét") },
+        title = { Text("Sửa phân loại lượt chấm") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("${row.employeeName.ifBlank { row.employeeId }} • ${date.orEmpty()}")
-                Text("Xác nhận Vào ca hoặc Ra ca. Xóa sẽ loại lượt quét khỏi kết quả chấm công và giữ bản ghi gốc trong nhật ký.",
-                    style = MaterialTheme.typography.bodySmall)
+                Text("Gốc: ${classificationTypeLabel(source.type)} · ${attendanceStatusLabel(source.status)}", style = MaterialTheme.typography.bodyMedium)
+                Text("Hiện tại: ${classificationTypeLabel(previousOverride?.correctedType ?: row.type)} · ${attendanceStatusLabel(previousOverride?.correctedStatus ?: row.status)}", style = MaterialTheme.typography.bodyMedium)
+                Text("Mỗi lần sửa được lưu cùng người thực hiện và lý do. Lượt quét gốc được giữ nguyên.", style = MaterialTheme.typography.bodyMedium)
+                if (choice == "DISCARDED") Text("Chọn Vào ca hoặc Ra ca để khôi phục lượt đã loại.", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                    FilterChip(choice == "CHECK_IN", { choice = "CHECK_IN" }, label = { Text("Vào ca") }, enabled = !busy)
-                    FilterChip(choice == "CHECK_OUT", { choice = "CHECK_OUT" }, label = { Text("Ra ca") }, enabled = !busy)
+                    FilterChip(choice == "CHECK_IN", { choice = "CHECK_IN"; if (status == "DISCARDED") status = "NORMAL"; validationError = null }, label = { Text("Vào ca") }, enabled = !busy)
+                    FilterChip(choice == "CHECK_OUT", { choice = "CHECK_OUT"; if (status == "DISCARDED") status = "NORMAL"; validationError = null }, label = { Text("Ra ca") }, enabled = !busy)
                 }
-                OutlinedTextField(reason, { reason = it.take(500) }, Modifier.fillMaxWidth(),
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    listOf("NORMAL" to "Bình thường", "ON_TIME" to "Đúng giờ", "LATE" to "Đi trễ", "EARLY_LEAVE" to "Về sớm").forEach { (value, label) ->
+                        FilterChip(status == value, { status = value; validationError = null }, label = { Text(label) }, enabled = !busy && choice != "DISCARDED")
+                    }
+                }
+                OutlinedTextField(reason, { reason = it.take(500); validationError = null }, Modifier.fillMaxWidth(),
                     label = { Text("Lý do xử lý (bắt buộc)") }, enabled = !busy)
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
-            Button(enabled = !busy && date != null && reason.isNotBlank(), onClick = { onSubmit(correction(choice)) }) {
-                Text("Xác nhận")
+            Button(enabled = !busy && date != null && reason.isNotBlank() && changed, onClick = { submit(choice, status) }) {
+                Text(if (busy) "Đang lưu…" else "Lưu phân loại")
             }
         },
         dismissButton = {
-            TextButton(enabled = !busy && date != null && reason.isNotBlank(), onClick = { onSubmit(correction("DISCARDED")) }) {
-                Text("Xóa lượt quét", color = MaterialTheme.colorScheme.error)
+            TextButton(enabled = !busy && date != null && reason.isNotBlank() && previousOverride?.correctedType != "DISCARDED", onClick = { submit("DISCARDED", "DISCARDED") }) {
+                Text("Loại lượt quét", color = MaterialTheme.colorScheme.error)
             }
             TextButton(enabled = !busy, onClick = onDismiss) { Text("Hủy") }
         }

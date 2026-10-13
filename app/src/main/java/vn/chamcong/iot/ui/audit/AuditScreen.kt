@@ -3,6 +3,8 @@ package vn.chamcong.iot.ui.audit
 import androidx.compose.ui.tooling.preview.Preview
 import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AdminPageHeader
+import vn.chamcong.iot.ui.AdminSectionCard
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,19 +34,23 @@ fun AuditScreen(state: MainUiState) {
     val logs = state.visibleAuditLogs.filter { auditLogMatchesQuery(it, query) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item {
-            Text("Nhật ký hệ thống", style = MaterialTheme.typography.titleLarge)
-            Text("Nhật ký chỉ đọc; mỗi dòng lưu người thực hiện, đối tượng, thời gian và nội dung.", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Lọc hành động/đối tượng") }, singleLine = true)
+            AdminPageHeader("Nhật ký", "Lịch sử thao tác quản trị của hệ thống.")
         }
+        item {
+            AdminSectionCard {
+                OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Tìm người thực hiện, thao tác") }, singleLine = true)
+                Text("${logs.size} thao tác phù hợp · Nhật ký chỉ đọc", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (logs.isEmpty()) item { AdminSectionCard { Text("Chưa có thao tác phù hợp", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
         items(logs, key = { it.id }) { log ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(AppSpacing.medium), verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
+            AdminSectionCard {
                     Text(auditLogTitle(log.action, log.targetType), style = MaterialTheme.typography.titleMedium)
-                    Text(auditActorLabel(log.actorName))
-                    Text(log.details)
-                    if (log.reason.isNotBlank()) Text("Lý do: ${log.reason}")
-                    Text(SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("vi", "VN")).format(log.createdAt.toDate()), style = MaterialTheme.typography.bodySmall)
-                }
+                Text("Người thực hiện: ${auditActorLabel(log.actorName)}")
+                Text("Đối tượng: ${log.targetType} · ${log.targetId}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(log.details)
+                if (log.reason.isNotBlank()) Text("Lý do: ${log.reason}")
+                Text(SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("vi", "VN")).format(log.createdAt.toDate()), style = MaterialTheme.typography.bodySmall)
             }
         }
     }

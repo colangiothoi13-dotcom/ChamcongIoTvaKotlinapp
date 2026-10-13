@@ -146,7 +146,7 @@ fun WorkItemEditorDialog(
                         { shiftId = it })
                 }
                 if (!validLink) Text("Chọn lại ca phù hợp với nhân viên, hoặc bỏ liên kết ca.", color = MaterialTheme.colorScheme.error)
-                Text("Vân tay ghi nhận có mặt tại thiết bị. Báo cáo kết quả và bước duyệt xác nhận hoàn thành công việc.", style = MaterialTheme.typography.bodySmall)
+                Text("Lượt chấm công ghi nhận có mặt tại thiết bị. Báo cáo kết quả và bước duyệt xác nhận hoàn thành công việc.", style = MaterialTheme.typography.bodySmall)
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },

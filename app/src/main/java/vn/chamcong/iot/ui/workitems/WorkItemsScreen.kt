@@ -1,6 +1,8 @@
 package vn.chamcong.iot.ui.workitems
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -51,12 +54,13 @@ import java.time.LocalDate
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun WorkItemsScreen(state: MainUiState, vm: MainViewModel, initialSchedule: WorkSchedule? = null) {
+fun WorkItemsScreen(state: MainUiState, vm: MainViewModel, initialSchedule: WorkSchedule? = null, initialCreateRequest: Int = 0, onCreateRequestHandled: () -> Unit = {}) {
     val admin = state.userProfile?.role == UserRole.ADMIN.name
     var query by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
     var priority by remember { mutableStateOf("") }
     var due by remember { mutableStateOf("") }
+    var department by remember { mutableStateOf("") }
     var showEditor by remember { mutableStateOf(false) }
     var editItem by remember { mutableStateOf<WorkItem?>(null) }
     val now by currentWorkTime()
@@ -64,12 +68,24 @@ fun WorkItemsScreen(state: MainUiState, vm: MainViewModel, initialSchedule: Work
     LaunchedEffect(initialSchedule?.id) {
         if (initialSchedule != null && admin) showEditor = true
     }
+    LaunchedEffect(initialCreateRequest) {
+        if (initialCreateRequest > 0 && admin) {
+            editItem = null
+            vm.selectWorkItem(null)
+            showEditor = true
+            onCreateRequestHandled()
+        }
+    }
     val availableItems = remember(state.workItems, admin, state.currentEmployee?.id) {
         if (admin) state.workItems else state.workItems.filter { it.assigneeId == state.currentEmployee?.id }
     }
-    val visible = remember(availableItems, query, status, priority, due, now) {
+    val employeesById = remember(state.employees) { state.employees.associateBy { it.id } }
+    val selectedDepartment = state.departments.firstOrNull { it.id == department }
+    val visible = remember(availableItems, query, status, priority, due, department, employeesById, selectedDepartment, now) {
         availableItems.filter { item ->
-            (query.isBlank() || "${item.title} ${item.description} ${item.assigneeName}".contains(query.trim(), ignoreCase = true)) &&
+            val employee = employeesById[item.assigneeId]
+            (query.isBlank() || "${item.title} ${item.description} ${item.assigneeName} ${employee?.code.orEmpty()} ${employee?.department.orEmpty()}".contains(query.trim(), ignoreCase = true)) &&
+                (department.isBlank() || employee?.departmentId == department || employee?.department == department || (selectedDepartment != null && selectedDepartment.name == employee?.department)) &&
                 (status.isBlank() || item.status == status) && (priority.isBlank() || item.priority == priority) && when (due) {
                     "TODAY" -> item.status != "COMPLETED" && item.deadline.toDate().toInstant().atZone(workZone).toLocalDate() == today
                     "SOON" -> item.status != "COMPLETED" && !item.deadline.toDate().toInstant().isBefore(now) && item.deadline.toDate().toInstant() <= now.plusSeconds(24 * 3600)
@@ -82,31 +98,42 @@ fun WorkItemsScreen(state: MainUiState, vm: MainViewModel, initialSchedule: Work
     LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                Text(if (admin) "Công việc" else "Việc của tôi", style = MaterialTheme.typography.headlineSmall)
-                Text("Được giao → Đang thực hiện → Chờ duyệt → Hoàn thành", style = MaterialTheme.typography.bodyMedium)
-                if (admin) Button(onClick = { editItem = null; showEditor = true }, enabled = !state.saving) {
+                AdminPageHeader(if (admin) "Công việc" else "Việc của tôi", if (admin) "Giao việc, theo dõi tiến độ và duyệt kết quả." else "Theo dõi tiến độ và gửi kết quả công việc được giao.")
+                if (admin) Button(onClick = { editItem = null; showEditor = true }, enabled = !state.saving, shape = MaterialTheme.shapes.small) {
                     Icon(Icons.Outlined.Add, contentDescription = null)
-                    Text("Tạo và giao việc", Modifier.padding(start = 8.dp))
+                    Text("Giao công việc", Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+        if (admin) item {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    AdminMetricCard("Công việc", availableItems.size.toString(), "Tổng số việc đã giao", Modifier.weight(1f))
+                    AdminMetricCard("Đang thực hiện", availableItems.count { it.status == "IN_PROGRESS" }.toString(), "Theo dõi tiến độ", Modifier.weight(1f))
+                }
+                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    AdminMetricCard("Chờ duyệt", availableItems.count { it.status == "PENDING_REVIEW" }.toString(), "Cần kiểm tra kết quả", Modifier.weight(1f))
+                    AdminMetricCard("Quá hạn", availableItems.count { isWorkItemOverdue(it, now) }.toString(), "Chưa hoàn thành", Modifier.weight(1f))
                 }
             }
         }
         item {
+            AdminSectionCard {
+            Text("Công việc & kết quả", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(query, { query = it }, label = { Text("Tìm công việc hoặc người thực hiện") },
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        }
-        item {
+            if (admin) WorkChoiceField("Phòng ban", selectedDepartment?.name ?: "Tất cả phòng ban", true,
+                listOf("" to "Tất cả phòng ban") + state.departments.sortedBy { it.name }.map { it.id to it.name }, { department = it })
             WorkChoiceField("Trạng thái", if (status.isBlank()) "Tất cả trạng thái" else workStatusLabel(status), true,
                 listOf("" to "Tất cả trạng thái") + WorkItemStatus.entries.map { it.name to workStatusLabel(it.name) }, { status = it })
-        }
-        item {
             WorkChoiceField("Ưu tiên", if (priority.isBlank()) "Tất cả mức ưu tiên" else workPriorityLabel(priority), true,
                 listOf("" to "Tất cả mức ưu tiên") + WorkItemPriority.entries.map { it.name to workPriorityLabel(it.name) }, { priority = it })
-        }
-        item {
+            Text("Hạn hoàn thành", style = MaterialTheme.typography.labelLarge)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf("" to "Tất cả hạn", "TODAY" to "Hạn hôm nay", "SOON" to "Trong 24 giờ", "OVERDUE" to "Đang quá hạn", "LATE_DONE" to "Hoàn thành muộn").forEach { (key, label) ->
-                    FilterChip(selected = due == key, onClick = { due = key }, label = { Text(label) })
+                listOf("" to "Tất cả thời hạn", "TODAY" to "Hạn hôm nay", "SOON" to "Trong 24 giờ tới", "OVERDUE" to "Đang quá hạn", "LATE_DONE" to "Hoàn thành muộn").forEach { (key, label) ->
+                    FilterChip(modifier = Modifier.heightIn(min = AppTouchTarget.minimum), selected = due == key, onClick = { due = key }, label = { Text(label) })
                 }
+            }
             }
         }
         if (state.workItemsLoading) item {
@@ -119,20 +146,18 @@ fun WorkItemsScreen(state: MainUiState, vm: MainViewModel, initialSchedule: Work
             Text(error, color = MaterialTheme.colorScheme.error)
             TextButton(onClick = vm::retryWorkItems) { Text("Thử lại") }
         } }
-        item { Text("${visible.size} công việc", style = MaterialTheme.typography.labelLarge) }
+        item { Text("Hiển thị ${visible.size}/${availableItems.size} công việc.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (visible.isEmpty() && !state.workItemsLoading && state.workItemsError == null) item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+            AdminSectionCard {
                     Text(if (availableItems.isEmpty()) "Chưa có công việc" else "Không có kết quả phù hợp", style = MaterialTheme.typography.titleMedium)
                     Text(if (availableItems.isEmpty()) if (admin) "Tạo công việc và giao cho một nhân viên để bắt đầu." else "Công việc được giao cho bạn sẽ xuất hiện ở đây."
                         else "Đổi từ khóa hoặc bộ lọc để xem công việc khác.")
-                }
             }
         }
         items(visible, key = { it.id }) { item ->
             WorkItemCard(item, now, admin, onClick = { vm.selectWorkItem(item.id) })
         }
-        item { Text("Vân tay ghi nhận có mặt. Kết quả và duyệt của quản lý xác nhận hoàn thành công việc.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = AppSpacing.large)) }
+        item { Text("Lượt chấm công ghi nhận có mặt. Kết quả và duyệt của quản lý xác nhận hoàn thành công việc.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = AppSpacing.large)) }
     }
     val selected = state.selectedWorkItemId?.let { id -> availableItems.firstOrNull { it.id == id } }
     selected?.let { item ->
@@ -148,7 +173,9 @@ fun WorkItemsScreen(state: MainUiState, vm: MainViewModel, initialSchedule: Work
 
 @Composable
 private fun WorkItemCard(item: WorkItem, now: Instant, admin: Boolean, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text(item.title, style = MaterialTheme.typography.titleMedium)
             Text("${workStatusLabel(item.status)} • Ưu tiên ${workPriorityLabel(item.priority)}", style = MaterialTheme.typography.labelLarge)
@@ -172,7 +199,7 @@ internal fun WorkChoiceField(label: String, value: String, enabled: Boolean, cho
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.labelLarge)
         Box {
-            OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text(value) }
+            OutlinedButton(onClick = { expanded = true }, enabled = enabled, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) { Text(value) }
             DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
                 choices.forEach { (key, text) ->
                     DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(key); expanded = false })
@@ -201,7 +228,9 @@ fun WorkOverview(state: MainUiState, onOpen: () -> Unit) {
     val soonCount = remember(state.workItems, now) { state.workItems.count {
         it.status != "COMPLETED" && !it.deadline.toDate().toInstant().isBefore(now) && it.deadline.toDate().toInstant() <= now.plusSeconds(24 * 3600)
     } }
-    Card(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+    Card(onClick = onOpen, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
             Text(if (state.userProfile?.role == UserRole.ADMIN.name) "Theo dõi công việc" else "Việc của tôi", style = MaterialTheme.typography.titleLarge)
             if (state.workItemsLoading) {

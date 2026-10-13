@@ -16,6 +16,7 @@ internal fun attendanceResolutionPresentation(row: Attendance): AttendanceResolu
     val label = when {
         !row.verified -> "Bất thường • Chưa xác minh"
         attendanceAdjustmentDate(row) == null -> "Bất thường • Ngày ca không hợp lệ"
+        row.type == "DISCARDED" && row.status == "DISCARDED" -> "Đã loại lượt quét • Dữ liệu gốc được giữ"
         row.type !in listOf("SCAN", "CHECK_IN", "CHECK_OUT", "DUPLICATE", "UNSCHEDULED", "OUT_OF_ORDER") -> "Bất thường • Loại không hợp lệ"
         row.resolutionStatus !in listOf("PENDING", "ACCEPTED", "DUPLICATE", "UNSCHEDULED", "OUT_OF_ORDER") -> "Bất thường • Trạng thái không hợp lệ"
         // Spark mode stores the raw scan in Firestore without a resolver.

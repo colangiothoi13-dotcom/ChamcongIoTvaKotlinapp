@@ -55,7 +55,17 @@ data class Attendance(
     val offScheduleReviewerId: String? = null,
     val offScheduleReviewerName: String? = null,
     val offScheduleReviewNote: String? = null,
-    val offScheduleReviewedAt: Timestamp? = null
+    val offScheduleReviewedAt: Timestamp? = null,
+    /** Missing on historical fingerprint scans; unknown explicit values remain unknown. */
+    val method: String? = null,
+    val sourceEventId: String? = null,
+    val stationId: String? = null,
+    val capturedAt: Timestamp? = null,
+    val templateId: Int? = null,
+    val confidence: Int? = null,
+    /** SFace cosine similarity; independent of fingerprint confidence. */
+    val faceSimilarity: Double? = null,
+    val profileVersion: Int? = null
 )
 
 data class Payroll(
@@ -78,5 +88,6 @@ data class PerformanceReview(
     val employeeId: String = "",
     val period: String = "",
     val score: Double = 0.0,
-    val note: String = ""
+    val note: String = "",
+    @get:com.google.firebase.firestore.Exclude val id: String = ""
 )

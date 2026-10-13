@@ -3,6 +3,7 @@
 void setup() {
   Serial.begin(9600);
   Serial.printf_P(PSTR("\nFW: %s, device=%s\n"), FIRMWARE_VERSION, DEVICE_ID);
+  Serial.printf_P(PSTR("Attendance transport: %s\n"), ATTENDANCE_GATEWAY_ENABLED ? "LAPTOP GATEWAY" : "LEGACY FIRESTORE");
   Serial.printf_P(PSTR("RESET: %s\n"), ESP.getResetReason().c_str());
   Serial.printf_P(PSTR("HEAP khoi dong: free=%u, block=%u, frag=%u%%\n"),
                 ESP.getFreeHeap(), ESP.getMaxFreeBlockSize(), ESP.getHeapFragmentation());
@@ -84,7 +85,7 @@ void loop() {
   // restart the shared transport cooldown. Active foreground scans still win.
   maybePublishDeviceSnapshot();
   if (attendanceOutboxBytes() > 0 && WiFi.status() == WL_CONNECTED &&
-      !httpsRetryCooldownActive() &&
+      (ATTENDANCE_GATEWAY_ENABLED || !httpsRetryCooldownActive()) &&
       millis() - lastAttendanceSync >= attendanceSyncIntervalMs) {
     const AttendanceSyncResult result = flushAttendanceOutbox();
     attendancePendingSync = attendanceOutboxBytes() > 0;

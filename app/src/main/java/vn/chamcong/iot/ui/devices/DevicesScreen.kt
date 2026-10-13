@@ -6,6 +6,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,6 +59,9 @@ import vn.chamcong.iot.model.connectionState
 import vn.chamcong.iot.model.commandStatusLabel
 import vn.chamcong.iot.model.deviceCommandLabel
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AdminPageHeader
+import vn.chamcong.iot.ui.AdminSectionCard
+import vn.chamcong.iot.ui.AdminMetricCard
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.deviceStatusLabel
@@ -67,6 +72,7 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun DevicesScreen(state: MainUiState, vm: MainViewModel) {
+    var query by remember { mutableStateOf("") }
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -74,27 +80,34 @@ fun DevicesScreen(state: MainUiState, vm: MainViewModel) {
             now = Instant.now()
         }
     }
+    val devices = state.devices.filter { query.isBlank() || "${it.name} ${it.id} ${it.location}".contains(query.trim(), ignoreCase = true) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
-            Text("Quản lý thiết bị", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("Theo dõi sức khỏe, đồng bộ và điều khiển từ xa", style = MaterialTheme.typography.bodyMedium)
+            AdminPageHeader("Thiết bị IoT", "Theo dõi kết nối, hàng đợi chấm công và điều khiển thiết bị.")
         }
-        if (state.devices.isEmpty()) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                AdminMetricCard("Thiết bị", devices.size.toString(), "Đã kết nối với hệ thống", Modifier.weight(1f))
+                AdminMetricCard("Đang kết nối", devices.count { it.connectionState(now) == DeviceConnectionState.ONLINE }.toString(), "Tín hiệu trong vòng 2 phút", Modifier.weight(1f))
+            }
+        }
+        item { AdminMetricCard("Chờ đồng bộ", devices.sumOf { it.pendingAttendanceCount }.toString(), "Lượt chấm công trong hàng đợi") }
+        item { AdminSectionCard {
+            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Tìm thiết bị hoặc vị trí") }, singleLine = true)
+        } }
+        if (devices.isEmpty()) {
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(AppSpacing.xLarge), horizontalAlignment = Alignment.CenterHorizontally) {
+                AdminSectionCard {
                         Icon(Icons.Default.Devices, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(40.dp))
-                        Spacer(Modifier.height(AppSpacing.small))
-                        Text("Chưa có thiết bị trên Firebase")
-                        Text("Thiết bị sẽ xuất hiện khi firmware ghi snapshot vào devices/{deviceId}.", style = MaterialTheme.typography.bodySmall)
-                    }
+                        Text(if (state.devices.isEmpty()) "Chưa có thiết bị" else "Không có thiết bị phù hợp")
+                        Text(if (state.devices.isEmpty()) "Kết nối nguồn và Wi-Fi cho thiết bị để cập nhật thông tin tại đây." else "Thử tìm bằng tên, mã thiết bị hoặc vị trí khác.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
-            items(state.devices, key = { "device:${it.id}" }) { device -> DeviceCard(device, state, vm, now) }
+            items(devices, key = { "device:${it.id}" }) { device -> DeviceCard(device, state, vm, now) }
         }
         item {
             Text("Lệnh gần đây", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -105,10 +118,11 @@ fun DevicesScreen(state: MainUiState, vm: MainViewModel) {
             items(state.commands, key = { "command:${it["commandId"]?.toString().orEmpty()}" }) { command -> CommandCard(command) }
         }
     }
-}
+    }
 
-@Composable
-private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewModel, now: Instant) {
+    @Composable
+    @OptIn(ExperimentalLayoutApi::class)
+    private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewModel, now: Instant) {
     var editing by remember(device.id) { mutableStateOf(false) }
     var restartConfirm by remember(device.id) { mutableStateOf(false) }
     val connection = device.connectionState(now)
@@ -124,8 +138,7 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
         .filter { it.deviceId == device.id }
         .maxByOrNull { it.timestamp.toDate().time }
     val statusColor = if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+    AdminSectionCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (online) Icons.Default.CheckCircle else Icons.Default.BluetoothDisabled, null, tint = statusColor)
                 Spacer(Modifier.width(AppSpacing.small))
@@ -133,7 +146,6 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
                     Text(device.name.ifBlank { device.id }, fontWeight = FontWeight.Bold)
                     Text(device.location.ifBlank { "Chưa cập nhật vị trí" }, style = MaterialTheme.typography.bodySmall)
                 }
-                IconButton({ editing = true }, enabled = !state.saving) { Icon(Icons.Default.Edit, "Sửa cấu hình") }
             }
             Text(connectionLabel(connection), color = statusColor, style = MaterialTheme.typography.labelMedium)
             connectionExplanation(connection)?.let { explanation ->
@@ -174,17 +186,22 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
             latestAttendance?.let { LatestAttendance(it) } ?: Text("Chưa có lượt chấm từ thiết bị này", style = MaterialTheme.typography.bodySmall)
 
             Text("Điều khiển thiết bị", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.small),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
             ) {
+                OutlinedButton(onClick = { editing = true }, enabled = !state.saving, shape = MaterialTheme.shapes.small) {
+                    Icon(Icons.Default.Edit, null)
+                    Spacer(Modifier.width(AppSpacing.xSmall))
+                    Text("Sửa tên / vị trí")
+                }
                 DeviceActionButton(DeviceCommandType.TEST_LED_GREEN, canAct, vm, device.id)
                 DeviceActionButton(DeviceCommandType.TEST_LED_RED, canAct, vm, device.id)
                 DeviceActionButton(DeviceCommandType.TEST_BUZZER, canAct, vm, device.id)
                 DeviceActionButton(DeviceCommandType.OPEN_DOOR, canControlDoor, vm, device.id)
                 DeviceActionButton(DeviceCommandType.CLOSE_DOOR, canControlDoor, vm, device.id)
                 DeviceActionButton(DeviceCommandType.SYNC_ATTENDANCE, canAct, vm, device.id)
-                OutlinedButton(onClick = { restartConfirm = true }, enabled = canAct) {
+                OutlinedButton(onClick = { restartConfirm = true }, enabled = canAct, shape = MaterialTheme.shapes.small) {
                     Icon(Icons.Default.RestartAlt, null)
                     Spacer(Modifier.width(AppSpacing.xSmall))
                     Text("Khởi động lại")
@@ -194,7 +211,6 @@ private fun DeviceCard(device: DeviceSnapshot, state: MainUiState, vm: MainViewM
             deviceCommands.sortedByDescending { it["createdAt"]?.toString() }.take(2).forEach { command ->
                 Text(commandStatusLabel(command), style = MaterialTheme.typography.bodySmall)
             }
-        }
     }
     if (editing) DeviceConfigDialog(device, state.saving, state.error, onDismiss = { editing = false }) { name, location ->
         vm.updateDeviceConfiguration(device.id, name, location) { editing = false }
@@ -241,7 +257,7 @@ private fun connectionExplanation(connection: DeviceConnectionState): String? = 
 
 @Composable
 private fun DeviceActionButton(type: DeviceCommandType, enabled: Boolean, vm: MainViewModel, deviceId: String) {
-    OutlinedButton(onClick = { vm.requestDeviceCommand(deviceId, type) }, enabled = enabled) {
+    OutlinedButton(onClick = { vm.requestDeviceCommand(deviceId, type) }, enabled = enabled, shape = MaterialTheme.shapes.small) {
         val icon = when (type) {
             DeviceCommandType.TEST_LED_GREEN, DeviceCommandType.TEST_LED_RED -> Icons.Default.Lightbulb
             DeviceCommandType.TEST_BUZZER -> Icons.Default.VolumeUp
@@ -272,7 +288,7 @@ private fun DeviceConfigDialog(device: DeviceSnapshot, saving: Boolean, error: S
     var location by remember(device.id) { mutableStateOf(device.location) }
     AlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },
-        title = { Text("Cấu hình thiết bị") },
+        title = { Text("Sửa tên / vị trí") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Tên thiết bị") }, singleLine = true, enabled = !saving)
@@ -288,8 +304,8 @@ private fun DeviceConfigDialog(device: DeviceSnapshot, saving: Boolean, error: S
 @Composable
 private fun CommandCard(command: Map<String, Any>) {
     val failed = command["status"] == "FAILED"
-    Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(AppSpacing.large), verticalAlignment = Alignment.CenterVertically) {
+    AdminSectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(if (failed) Icons.Default.ErrorOutline else Icons.Default.Devices, null, tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(AppSpacing.medium))
             Column(Modifier.weight(1f)) {

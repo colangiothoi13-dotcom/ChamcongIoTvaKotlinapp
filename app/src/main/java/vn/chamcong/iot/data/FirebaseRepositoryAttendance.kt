@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import vn.chamcong.iot.domain.validateAuditLog
 import vn.chamcong.iot.domain.validateAttendanceClassificationOverride
+import vn.chamcong.iot.domain.canCorrectAttendanceClassification
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
 import java.time.YearMonth
@@ -88,7 +89,8 @@ private fun FirebaseRepository.observeAdjustments(query: Query): Flow<List<Atten
 
 suspend fun FirebaseRepository.saveAttendanceAdjustment(adjustment: AttendanceAdjustment): String {
     require(currentUserId.isNotBlank()) { "Chưa đăng nhập" }
-    val stored = adjustment.copy(actorId = currentUserId, actorName = currentUserName, reason = adjustment.reason.trim())
+    val actorUid = currentUserId
+    val stored = adjustment.copy(actorId = actorUid, actorName = currentUserName, reason = adjustment.reason.trim())
     validateAttendanceAdjustment(stored)
     val collection = db.collection("attendanceAdjustments")
     val previous = collection.whereEqualTo("scheduleDate", stored.scheduleDate)
@@ -110,9 +112,18 @@ suspend fun FirebaseRepository.saveAttendanceAdjustment(adjustment: AttendanceAd
             "before=[${values(previous)}]; after=[${values(stored.copy(id = ref.id))}]"
     )
     validateAuditLog(audit)
-    db.runBatch { batch ->
-        batch.set(ref, stored.toFirestoreData())
-        batch.set(auditRef, audit.toFirestoreData())
+    db.runTransaction { transaction ->
+        val actor = transaction.get(db.collection("users").document(actorUid))
+        val employeeDocument = transaction.get(db.collection("employees").document(stored.employeeId))
+        require(currentUserId == actorUid && actor.exists() && actor.getBoolean("active") != false && actor.getString("role") == UserRole.ADMIN.name) {
+            "Tài khoản không còn quyền quản trị. Đăng nhập lại trước khi điều chỉnh công."
+        }
+        val employee = employeeDocument.takeIf { it.exists() }?.toObject(Employee::class.java)
+        require(employee != null && employee.visibleOutsideRetiredList(YearMonth.from(LocalDate.parse(stored.scheduleDate)))) {
+            "Nhân viên đã nghỉ trước tháng đang chỉnh. Chọn ngày thuộc tháng còn làm việc."
+        }
+        transaction.set(ref, stored.toFirestoreData())
+        transaction.set(auditRef, audit.toFirestoreData())
     }.await()
     return ref.id
 }
@@ -133,9 +144,7 @@ suspend fun FirebaseRepository.saveAttendanceClassificationOverride(
         source.resolutionStatus == requested.sourceResolutionStatus) {
         "Lượt chấm đã thay đổi. Đóng hộp thoại và mở lại trước khi sửa."
     }
-    require((source.resolutionStatus == AttendanceResolutionStatus.ACCEPTED.name &&
-        source.type in AttendanceType.entries.map { it.name }) ||
-        (source.type == "SCAN" && source.resolutionStatus == AttendanceResolutionStatus.PENDING.name)) {
+    require(canCorrectAttendanceClassification(source)) {
         "Chỉ xử lý lượt quét đang chờ hoặc lượt chấm đã được chấp nhận"
     }
 
@@ -147,6 +156,9 @@ suspend fun FirebaseRepository.saveAttendanceClassificationOverride(
         .maxByOrNull { it.createdAt }
     val previousType = previous?.correctedType ?: source.type
     val previousStatus = previous?.correctedStatus ?: source.status
+    require(requested.previousType == previousType && requested.previousStatus == previousStatus) {
+        "Phân loại đã được sửa bởi thao tác khác. Đóng hộp thoại và mở lại trước khi lưu."
+    }
     val ref = collection.document()
     val stored = requested.copy(
         id = ref.id,

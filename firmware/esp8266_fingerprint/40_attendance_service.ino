@@ -270,6 +270,10 @@ bool buildAttendanceEvent(uint16_t templateId, uint16_t confidence,
   // Capture scan time before any network wait so a failed GET cannot move
   // the attendance timestamp to the later retry/connection-failure time.
   time_t now = time(nullptr);
+  if (ATTENDANCE_GATEWAY_ENABLED) {
+    return buildGatewayAttendanceEvent(templateId, confidence, now, eventId, payload,
+                                       employeeName, attendanceTime);
+  }
   String employeeId;
   const bool mapped = getFingerprintMapping(templateId, employeeId, employeeName);
   if (!mapped && (!OFFLINE_AS608_ACCESS_ENABLED || !lastFingerprintAuthorizationUnavailable)) return false;
@@ -415,6 +419,10 @@ void handleAttendanceDelivery(const String& eventId, AttendanceDelivery delivery
     fingerprintDoorNoticeOffline = localAccess;
     fingerprintDoorNoticeAttendanceSaved = true;
     if (localAccess) Serial.printf_P(PSTR("OUTBOX %s: mo cua theo mau AS608; du lieu van cho dong bo\n"), eventId.c_str());
+  } else if (delivery == AttendanceDelivery::DUPLICATE) {
+    // A receipt from the second recognition method only completes delivery.
+    // Never replay a door opening or the success buzzer for this event.
+    if (mayOpen) showFingerprintResultNotice(F("DA CHAM CONG"), F("KHONG GHI TRUNG"));
   } else if (delivery == AttendanceDelivery::REJECTED) {
     lastFingerprintAuthorizationDenied = true;
     showFingerprintResultNotice(F("LUOT BI TU CHOI"), F("XIN LIEN HE ADMIN"));

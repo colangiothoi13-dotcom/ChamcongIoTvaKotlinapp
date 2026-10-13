@@ -17,6 +17,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.Instant
 import vn.chamcong.iot.domain.validateAttendanceAdjustment
+import vn.chamcong.iot.domain.requestReviewNote
+import vn.chamcong.iot.domain.overtimeReviewNotification
 
 suspend fun FirebaseRepository.submitLeaveRequest(request: LeaveRequest): String {
     validateRequest(request)
@@ -306,6 +308,8 @@ suspend fun FirebaseRepository.reviewOvertimeRequest(
     val reviewerId = currentUserId
     val reviewerName = currentUserName
     require(reviewerId.isNotBlank()) { "Chưa đăng nhập" }
+    val cleanNote = requestReviewNote(reason, required = status == OvertimeRequestStatus.REJECTED)
+    val notificationRef = db.collection("notifications").document("${requestId}_OVERTIME_RESULT")
     db.runTransaction { transaction ->
         val requestRef = db.collection("overtimeRequests").document(requestId)
         val current = transaction.get(requestRef).let(::overtimeRequest)
@@ -315,7 +319,7 @@ suspend fun FirebaseRepository.reviewOvertimeRequest(
             status = status,
             reviewerId = reviewerId,
             reviewerName = reviewerName,
-            reason = reason,
+            reason = cleanNote,
             reviewedAt = Instant.now()
         )
         transaction.update(requestRef, mapOf<String, Any?>(
@@ -340,6 +344,7 @@ suspend fun FirebaseRepository.reviewOvertimeRequest(
             db.collection("audit_logs").document(auditId),
             audit.toFirestoreData() + ("status" to reviewed.status)
         )
+        transaction.set(notificationRef, overtimeReviewNotification(reviewed, cleanNote).toFirestoreData())
     }.await()
 }
 

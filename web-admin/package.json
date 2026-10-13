@@ -1,0 +1,13 @@
+{
+  "name": "chamcong-admin-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/server.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.js test/*.test.mjs",
+    "test:browser": "node scripts/check-browser.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

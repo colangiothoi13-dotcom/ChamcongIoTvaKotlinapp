@@ -16,6 +16,7 @@ import vn.chamcong.iot.domain.filterAttendanceByDateRange
 import vn.chamcong.iot.domain.parseAttendanceDateRange
 import vn.chamcong.iot.domain.summarizeWeeklyWork
 import vn.chamcong.iot.model.Payroll
+import vn.chamcong.iot.model.PerformanceReview
 import vn.chamcong.iot.data.*
 import vn.chamcong.iot.model.Attendance
 import vn.chamcong.iot.model.AttendanceAdjustment
@@ -23,6 +24,9 @@ import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.model.DashboardSummary
 import vn.chamcong.iot.model.DailyDashboardSummary
 import vn.chamcong.iot.model.DeviceSnapshot
+import vn.chamcong.iot.model.FaceProfile
+import vn.chamcong.iot.model.FaceStation
+import vn.chamcong.iot.model.FaceEnrollmentCommand
 import vn.chamcong.iot.model.Department
 import vn.chamcong.iot.model.Announcement
 import vn.chamcong.iot.model.Employee
@@ -66,9 +70,21 @@ data class MainUiState(
     val attendanceClassificationOverrides: List<AttendanceClassificationOverride> = emptyList(),
     val offScheduleAttendanceReviews: List<OffScheduleAttendanceReview> = emptyList(),
     val payroll: List<Payroll> = emptyList(),
+    val payrollLoading: Boolean = false,
+    val payrollError: String? = null,
+    val payrollLoadedMonth: YearMonth? = null,
+    val payrollReloadGeneration: Long = 0,
     val employeePayroll: List<Payroll> = emptyList(),
+    val performanceReviews: List<PerformanceReview> = emptyList(),
+    val performanceReviewsLoading: Boolean = false,
+    val performanceReviewsError: String? = null,
     val commands: List<Map<String, Any>> = emptyList(),
     val devices: List<DeviceSnapshot> = emptyList(),
+    val faceProfiles: List<FaceProfile> = emptyList(),
+    val faceStations: List<FaceStation> = emptyList(),
+    val faceEnrollmentCommands: List<FaceEnrollmentCommand> = emptyList(),
+    val faceEnrollmentLoading: Boolean = false,
+    val faceEnrollmentError: String? = null,
     val departments: List<Department> = emptyList(),
     val announcements: List<Announcement> = emptyList(),
     val employeeResources: List<EmployeeResource> = emptyList(),

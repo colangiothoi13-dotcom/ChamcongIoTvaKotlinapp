@@ -13,6 +13,22 @@
 
 #include "secrets.h"
 
+// Upgrade deliberately: an existing secrets.h keeps legacy fingerprint-only
+// attendance until the entire station switches to the laptop gateway.
+#ifndef ATTENDANCE_GATEWAY_MODE
+#define ATTENDANCE_GATEWAY_MODE 0
+#endif
+#ifndef ATTENDANCE_GATEWAY_URL
+#define ATTENDANCE_GATEWAY_URL ""
+#endif
+#ifndef ATTENDANCE_DEVICE_TOKEN
+#define ATTENDANCE_DEVICE_TOKEN ""
+#endif
+#ifndef ATTENDANCE_STATION_ID
+#define ATTENDANCE_STATION_ID "GATE-01"
+#endif
+const bool ATTENDANCE_GATEWAY_ENABLED = ATTENDANCE_GATEWAY_MODE != 0;
+
 // ==================== KHAI BAO CHAN PHAN CUNG ====================
 // AS608/R307: D5 (GPIO14) <- TX cam bien, D6 (GPIO12) -> RX cam bien
 const uint8_t FINGERPRINT_RX_PIN = D5;
@@ -35,7 +51,8 @@ const char* WIFI_PASSWORD = DEVICE_WIFI_PASSWORD;
 const char* FIREBASE_API_KEY = FIREBASE_WEB_API_KEY;
 const char* FIRESTORE_URL = FIRESTORE_BASE_URL;
 const char* DEVICE_ID = "GATE-01";
-const char* FIRMWARE_VERSION = "spark-anonymous-v16-tls-memory";
+const char* FIRMWARE_VERSION = ATTENDANCE_GATEWAY_ENABLED
+    ? "spark-gateway-v17-face-ready" : "spark-anonymous-v16-tls-memory";
 // User-selected policy: AS608 matches can grant access when the server cannot
 // be reached. No employee roster/mapping cache is stored on the ESP8266.
 const bool OFFLINE_AS608_ACCESS_ENABLED = true;
@@ -140,6 +157,16 @@ void serviceOutputEffects();
 void serviceEnrollment();
 void handleAttendanceDelivery(const String& eventId, AttendanceDelivery delivery);
 void invalidateForegroundAttendanceAccess();
+bool buildGatewayAttendanceEvent(uint16_t templateId, uint16_t confidence, time_t captured,
+                                String& eventId, String& payload, String& employeeName,
+                                String& attendanceTime);
+bool canStartGatewayRequest();
+// Explicit declarations keep Arduino's generated prototypes from referencing
+// this enum before RuntimePolicy.h has been included.
+GatewayReceipt parseGatewayAttendanceReceipt(const String& eventId, int code, const String& body);
+GatewayReceipt postGatewayAttendanceEvent(const String& eventId, const String& payload);
+AttendanceSyncResult flushGatewayAttendanceHead(const String& eventId, const String& payload,
+                                                size_t tailOffset);
 int resolveOfflineAttendancePayload(const String& payload, String& resolvedPayload);
 AttendanceSyncResult flushAttendanceOutbox();
 AttendanceDelivery uploadAttendance(uint16_t templateId, uint16_t confidence,

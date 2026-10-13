@@ -29,6 +29,7 @@ import vn.chamcong.iot.data.*
 import vn.chamcong.iot.model.AttendanceAdjustment
 import vn.chamcong.iot.model.AttendanceClassificationOverride
 import vn.chamcong.iot.model.DeviceCommandType
+import vn.chamcong.iot.model.FaceEnrollmentAction
 import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.model.Payroll
 import vn.chamcong.iot.model.EmployeeResource
@@ -83,6 +84,8 @@ class MainViewModel private constructor(application: Application, private val pr
     internal var workItemsSubscription: Job? = null
     internal var workItemHistorySubscription: Job? = null
     internal var workItemOperation: Job? = null
+    internal var faceEnrollmentSubscription: Job? = null
+    internal var performanceReviewsSubscription: Job? = null
     internal var workItemSessionGeneration: Long = 0
     internal var subscriptionMode: String? = null
     internal var attendanceHistoryJob: Job? = null
@@ -131,6 +134,11 @@ class MainViewModel private constructor(application: Application, private val pr
         retryAttendanceRange()
         "Đã lưu điều chỉnh chấm công"
     }
+    fun provisionEmployeeAccount(employeeId: String, input: EmployeeAccountInput, done: () -> Unit = {}) = perform(done) {
+        check(hasAdminAccess()) { "Chỉ Admin đang hoạt động được tạo tài khoản nhân viên." }
+        repository.provisionEmployeeAccount(employeeId, input)
+        "Đã tạo tài khoản đăng nhập cho nhân viên"
+    }
     fun correctAttendanceClassification(
         correction: AttendanceClassificationOverride,
         done: () -> Unit
@@ -171,6 +179,21 @@ class MainViewModel private constructor(application: Application, private val pr
         if (retire) "Đã chuyển nhân viên sang đã nghỉ và ghi nhận ngày nghỉ việc. Lịch sử lương được giữ lại; xem trạng thái xóa vân tay bên dưới."
         else "Đã gửi yêu cầu xóa vân tay. Xem trạng thái thiết bị bên dưới."
     }
+    fun requestFaceEnrollment(employeeId: String, stationId: String, action: FaceEnrollmentAction, done: (String) -> Unit = {}) {
+        var requestId = ""
+        perform({ done(requestId) }) {
+            requestId = repository.requestFaceEnrollment(employeeId, stationId, action)
+            if (action == FaceEnrollmentAction.ENROLL) "Đã gửi yêu cầu. Đứng trước camera và theo dõi tiến độ trên app."
+            else "Đã gửi yêu cầu xóa mẫu. Chờ laptop xác nhận hoàn tất."
+        }
+    }
+    fun cancelFaceEnrollment(requestId: String) = perform({}) {
+        repository.cancelFaceEnrollment(requestId)
+        "Đã yêu cầu hủy; chờ laptop xác nhận."
+    }
+    fun retryFaceEnrollment() {
+        if (canAccessAdmin("password", _state.value.userProfile)) subscribeAdminFaceEnrollment()
+    }
     fun setSalary(employeeId: String, salary: Long, done: () -> Unit) = perform(done) {
         repository.setSalary(employeeId, salary)
         "Đã lưu mức lương"
@@ -210,11 +233,11 @@ class MainViewModel private constructor(application: Application, private val pr
         "Đã phân ca ${schedule.shiftName} cho ${schedule.employeeName}"
     }
     fun assignWeeklyShift(employeeIds: Set<String>, week: LocalDate, dates: Set<LocalDate>,
-        template: vn.chamcong.iot.domain.ShiftTemplate, start: String, end: String, done: () -> Unit) = perform(done) {
+        template: vn.chamcong.iot.domain.ShiftTemplate, start: String, end: String, replaceExistingShifts: Boolean = false, done: () -> Unit) = perform(done) {
         val shift = template.resolve(start, end)
         val schedules = vn.chamcong.iot.domain.weeklyAssignmentPayload(
             _state.value.employees, employeeIds, week, dates, shift, repository.currentUserId)
-        repository.saveWeeklySchedules(shift, schedules)
+        repository.saveWeeklySchedules(shift, schedules, replaceExistingShifts)
         "Đã lưu ${schedules.size} lịch phân ca"
     }
     fun assignShiftToDepartment(department: String, dates: List<String>, shift: WorkShift, overtimeHours: Int, done: () -> Unit) =
@@ -441,6 +464,9 @@ class MainViewModel private constructor(application: Application, private val pr
     }
     fun moveWeek(delta: Long) = selectWeek(_state.value.selectedWeekStart.plusWeeks(delta))
     fun selectPayrollMonth(month: YearMonth) = _state.update { it.copy(selectedPayrollMonth = month) }
+    fun retryPayroll() {
+        if (hasAdminAccess()) _state.update { it.copy(payrollReloadGeneration = it.payrollReloadGeneration + 1) }
+    }
     fun selectEmployeeScheduleMonth(month: YearMonth) = _state.update { it.copy(selectedEmployeeScheduleMonth = month) }
     fun selectPresenceDate(value: LocalDate) = _state.update { it.copy(selectedPresenceDate = value) }
     fun setRequestFilter(value: String?) = _state.update { it.copy(selectedRequestFilter = value?.takeIf(String::isNotBlank)) }
@@ -471,6 +497,7 @@ class MainViewModel private constructor(application: Application, private val pr
         reports.employeeMonthSummaries(employeeId, month)
 
     fun reportAttendanceRows(filter: ReportFilter): List<AttendanceReportRow> = reports.reportAttendanceRows(filter)
+    fun reportPayrollRows(filter: ReportFilter): List<Payroll> = reports.reportPayrollRows(filter)
     fun kpiBonusBreakdowns(month: YearMonth): Map<String, KpiBonusBreakdown> = reports.kpiBonusBreakdowns(month)
     fun reportDeviceRows(): List<DeviceActivityRow> = reports.reportDeviceRows()
     fun reportCsv(type: ReportType, filter: ReportFilter): String = reports.reportCsv(type, filter)

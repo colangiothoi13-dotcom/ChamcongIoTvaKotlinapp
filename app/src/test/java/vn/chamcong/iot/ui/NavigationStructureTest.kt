@@ -7,7 +7,7 @@ class NavigationStructureTest {
     @Test
     fun adminPrimaryNavigationHasExactlyFiveItemsInApprovedOrder() {
         assertEquals(
-            listOf("Tổng quan", "Công việc", "Tiện ích", "Phân ca", "Nhân viên"),
+            listOf("Tổng quan", "Công việc", "Danh mục", "Phân ca", "Nhân viên"),
             adminPrimaryDestinations.map { it.title }
         )
     }
@@ -15,8 +15,13 @@ class NavigationStructureTest {
     @Test
     fun adminTaskHubKeepsEveryNonPrimaryAdminModuleReachable() {
         assertEquals(
-            listOf("Đơn từ", "Chấm công", "Có mặt", "Thiết bị", "Phân ca", "Ca làm", "Lịch", "Lương", "Hiệu suất", "Báo cáo", "Bảng công tháng", "Nhật ký", "Phòng ban", "Thông báo", "Tiện ích nhân viên"),
+            listOf("Tổng quan", "Công việc", "Chấm công", "Có mặt", "Nhân viên", "Lịch làm việc", "Ca làm", "Đơn từ", "Phân ca", "Bảng lương", "Báo cáo & bảng công", "Bảng công tháng", "Hiệu suất", "Camera & khuôn mặt", "Thiết bị IoT", "Phòng ban", "Thông báo", "Tiện ích nhân viên", "Nhật ký"),
             adminTaskDestinations.map { it.title }
+        )
+        assertEquals(adminTaskDestinations.size, adminTaskDestinations.distinct().size)
+        assertEquals(
+            AppDestination.entries.toSet() - setOf(AppDestination.TASKS, AppDestination.SETTINGS),
+            (adminPrimaryDestinations + adminTaskDestinations).toSet() - AppDestination.TASKS
         )
     }
 

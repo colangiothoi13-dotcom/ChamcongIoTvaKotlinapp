@@ -1,0 +1,21 @@
+
+> chamcong-admin-web@1.0.0 test:browser
+> node scripts/check-browser.mjs
+
+PASS right-side Add button opens a visible native dialog
+PASS a native form saves and enables tools inside the same employee editor
+PASS linked accounts hide Create despite stale users subscription, dirty email and saving
+PASS locked linked accounts also hide Create
+PASS a verified empty account query allows Create
+PASS an account query error hides Create and shows a retry message
+PASS a pending account query cannot overwrite a newer Add dialog
+PASS work, schedule and attendance controls open their actual forms
+PASS a pending Edit read does not block Add or reopen stale Edit
+PASS filter blur does not swallow the following Add click
+PASS failed actions inside a dialog show their error in that dialog
+PASS attendance adjustment hides past retirees and refreshes its picker when the date changes
+PASS shared design keeps desktop forms readable and controls accessible
+PASS work priority and deadline filters are wired to the actual page
+PASS page titles agree with navigation across desktop and phone layouts
+Screenshots: D:\IoT\ChamcongIoTvaKotlinapp-main (1)\ChamcongIoTvaKotlinapp-main\web-admin\verification
+Temporary test profile: C:\Users\DELL\AppData\Local\Temp\chamcong-browser-check-PaXuFR

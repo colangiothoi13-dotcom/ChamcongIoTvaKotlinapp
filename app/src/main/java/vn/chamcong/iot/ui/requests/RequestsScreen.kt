@@ -2,7 +2,9 @@ package vn.chamcong.iot.ui.requests
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
@@ -16,6 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.tooling.preview.Preview
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AppTouchTarget
+import vn.chamcong.iot.ui.AdminPageHeader
+import vn.chamcong.iot.ui.AdminSectionCard
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.PreviewStateScreen
@@ -43,18 +48,25 @@ internal fun RequestsScreen(
         }
     }
     val header: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
+        AdminPageHeader("Đơn từ", "Duyệt đăng ký tuần, nghỉ phép và tăng ca.")
+        AdminSectionCard {
+        Text("Duyệt đơn từ", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+        Text("Mở chi tiết để đối chiếu nội dung và phản hồi cho nhân viên.", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)
         ) {
             AdminRequestGroup.entries.forEach { option ->
-                FilterChip(
+                FilterChip(modifier = Modifier.heightIn(min = AppTouchTarget.minimum),
                     selected = group == option,
                     onClick = { group = option },
                     label = { Text(option.label) },
                     enabled = !state.saving
                 )
             }
+        }
+        }
         }
     }
     when (group) {

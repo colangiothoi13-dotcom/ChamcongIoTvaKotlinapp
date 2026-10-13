@@ -42,6 +42,7 @@ import vn.chamcong.iot.model.Employee
 import vn.chamcong.iot.ui.AppSpacing
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
+import vn.chamcong.iot.ui.attendance.attendanceMethodLabel
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -401,6 +402,7 @@ private fun AttendanceActivityCard(attendance: Attendance) {
                 style = MaterialTheme.typography.bodySmall
             )
             Text("Thiết bị: ${attendance.deviceId.ifBlank { "—" }}")
+            Text("Phương thức: ${attendanceMethodLabel(attendance)}", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

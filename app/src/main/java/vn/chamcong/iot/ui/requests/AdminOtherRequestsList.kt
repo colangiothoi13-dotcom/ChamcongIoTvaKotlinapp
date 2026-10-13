@@ -27,9 +27,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.LeaveRequest
+import vn.chamcong.iot.domain.requestReviewNote
 import vn.chamcong.iot.model.RequestStatus
 import vn.chamcong.iot.model.visibleOutsideRetiredList
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AppTouchTarget
+import vn.chamcong.iot.ui.AdminMetricCard
+import vn.chamcong.iot.ui.AdminSectionCard
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.requestStatusLabel
@@ -40,6 +44,7 @@ import java.util.Locale
 @Composable
 internal fun AdminOtherRequestsList(state: MainUiState, vm: MainViewModel, header: @Composable () -> Unit) {
     var search by rememberSaveable { mutableStateOf("") }
+    var department by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val employeesById = state.employees.associateBy { it.id }
     val hiddenRetiredIds = state.employees.filterNot { it.visibleOutsideRetiredList() }.mapTo(mutableSetOf()) { it.id }
@@ -47,6 +52,7 @@ internal fun AdminOtherRequestsList(state: MainUiState, vm: MainViewModel, heade
     val visibleRequests = allRequests.filter { request ->
         val employee = employeesById[request.employeeId]
         (state.selectedRequestFilter.isNullOrBlank() || request.status == state.selectedRequestFilter) &&
+            adminRequestMatchesDepartment(department, employee, request.department, state.departments) &&
             adminRequestMatchesQuery(search, request.employeeName, employee?.fullName.orEmpty(),
                 request.employeeId, employee?.code.orEmpty(), request.department, employee?.department.orEmpty())
     }.sortedWith(compareBy<LeaveRequest> { it.status != RequestStatus.PENDING.name }
@@ -59,13 +65,23 @@ internal fun AdminOtherRequestsList(state: MainUiState, vm: MainViewModel, heade
     LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
         item(key = "other_header") { header() }
         item(key = "other_summary") {
-            Text("${allRequests.size} đơn • $pendingCount chờ duyệt", style = MaterialTheme.typography.titleSmall)
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    AdminMetricCard("Đơn đã gửi", allRequests.size.toString(), "Trong nhóm đơn", Modifier.weight(1f))
+                    AdminMetricCard("Chờ duyệt", pendingCount.toString(), "Cần Admin xử lý", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    AdminMetricCard("Đã duyệt", allRequests.count { it.status == RequestStatus.APPROVED.name }.toString(), "Đã có quyết định", Modifier.weight(1f))
+                    AdminMetricCard("Từ chối", allRequests.count { it.status == RequestStatus.REJECTED.name }.toString(), "Có phản hồi cho nhân viên", Modifier.weight(1f))
+                }
+            }
         }
         item(key = "other_search") { AdminRequestSearchField(search) { search = it } }
+        item(key = "other_department") { AdminRequestDepartmentField(state.departments, department) { department = it } }
         item(key = "other_filters") {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 filters.forEach { (value, label) ->
-                    FilterChip(
+                    FilterChip(modifier = Modifier.heightIn(min = AppTouchTarget.minimum),
                         selected = state.selectedRequestFilter == value,
                         onClick = { vm.setRequestFilter(value) },
                         label = { Text(label) },
@@ -80,8 +96,9 @@ internal fun AdminOtherRequestsList(state: MainUiState, vm: MainViewModel, heade
         }
         if (visibleRequests.isEmpty()) {
             item(key = "other_empty") {
-                Text(if (allRequests.isEmpty()) "Chưa có đơn từ" else "Không có đơn phù hợp với tìm kiếm và bộ lọc.",
-                    modifier = Modifier.padding(vertical = AppSpacing.medium))
+                AdminSectionCard {
+                    Text(if (allRequests.isEmpty()) "Chưa có đơn từ" else "Không có đơn phù hợp với tìm kiếm và bộ lọc.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         items(visibleRequests, key = { "other_request_${it.id}" }) { request ->
@@ -116,8 +133,10 @@ internal fun AdminOtherRequestsList(state: MainUiState, vm: MainViewModel, heade
 @Composable
 private fun OtherRequestDetailDialog(request: LeaveRequest, state: MainUiState, vm: MainViewModel, onDismiss: () -> Unit) {
     var rejecting by remember(request.id) { mutableStateOf(false) }
+    var approving by remember(request.id) { mutableStateOf(false) }
     var note by rememberSaveable(request.id) { mutableStateOf("") }
-    val canReview = request.status == RequestStatus.PENDING.name && !state.saving
+    var approvalNote by rememberSaveable(request.id) { mutableStateOf("") }
+    val canReview = request.status == RequestStatus.PENDING.name && !state.saving && vm.hasAdminAccess()
     val employee = state.employees.firstOrNull { it.id == request.employeeId }
     AlertDialog(
         onDismissRequest = { if (!state.saving) onDismiss() },
@@ -164,8 +183,18 @@ private fun OtherRequestDetailDialog(request: LeaveRequest, state: MainUiState, 
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 2,
                         maxLines = 4,
+                        isError = note.trim().length > 1000,
+                        supportingText = { Text("${note.trim().length}/1000") },
                         enabled = canReview
                     )
+                }
+                if (approving && request.status == RequestStatus.PENDING.name) {
+                    Text("Ghi chú được lưu cùng quyết định và gửi cho nhân viên.", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(value = approvalNote, onValueChange = { approvalNote = it },
+                        label = { Text("Ghi chú duyệt (tùy chọn)") }, modifier = Modifier.fillMaxWidth(),
+                        minLines = 2, maxLines = 4, enabled = canReview,
+                        isError = approvalNote.trim().length > 1000,
+                        supportingText = { Text("${approvalNote.trim().length}/1000") })
                 }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -174,20 +203,23 @@ private fun OtherRequestDetailDialog(request: LeaveRequest, state: MainUiState, 
             if (request.status == RequestStatus.PENDING.name) {
                 if (rejecting) {
                     Button(
-                        onClick = { vm.reviewRequest(request.id, RequestStatus.REJECTED, note.trim(), onDismiss) },
-                        enabled = canReview && note.isNotBlank()
+                        onClick = { vm.reviewRequest(request.id, RequestStatus.REJECTED, requestReviewNote(note, required = true), onDismiss) },
+                        enabled = canReview && note.isNotBlank() && note.trim().length <= 1000
                     ) { Text("Từ chối") }
+                } else if (approving) {
+                    Button(onClick = { vm.reviewRequest(request.id, RequestStatus.APPROVED, requestReviewNote(approvalNote, required = false), onDismiss) },
+                        enabled = canReview && approvalNote.trim().length <= 1000) { Text(if (state.saving) "Đang lưu…" else "Xác nhận duyệt") }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                         TextButton(onClick = { vm.clearError(); rejecting = true }, enabled = canReview) { Text("Từ chối") }
-                        Button(onClick = { vm.reviewRequest(request.id, RequestStatus.APPROVED, "", onDismiss) }, enabled = canReview) { Text("Duyệt") }
+                        Button(onClick = { vm.clearError(); approving = true }, enabled = canReview) { Text("Duyệt") }
                     }
                 }
             }
         },
         dismissButton = {
-            TextButton(onClick = { if (rejecting) rejecting = false else onDismiss() }, enabled = !state.saving) {
-                Text(if (rejecting) "Hủy" else "Đóng")
+            TextButton(onClick = { if (rejecting || approving) { rejecting = false; approving = false; vm.clearError() } else onDismiss() }, enabled = !state.saving) {
+                Text(if (rejecting || approving) "Hủy" else "Đóng")
             }
         }
     )

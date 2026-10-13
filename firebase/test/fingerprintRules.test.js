@@ -22,6 +22,7 @@ const token = (uid, provider) => {
   })}.`;
 };
 const device = token("device-1", "anonymous");
+const admin = token("admin-1", "password");
 
 async function request(path, method, auth, body) {
   return fetch(`${documents}${path}`, {
@@ -111,4 +112,50 @@ test("Spark device can atomically finish its reserved enrollment and deletion", 
   const mismatchedMapping = await request(":commit", "POST", device,
     completion("ENROLL_FINGERPRINT", 8, mismatchVersion));
   await expectStatus(mismatchedMapping, 403);
+});
+
+test("Legacy deletion needs the reserved device ID stored on the employee", async t => {
+  await seed("users/admin-1", { role: "ADMIN", active: true });
+  for (const legacyDeviceId of [undefined, ""]) {
+    await t.test(legacyDeviceId === undefined ? "missing device ID" : "blank device ID", async () => {
+      await seed("employees/e1", { fullName: "An", active: true,
+        fingerprintTemplateId: 14, pendingTemplateId: 14,
+        ...(legacyDeviceId === undefined ? {} : { fingerprintDeviceId: legacyDeviceId }) });
+      await seed("fingerprintMappings/14", { employeeId: "e1", employeeName: "An",
+        templateId: 14, enabled: false });
+      await seed("deviceCommands/GATE-01", { requestId: "req-legacy-delete", type: "DELETE_FINGERPRINT",
+        deviceId: "GATE-01", employeeId: "e1", employeeName: "An", templateId: 14,
+        status: "COMPLETED", applied: false });
+      const commandVersion = (await readDocument("deviceCommands/GATE-01")).updateTime;
+
+      const rejected = await request(":commit", "POST", device,
+        completion("DELETE_FINGERPRINT", 14, commandVersion));
+      await expectStatus(rejected, 403);
+      assert.equal((await read("deviceCommands/GATE-01")).applied.booleanValue, false);
+      assert.equal((await read("employees/e1")).fingerprintTemplateId.integerValue, "14");
+      assert.equal((await read("employees/e1")).pendingTemplateId.integerValue, "14");
+      assert.equal((await read("fingerprintMappings/14")).enabled.booleanValue, false);
+
+      const employeeVersion = (await readDocument("employees/e1")).updateTime;
+      const repair = { writes: [{ update: { name: name("employees/e1"),
+        fields: { fingerprintDeviceId: field("GATE-01") } },
+        updateMask: { fieldPaths: ["fingerprintDeviceId"] },
+        currentDocument: { updateTime: employeeVersion } }] };
+      await expectStatus(await request(":commit", "POST", device, repair), 403);
+      await expectStatus(await request(":commit", "POST", admin, repair), 200);
+      assert.equal((await readDocument("deviceCommands/GATE-01")).updateTime, commandVersion);
+
+      const deleted = await request(":commit", "POST", device,
+        completion("DELETE_FINGERPRINT", 14, commandVersion));
+      await expectStatus(deleted, 200);
+      const employee = await read("employees/e1");
+      assert.equal(employee.fingerprintTemplateId.nullValue, null);
+      assert.equal(employee.pendingTemplateId.nullValue, null);
+      assert.equal(employee.fingerprintDeviceId.stringValue, "GATE-01");
+      assert.equal(employee.fullName.stringValue, "An");
+      assert.equal(employee.active.booleanValue, true);
+      assert.equal((await read("deviceCommands/GATE-01")).applied.booleanValue, true);
+      assert.equal((await request("/fingerprintMappings/14", "GET", "owner")).status, 404);
+    });
+  }
 });

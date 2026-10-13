@@ -1,6 +1,7 @@
 package vn.chamcong.iot.ui.requests
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.PaddingValues
@@ -42,6 +43,9 @@ import vn.chamcong.iot.domain.weekDates
 import vn.chamcong.iot.model.WeeklyScheduleRequest
 import vn.chamcong.iot.model.WeeklyScheduleRequestStatus
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AppTouchTarget
+import vn.chamcong.iot.ui.AdminMetricCard
+import vn.chamcong.iot.ui.AdminSectionCard
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.schedule.weeklyScheduleRequestsPresentation
@@ -63,6 +67,7 @@ internal fun AdminWeeklyScheduleRequestsList(
     val presentation = weeklyScheduleRequestsPresentation(state)
     val employeesById = remember(state.employees) { state.employees.associateBy { it.id } }
     var query by rememberSaveable(weekStart) { mutableStateOf("") }
+    var department by rememberSaveable(weekStart) { mutableStateOf<String?>(null) }
     var statusFilter by rememberSaveable(weekStart) { mutableStateOf<WeeklyScheduleRequestStatus?>(null) }
     var aggregateExpanded by rememberSaveable(weekStart) { mutableStateOf(false) }
     var detailRequestId by remember(weekStart) { mutableStateOf<String?>(null) }
@@ -72,6 +77,7 @@ internal fun AdminWeeklyScheduleRequestsList(
     }
     val visibleRequests = presentation.requests.filter { request ->
         (statusFilter == null || request.status == statusFilter) &&
+            adminRequestMatchesDepartment(department, employeesById[request.employeeId], request.department, state.departments) &&
             adminRequestMatchesQuery(
                 query, request.employeeName, employeesById[request.employeeId]?.code.orEmpty(),
                 request.department, request.employeeId,
@@ -90,6 +96,18 @@ internal fun AdminWeeklyScheduleRequestsList(
         verticalArrangement = Arrangement.spacedBy(AppSpacing.small)
     ) {
         item(key = "weekly-header") { header() }
+        if (presentation.ready) item(key = "weekly-summary") {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    AdminMetricCard("Đơn đã gửi", presentation.requests.size.toString(), "Trong tuần đang chọn", Modifier.weight(1f))
+                    AdminMetricCard("Chờ duyệt", presentation.pendingRequests.size.toString(), "Cần Admin xử lý", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    AdminMetricCard("Đã duyệt", approvedCount.toString(), "Đã có quyết định", Modifier.weight(1f))
+                    AdminMetricCard("Chưa gửi", presentation.missingEmployees.size.toString(), "Nhân viên đang hoạt động", Modifier.weight(1f))
+                }
+            }
+        }
         item(key = "weekly-week") {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -177,16 +195,17 @@ internal fun AdminWeeklyScheduleRequestsList(
                 }
             }
             item(key = "weekly-search") { AdminRequestSearchField(query, { query = it }) }
+            item(key = "weekly-department") { AdminRequestDepartmentField(state.departments, department) { department = it } }
             item(key = "weekly-status") {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                    FilterChip(selected = statusFilter == null, onClick = { statusFilter = null }, label = { Text("Tất cả " + presentation.requests.size) })
+                    FilterChip(modifier = Modifier.heightIn(min = AppTouchTarget.minimum), selected = statusFilter == null, onClick = { statusFilter = null }, label = { Text("Tất cả " + presentation.requests.size) })
                     listOf(WeeklyScheduleRequestStatus.PENDING, WeeklyScheduleRequestStatus.APPROVED, WeeklyScheduleRequestStatus.NEEDS_REVISION).forEach { status ->
                         val count = when (status) {
                             WeeklyScheduleRequestStatus.PENDING -> presentation.pendingRequests.size
                             WeeklyScheduleRequestStatus.APPROVED -> approvedCount
                             WeeklyScheduleRequestStatus.NEEDS_REVISION -> presentation.revisionCount
                         }
-                        FilterChip(selected = statusFilter == status, onClick = { statusFilter = status }, label = { Text(weeklyRequestStatusLabel(status) + " " + count) })
+                        FilterChip(modifier = Modifier.heightIn(min = AppTouchTarget.minimum), selected = statusFilter == status, onClick = { statusFilter = status }, label = { Text(weeklyRequestStatusLabel(status) + " " + count) })
                     }
                 }
             }
@@ -205,8 +224,9 @@ internal fun AdminWeeklyScheduleRequestsList(
             }
             if (visibleRequests.isEmpty()) {
                 item(key = "weekly-empty") {
-                    Text(if (presentation.showEmpty) "Chưa có đăng ký lịch tuần này." else "Không có đăng ký khớp bộ lọc.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    AdminSectionCard {
+                        Text(if (presentation.showEmpty) "Chưa có đăng ký lịch tuần này." else "Không có đăng ký khớp bộ lọc.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             items(visibleRequests, key = { "request:" + it.id }, contentType = { "weekly-request" }) { request ->
@@ -299,8 +319,8 @@ private fun WeeklyScheduleRequestDetailsDialog(
                         OutlinedTextField(
                             value = note,
                             onValueChange = { if (it.length <= 1000) note = it },
-                            label = { Text("Phản hồi / lý do yêu cầu sửa") },
-                            supportingText = { Text(note.length.toString() + "/1000") },
+                            label = { Text("Ghi chú duyệt / lý do yêu cầu sửa") },
+                            supportingText = { Text("Duyệt: có thể để trống. Yêu cầu sửa: cần lý do. " + note.length + "/1000") },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.saving,
                             minLines = 2,

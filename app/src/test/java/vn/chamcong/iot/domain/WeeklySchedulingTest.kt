@@ -94,6 +94,30 @@ class WeeklySchedulingTest {
         assertFalse(oldMorning.id in merged.shiftIds)
     }
 
+    @Test fun explicitReplaceDropsOtherMainShiftButKeepsOvertimeHoursOverridesAndNotesOnRetry() {
+        val morning = defaultShiftTemplates()[0].resolve()
+        val afternoon = defaultShiftTemplates()[1].resolve()
+        val incoming = WorkSchedule(employeeId = "e1", date = "2026-09-21", shiftId = morning.id)
+        val previous = incoming.copy(shiftId = afternoon.id, shiftIds = listOf(afternoon.id),
+            overtimeHours = 2, workedHoursOverride = 7.5, adjustmentNote = "Đã xác minh", note = "Ghi chú cần giữ")
+        val shifts = listOf(morning, afternoon).associateBy { it.id }
+        assertEquals(listOf(morning.id, afternoon.id), mergeWeeklyAssignment(incoming, previous, morning, shifts).shiftIds)
+        val replaced = mergeWeeklyAssignment(incoming, previous, morning, shifts, replaceExistingShifts = true)
+        assertEquals(listOf(morning.id), replaced.shiftIds)
+        assertEquals(2, replaced.overtimeHours); assertEquals(7.5, replaced.workedHoursOverride!!, 0.0)
+        assertEquals("Đã xác minh", replaced.adjustmentNote); assertEquals("Ghi chú cần giữ", replaced.note)
+        assertEquals(replaced, mergeWeeklyAssignment(incoming, replaced, morning, shifts, replaceExistingShifts = true))
+    }
+
+    @Test fun explicitReplaceCanRemoveUnavailablePriorShiftButStillValidatesTheSelectedShift() {
+        val morning = defaultShiftTemplates()[0].resolve()
+        val incoming = WorkSchedule(employeeId = "e1", date = "2026-09-21", shiftId = morning.id)
+        val previous = incoming.copy(shiftId = "deleted-shift", shiftIds = listOf("deleted-shift"))
+        assertTrue(runCatching { mergeWeeklyAssignment(incoming, previous, morning, mapOf(morning.id to morning)) }.isFailure)
+        assertEquals(listOf(morning.id), mergeWeeklyAssignment(incoming, previous, morning, mapOf(morning.id to morning), true).shiftIds)
+        assertTrue(runCatching { mergeWeeklyAssignment(incoming, previous, morning.copy(active = false), emptyMap(), true) }.isFailure)
+    }
+
     @Test fun departmentMorningThenAfternoonKeepsBothAndPreservesAdjustmentsOnEveryRetry() {
         val morning = defaultShiftTemplates()[0].resolve()
         val afternoon = defaultShiftTemplates()[1].resolve()

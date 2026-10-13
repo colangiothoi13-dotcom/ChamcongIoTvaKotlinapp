@@ -53,15 +53,17 @@ fun mergeWeeklyAssignment(
     incoming: WorkSchedule,
     existing: WorkSchedule?,
     selectedShift: WorkShift,
-    shiftsById: Map<String, WorkShift>
-): WorkSchedule = mergeScheduleAssignment(incoming, existing, listOf(selectedShift), shiftsById)
+    shiftsById: Map<String, WorkShift>,
+    replaceExistingShifts: Boolean = false
+): WorkSchedule = mergeScheduleAssignment(incoming, existing, listOf(selectedShift), shiftsById, replaceExistingShifts)
 
 /** Shared by weekly and department assignments, including selecting both main shifts at once. */
 fun mergeScheduleAssignment(
     incoming: WorkSchedule,
     existing: WorkSchedule?,
     selectedShifts: List<WorkShift>,
-    shiftsById: Map<String, WorkShift>
+    shiftsById: Map<String, WorkShift>,
+    replaceExistingShifts: Boolean = false
 ): WorkSchedule {
     require(selectedShifts.size in 1..2 && selectedShifts.map { it.id }.distinct().size == selectedShifts.size &&
         selectedShifts.map { it.category }.distinct().size == selectedShifts.size) {
@@ -73,7 +75,7 @@ fun mergeScheduleAssignment(
     }
     val selectedCategories = selectedShifts.map { it.category }.toSet()
     val previousIds = existing?.let(::scheduledShiftIds).orEmpty()
-    val retained = previousIds.map { id ->
+    val retained = (if (replaceExistingShifts) emptyList() else previousIds).map { id ->
         shiftsById[id] ?: error("Ca đã phân trước đó không còn tồn tại: $id")
     }.filter { it.category !in selectedCategories }
     require(retained.all { it.active && canAssignScheduleShift(it) }) {

@@ -3,11 +3,15 @@ package vn.chamcong.iot.ui.overtime
 import androidx.compose.ui.tooling.preview.Preview
 import vn.chamcong.iot.ui.PreviewStateScreen
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AppTouchTarget
+import vn.chamcong.iot.ui.AdminMetricCard
+import vn.chamcong.iot.ui.AdminSectionCard
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,11 +37,14 @@ import java.time.LocalDate
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import vn.chamcong.iot.domain.SUPPLEMENTARY_ZONE_ID
+import vn.chamcong.iot.domain.requestReviewNote
 import vn.chamcong.iot.model.OvertimeRequest
 import vn.chamcong.iot.model.OvertimeRequestStatus
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.requests.AdminRequestSearchField
+import vn.chamcong.iot.ui.requests.AdminRequestDepartmentField
+import vn.chamcong.iot.ui.requests.adminRequestMatchesDepartment
 import vn.chamcong.iot.ui.requests.AdminRequestStatusBadge
 import vn.chamcong.iot.ui.requests.AdminRequestStatusTone
 import vn.chamcong.iot.ui.requests.AdminRequestSummaryCard
@@ -123,6 +130,7 @@ internal fun AdminOvertimeRequestsList(
     header: @Composable () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var department by rememberSaveable { mutableStateOf<String?>(null) }
     var statusFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedRequest by remember { mutableStateOf<OvertimeRequest?>(null) }
     val employeesById = remember(state.employees) { state.employees.associateBy { it.id } }
@@ -133,7 +141,8 @@ internal fun AdminOvertimeRequestsList(
             .thenByDescending { it.workDate }.thenBy { it.id })
     val matchingRequests = scopedRequests.filter { request ->
         val employee = employeesById[request.employeeId]
-        adminRequestMatchesQuery(query, request.employeeName, request.employeeId,
+        adminRequestMatchesDepartment(department, employee, request.department, state.departments) &&
+            adminRequestMatchesQuery(query, request.employeeName, request.employeeId,
             employee?.fullName.orEmpty(), employee?.code.orEmpty(), request.department,
             employee?.department.orEmpty())
     }
@@ -144,10 +153,23 @@ internal fun AdminOvertimeRequestsList(
         item { header() }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    AdminMetricCard("Đơn đã gửi", scopedRequests.size.toString(), "Trong nhóm đơn", Modifier.weight(1f))
+                    AdminMetricCard("Chờ duyệt", pendingCount.toString(), "Cần Admin xử lý", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    AdminMetricCard("Đã duyệt", scopedRequests.count { it.status == OvertimeRequestStatus.APPROVED.name }.toString(), "Đã có quyết định", Modifier.weight(1f))
+                    AdminMetricCard("Từ chối", scopedRequests.count { it.status == OvertimeRequestStatus.REJECTED.name }.toString(), "Có phản hồi cho nhân viên", Modifier.weight(1f))
+                }
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 Text("Đăng ký tăng ca", style = MaterialTheme.typography.titleMedium)
                 Text("${visibleRequests.size}/${scopedRequests.size} đơn • $pendingCount chờ duyệt",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 AdminRequestSearchField(query) { query = it }
+                AdminRequestDepartmentField(state.departments, department) { department = it }
             }
         }
         item {
@@ -155,6 +177,7 @@ internal fun AdminOvertimeRequestsList(
                 items(overtimeFilters, key = { it.second }) { (value, label) ->
                     val count = matchingRequests.count { value == null || it.status == value }
                     FilterChip(
+                        modifier = Modifier.heightIn(min = AppTouchTarget.minimum),
                         selected = statusFilter == value,
                         onClick = { statusFilter = value },
                         label = { Text("$label ($count)") },
@@ -214,7 +237,10 @@ private fun AdminOvertimeRequestDetailDialog(
     onDismiss: () -> Unit
 ) {
     var rejecting by remember(request.id) { mutableStateOf(false) }
+    var approving by remember(request.id) { mutableStateOf(false) }
     var reason by remember(request.id) { mutableStateOf("") }
+    var approvalNote by remember(request.id) { mutableStateOf("") }
+    val reviewEnabled = canReview && !state.saving && vm.hasAdminAccess()
     val employee = state.employees.firstOrNull { it.id == request.employeeId }
     AlertDialog(
         onDismissRequest = { if (!state.saving) onDismiss() },
@@ -252,8 +278,16 @@ private fun AdminOvertimeRequestDetailDialog(
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Lý do từ chối") },
                         minLines = 2,
-                        enabled = !state.saving
+                        isError = reason.trim().length > 1000,
+                        supportingText = { Text("${reason.trim().length}/1000") },
+                        enabled = reviewEnabled
                     )
+                }
+                if (approving && canReview) {
+                    OutlinedTextField(value = approvalNote, onValueChange = { approvalNote = it },
+                        modifier = Modifier.fillMaxWidth(), label = { Text("Ghi chú duyệt (tùy chọn)") }, minLines = 2,
+                        enabled = reviewEnabled, isError = approvalNote.trim().length > 1000,
+                        supportingText = { Text("Ghi chú gửi trong thông báo kết quả. ${approvalNote.trim().length}/1000") })
                 }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -261,15 +295,18 @@ private fun AdminOvertimeRequestDetailDialog(
         confirmButton = {
             if (canReview) Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
                 if (rejecting) {
-                    TextButton(onClick = { rejecting = false; vm.clearError() }, enabled = !state.saving) { Text("Quay lại") }
+                    TextButton(onClick = { rejecting = false; vm.clearError() }, enabled = reviewEnabled) { Text("Quay lại") }
                     Button(onClick = {
-                        vm.reviewOvertimeRequest(request.id, OvertimeRequestStatus.REJECTED, reason.trim(), onDismiss)
-                    }, enabled = !state.saving && reason.isNotBlank()) { Text("Từ chối") }
+                        vm.reviewOvertimeRequest(request.id, OvertimeRequestStatus.REJECTED, requestReviewNote(reason, required = true), onDismiss)
+                    }, enabled = reviewEnabled && reason.isNotBlank() && reason.trim().length <= 1000) { Text("Từ chối") }
+                } else if (approving) {
+                    TextButton(onClick = { approving = false; vm.clearError() }, enabled = reviewEnabled) { Text("Quay lại") }
+                    Button(onClick = {
+                        vm.reviewOvertimeRequest(request.id, OvertimeRequestStatus.APPROVED, requestReviewNote(approvalNote, required = false), onDismiss)
+                    }, enabled = reviewEnabled && approvalNote.trim().length <= 1000) { Text(if (state.saving) "Đang lưu…" else "Xác nhận duyệt") }
                 } else {
-                    TextButton(onClick = { rejecting = true; vm.clearError() }, enabled = !state.saving) { Text("Từ chối") }
-                    Button(onClick = {
-                        vm.reviewOvertimeRequest(request.id, OvertimeRequestStatus.APPROVED, "", onDismiss)
-                    }, enabled = !state.saving) { Text("Duyệt") }
+                    TextButton(onClick = { rejecting = true; vm.clearError() }, enabled = reviewEnabled) { Text("Từ chối") }
+                    Button(onClick = { approving = true; vm.clearError() }, enabled = reviewEnabled) { Text("Duyệt") }
                 }
             }
         },

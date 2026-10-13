@@ -1,0 +1,3 @@
+# Windows launchers must retain CMD-compatible line endings.
+/web-admin/mo-web-admin.cmd text eol=crlf
+/web-admin/mo-web-admin-camera-app.cmd text eol=crlf

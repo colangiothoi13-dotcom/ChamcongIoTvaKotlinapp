@@ -4,8 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 2
-val appVersionName = providers.gradleProperty("appVersionName").orNull ?: "1.1.0"
+val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 3
+val appVersionName = providers.gradleProperty("appVersionName").orNull ?: "1.2.0"
 val releaseStoreFile = providers.environmentVariable("CHAMCONG_RELEASE_STORE_FILE").orNull
 val releaseStorePassword = providers.environmentVariable("CHAMCONG_RELEASE_STORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("CHAMCONG_RELEASE_KEY_ALIAS").orNull

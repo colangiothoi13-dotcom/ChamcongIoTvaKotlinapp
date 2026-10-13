@@ -1,0 +1,30 @@
+{
+  "mode": "demo",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "stationId": "GATE-01",
+  "fingerprintDeviceId": "GATE-01",
+  "faceDeviceId": "CAM-01",
+  "adminToken": "REPLACE_WITH_RANDOM_TOKEN_AT_LEAST_24_CHARACTERS",
+  "deviceToken": "REPLACE_WITH_DIFFERENT_RANDOM_TOKEN_AT_LEAST_24_CHARACTERS",
+  "projectId": "YOUR_FIREBASE_PROJECT_ID",
+  "dataDir": "data",
+  "registryFile": "demo_registry.example.json",
+  "recognition": {
+    "detectorModel": "data/models/face_detection_yunet_2023mar.onnx",
+    "recognizerModel": "data/models/face_recognition_sface_2021dec.onnx",
+    "gallery": "data/gallery.json",
+    "threshold": 0.5,
+    "ambiguityMargin": 0.1,
+    "minFaceSize": 80,
+    "minSharpness": 50.0,
+    "stableFrames": 3,
+    "emptyFrames": 3,
+    "pollSeconds": 0.3
+  },
+  "camera": {
+    "rotation": 0,
+    "url": "http://192.168.1.50/capture",
+    "token": "REPLACE_WITH_CAMERA_TOKEN"
+  }
+}

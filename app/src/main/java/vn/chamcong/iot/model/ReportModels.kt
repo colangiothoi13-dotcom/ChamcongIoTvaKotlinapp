@@ -16,8 +16,31 @@ enum class ReportType {
     LATE_EARLY,
     LEAVE,
     OVERTIME,
+    PAYROLL,
     DEVICE_ACTIVITY
 }
+
+data class WorkSummaryReportRow(
+    val employeeId: String,
+    val employeeCode: String = "",
+    val employeeName: String,
+    val department: String = "",
+    val workdays: Int,
+    val regularHours: Double,
+    val overtimeHours: Double,
+    val lateDays: Int,
+    val earlyDays: Int,
+    val leaveDays: Int,
+    val missingDays: Int
+)
+
+data class PerformanceReportRow(
+    val employeeId: String,
+    val employeeCode: String,
+    val employeeName: String,
+    val metrics: WorkItemMetrics,
+    val review: PerformanceReview? = null
+)
 
 data class AttendanceReportRow(
     val date: String = "",

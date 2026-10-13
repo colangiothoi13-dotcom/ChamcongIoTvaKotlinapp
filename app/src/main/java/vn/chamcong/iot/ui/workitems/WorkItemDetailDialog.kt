@@ -246,7 +246,7 @@ private fun WorkDetailSection(label: String, content: String) {
 @Composable
 private fun WorkAttendanceEvidence(state: MainUiState, vm: MainViewModel, item: WorkItem) {
     Text("Có mặt trong ca liên quan", style = MaterialTheme.typography.titleMedium)
-    Text("Vân tay chứng minh có mặt tại thiết bị; báo cáo và bước duyệt chứng minh hoàn thành công việc.", style = MaterialTheme.typography.bodySmall)
+    Text("Lượt chấm công ghi nhận có mặt tại thiết bị; báo cáo và bước duyệt xác nhận hoàn thành công việc.", style = MaterialTheme.typography.bodySmall)
     if (item.relatedScheduleId == null) {
         Text("Công việc này không gắn ca làm.")
         return

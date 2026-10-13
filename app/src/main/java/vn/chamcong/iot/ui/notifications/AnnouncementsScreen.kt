@@ -11,11 +11,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -25,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import vn.chamcong.iot.model.Announcement
 import vn.chamcong.iot.model.Department
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AdminPageHeader
+import vn.chamcong.iot.ui.AdminSectionCard
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -46,8 +53,12 @@ fun AnnouncementsScreen(
     departments: List<Department>,
     saving: Boolean,
     onSend: (targetDepartment: String?, title: String, body: String, onSent: () -> Unit) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    error: String? = null,
+    incomingContent: @Composable () -> Unit = {}
 ) {
+    var editorOpen by remember { mutableStateOf(false) }
+    var sendAttempted by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
     var selectedDepartmentId by remember { mutableStateOf<String?>(null) }
@@ -63,31 +74,39 @@ fun AnnouncementsScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(AppSpacing.large),
+        contentPadding = PaddingValues(bottom = AppSpacing.large),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
-                Text("Thông báo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(
-                    "Gửi thông báo cho toàn bộ nhân viên hoặc một phòng ban đang hoạt động.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                AdminPageHeader("Thông báo", "Gửi thông báo và xem lịch sử gửi.")
+                Button(onClick = { sendAttempted = false; editorOpen = true }, enabled = !saving, shape = MaterialTheme.shapes.small) { Text("Gửi thông báo") }
             }
         }
-        item {
-            Card(Modifier.fillMaxWidth()) {
+        item { incomingContent() }
+        item { Text("Lịch sử gửi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        if (history.isEmpty()) {
+            item { AdminSectionCard { Text("Chưa gửi thông báo", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        } else {
+            items(history, key = { it.id }) { announcement -> AnnouncementHistoryCard(announcement) }
+        }
+    }
+    if (editorOpen) {
+        AlertDialog(
+            onDismissRequest = { if (!saving) editorOpen = false },
+            title = { Text("Gửi thông báo đến nhân viên") },
+            text = {
                 Column(
-                    Modifier.padding(AppSpacing.large),
+                    Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
                 ) {
-                    Text("Soạn thông báo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Người nhận", style = MaterialTheme.typography.labelLarge)
+                    Text("Gửi cho toàn bộ nhân viên hoặc một phòng ban đang hoạt động.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Nhóm nhận", style = MaterialTheme.typography.labelLarge)
                     Box {
                         OutlinedButton(
                             onClick = { audienceMenuExpanded = true },
                             enabled = !saving,
+                            shape = MaterialTheme.shapes.small,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -132,7 +151,7 @@ fun AnnouncementsScreen(
                     }
                     OutlinedTextField(
                         value = title,
-                        onValueChange = { title = it },
+                        onValueChange = { title = it.take(120) },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Tiêu đề *") },
                         singleLine = true,
@@ -140,22 +159,29 @@ fun AnnouncementsScreen(
                     )
                     OutlinedTextField(
                         value = body,
-                        onValueChange = { body = it },
+                        onValueChange = { body = it.take(4000) },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Nội dung *") },
                         minLines = 4,
                         enabled = !saving
                     )
                     Text("Tiêu đề và nội dung là bắt buộc.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (sendAttempted) error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
                     Button(
                         onClick = {
+                            sendAttempted = true
                             onSend(selectedDepartment?.name, title.trim(), body.trim()) {
                                 title = ""
                                 body = ""
+                                editorOpen = false
+                                sendAttempted = false
                             }
                         },
                         enabled = canSend,
-                        modifier = Modifier.fillMaxWidth()
+                        shape = MaterialTheme.shapes.small
                     ) {
                         if (saving) {
                             CircularProgressIndicator(
@@ -166,27 +192,9 @@ fun AnnouncementsScreen(
                         }
                         Text(if (saving) "Đang gửi…" else "Gửi thông báo")
                     }
-                }
-            }
-        }
-        item {
-            Text("Lịch sử đã gửi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        }
-        if (history.isEmpty()) {
-            item {
-                Card(Modifier.fillMaxWidth()) {
-                    Text(
-                        "Chưa có thông báo nào được gửi.",
-                        modifier = Modifier.padding(AppSpacing.large),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        } else {
-            items(history, key = { it.id }) { announcement ->
-                AnnouncementHistoryCard(announcement)
-            }
-        }
+            },
+            dismissButton = { TextButton(onClick = { editorOpen = false }, enabled = !saving) { Text("Hủy") } }
+        )
     }
 }
 
@@ -196,11 +204,7 @@ private fun AnnouncementHistoryCard(announcement: Announcement) {
         SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("vi", "VN")).format(date)
     } ?: "Chưa rõ thời gian"
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(
-            Modifier.padding(AppSpacing.large),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)
-        ) {
+    AdminSectionCard {
             Text(announcement.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(announcement.body, style = MaterialTheme.typography.bodyMedium)
             Text(
@@ -209,7 +213,6 @@ private fun AnnouncementHistoryCard(announcement: Announcement) {
             )
             Text("Người nhận: ${announcement.recipientCount}", style = MaterialTheme.typography.bodySmall)
             Text("Thời gian gửi: $sentAt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     }
 }
 

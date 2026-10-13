@@ -9,7 +9,7 @@ const read = name => fs.readFileSync(path.join(sketch, name), 'utf8');
 
 function functionSource(file, name) {
   const source = read(file);
-  const start = source.search(new RegExp(`\\b(?:inline\\s+)?(?:bool|void|int|AttendanceDelivery|AttendanceSyncResult) ${name}\\([^)]*\\)\\s*\\{`));
+  const start = source.search(new RegExp(`\\b(?:inline\\s+)?(?:bool|void|int|AttendanceDelivery|AttendanceSyncResult|GatewayReceipt) ${name}\\([^)]*\\)\\s*\\{`));
   assert.notEqual(start, -1, `${name} exists`);
   let end = source.indexOf('{', start), depth = 1;
   while (depth && ++end < source.length) {
@@ -23,7 +23,7 @@ function functionSource(file, name) {
 // clocks and JSON/peripheral APIs are adapted; policy branches remain unchanged.
 function adapt(source) {
   const refs = [];
-  const signature = /^(?:inline\s+)?(?:bool|void|int|AttendanceDelivery|AttendanceSyncResult) (\w+)\(([^)]*)\)\s*\{/;
+  const signature = /^(?:inline\s+)?(?:bool|void|int|AttendanceDelivery|AttendanceSyncResult|GatewayReceipt) (\w+)\(([^)]*)\)\s*\{/;
   source = source.replace(signature, (_, name, parameters) => {
     const args = (parameters.trim() ? parameters.split(',') : []).map(parameter => {
       parameter = parameter.trim();
@@ -38,10 +38,10 @@ function adapt(source) {
   });
   source = source.slice(0, -1) + `} finally { ${refs.map(name => `_set_${name}(${name});`).join(' ')} } }`;
   return source
-    .replace(/\b(?:AttendanceDelivery|AttendanceSyncResult)::/g, value => value.replace('::', '.'))
+    .replace(/\b(?:AttendanceDelivery|AttendanceSyncResult|GatewayReceipt)::/g, value => value.replace('::', '.'))
     .replace(/static_cast<uint32_t>\(now - started\)/g, '((now - started) >>> 0)')
     .replace(/DynamicJsonDocument (\w+)\(\d+\);/g, 'const $1 = jsonDocument();')
-    .replace(/\bconst\s+(?:unsigned long|uint8_t|uint32_t|uint16_t|time_t|size_t|bool|int|String|char\s*\*|AttendanceSyncResult|AttendanceDelivery)\s+/g, 'const ')
+    .replace(/\bconst\s+(?:unsigned long|uint8_t|uint32_t|uint16_t|time_t|size_t|bool|int|String|char\s*\*|AttendanceSyncResult|AttendanceDelivery|GatewayReceipt)\s+/g, 'const ')
     .replace(/\b(?:unsigned long|uint8_t|uint16_t|uint32_t|time_t|bool|int|String|File|JsonObject)\s+(\w+)(?=\s*[=;])/g, 'let $1')
     .replace(/struct tm (\w+);/g, 'let $1 = {};')
     .replace(/char (\w+)\[\d+\];/g, "let $1 = '';")
@@ -50,6 +50,8 @@ function adapt(source) {
     .replace(/getFingerprintMapping\(templateId, employeeId, employeeName\)/g,
       'getFingerprintMapping(templateId, value => { employeeId = value; }, value => { employeeName = value; })')
     .replace(/reserveAttendanceEventId\(eventId\)/g, 'reserveAttendanceEventId(value => { eventId = value; })')
+    .replace(/buildGatewayAttendanceEvent\(templateId, confidence, now, eventId, payload,\s*employeeName, attendanceTime\)/g,
+      'buildGatewayAttendanceEvent(templateId, confidence, now, value => { eventId = value; }, value => { payload = value; }, value => { employeeName = value; }, value => { attendanceTime = value; })')
     .replace(/\bserializeJson\((\w+), (\w+)\)/g, 'serializeJson($1, value => { $2 = value; })')
     .replace(/buildAttendanceEvent\(templateId, confidence, eventId, payload, employeeName, attendanceTime, attendanceType\)/g,
       'buildAttendanceEvent(templateId, confidence, value => { eventId = value; }, value => { payload = value; }, value => { employeeName = value; }, value => { attendanceTime = value; }, value => { attendanceType = value; })')
@@ -65,6 +67,7 @@ function adapt(source) {
     .replace(/(\w+)\.trim\(\);/g, '$1 = $1.trim();')
     .replace(/\.length\(\)/g, '.length')
     .replace(/\.c_str\(\)/g, '')
+    .replace(/\.endsWith\(/g, '.endsWith(')
     .replace(/\bnullptr\b/g, 'null');
 }
 
@@ -74,6 +77,7 @@ function jsonDocument() {
     get(_, name) {
       const value = parent[key];
       if (name === 'toJSON') return () => value;
+      if (name === 'overflowed') return () => false;
       if (name === 'as') return type => type === 'bool' ? value === true :
         type === 'int' ? (Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0) :
           typeof value === 'string' ? value : '';
@@ -95,7 +99,8 @@ function jsonDocument() {
 function fixture() {
   const state = {
     now: 1000, unixTime: 1791072600, MIN_VALID_UNIX_TIME: 1700000000,
-    DEVICE_ID: 'GATE-01', OFFLINE_AS608_ACCESS_ENABLED: true,
+    DEVICE_ID: 'GATE-01', OFFLINE_AS608_ACCESS_ENABLED: true, ATTENDANCE_GATEWAY_ENABLED: false,
+    ATTENDANCE_STATION_ID: 'GATE-01',
     FOREGROUND_ATTENDANCE_VALIDITY_MS: 15000, ATTENDANCE_NEXT_RECORD_INTERVAL_MS: 250,
     COMMAND_ACTIVE_POLL_INTERVAL_MS: 3000, COMMAND_IDLE_POLL_INTERVAL_MS: 15000,
     COMMAND_RETRY_INTERVAL_MS: 10000, SYNC_COMMAND_TIMEOUT_MS: 180000,
@@ -115,8 +120,9 @@ function fixture() {
     pendingCommandStartedAt: 0, pendingCommandTemplateId: 0, pendingCommandEmployeeId: '',
     commandPollIntervalMs: 15000, lastCommandCheck: 0, commandRequestId: 'requested-id',
     sensorDeletes: 0, sensorEnrollments: 0, statusUpdates: [],
-    AttendanceDelivery: Object.fromEntries(['NOT_STORED', 'QUEUED', 'CONFIRMED', 'REJECTED', 'LOCAL_ACCEPTED', 'ACCESS_ONLY'].map(x => [x, x])),
+    AttendanceDelivery: Object.fromEntries(['NOT_STORED', 'QUEUED', 'CONFIRMED', 'REJECTED', 'LOCAL_ACCEPTED', 'ACCESS_ONLY', 'DUPLICATE'].map(x => [x, x])),
     AttendanceSyncResult: Object.fromEntries(['EMPTY', 'DEFERRED', 'RETRY', 'ACKNOWLEDGED', 'REJECTED', 'STORAGE_ERROR'].map(x => [x, x])),
+    GatewayReceipt: Object.fromEntries(['RETRY', 'TRANSPORT_UNAVAILABLE', 'QUEUED', 'ACCEPTED_SYNCED', 'DUPLICATE_SYNCED', 'REJECTED'].map(x => [x, x])),
     FINGERPRINT_OK: 0, FINGERPRINT_NOFINGER: 2, FINGERPRINT_IMAGEFAIL: 3,
     FINGERPRINT_NOTFOUND: 9, FINGERPRINT_NOMATCH: 8, FINGERPRINT_IMAGEMESS: 6,
     FINGERPRINT_FEATUREFAIL: 7, FINGERPRINT_INVALIDIMAGE: 15,
@@ -155,11 +161,17 @@ function fixture() {
     signalResult(success) { state.signals.push(success); },
     openDoor() { state.operations.push('open'); state.opens++; },
     canStartHttpsRequest: () => state.online, WL_CONNECTED: 1,
+    canStartGatewayRequest: () => state.online,
     WiFi: { status: () => state.online ? 1 : 0 },
     attendanceOutboxIsFull: () => !state.enqueueAllowed,
     attendanceOutboxBytes: () => state.records.join('').length,
     attendanceOutboxIsEmpty: () => state.littleFsReady && state.records.length === 0,
     postAttendanceEvent(id, payload) { state.posted.push({ id, payload: JSON.parse(payload) }); return state.postCode; },
+    gatewayReceipt: 'ACCEPTED_SYNCED', gatewayPosted: [],
+    postGatewayAttendanceEvent(id, payload) {
+      state.gatewayPosted.push({ id, payload });
+      return state.gatewayReceipt;
+    },
     removeAttendanceOutboxHead() { state.records.shift(); return true; },
     LittleFS: { exists: () => state.records.length > 0, open() {
       const content = state.records.join(''); let offset = 0;
@@ -185,6 +197,7 @@ function fixture() {
     ['12_as608.ino', ['handleFingerprintScan']],
     ['30_attendance_storage.ino', ['httpResponseAcknowledgesEvent', 'isPermanentAttendanceFailure', 'flushAttendanceOutbox']],
     ['60_device_commands.ino', ['checkDeviceCommand']],
+    ['35_attendance_gateway.ino', ['buildGatewayAttendanceEvent', 'convertGatewayAttendancePayload', 'parseGatewayAttendanceReceipt', 'flushGatewayAttendanceHead']],
   ]) for (const name of names) state.run(adapt(functionSource(file, name)));
   state.build = () => {
     const result = {};
@@ -370,4 +383,131 @@ test('firmware does not persist an employee roster/cache for offline access', ()
   assert.doesNotMatch(source, /cacheFingerprintMapping|loadFingerprintCache|saveFingerprintCache/);
   const raw = fixture().build(); assert.equal(raw.ok, true);
   assert.deepEqual(Object.keys(JSON.parse(raw.payload)).sort(), ['confidence', 'deviceId', 'offlineScan', 'templateId', 'timestamp']);
+});
+
+test('gateway opt-in stores a raw immutable event without a Firestore mapping lookup', () => {
+  const s = fixture(); s.ATTENDANCE_GATEWAY_ENABLED = true; s.online = true;
+  s.run('handleFingerprintScan()');
+  const event = JSON.parse(s.records[0]); const payload = JSON.parse(event.payload);
+  assert.deepEqual(payload, { sourceEventId: event.eventId, deviceId: 'GATE-01', stationId: 'GATE-01',
+    templateId: 7, confidence: 77, capturedAt: s.utcTimestamp(s.unixTime) });
+  assert.deepEqual(s.mappingLookups, []); assert.equal(s.opens, 0);
+  assert.equal(s.run('flushAttendanceOutbox()'), 'ACKNOWLEDGED');
+  assert.equal(s.opens, 1); assert.equal(s.posted.length, 0); assert.equal(s.gatewayPosted.length, 1);
+});
+
+test('gateway converts legacy raw/Firestore records without moving source time or trusting employee identity', () => {
+  const originalTime = '2026-10-10T02:00:00Z';
+  const s = fixture(); s.ATTENDANCE_GATEWAY_ENABLED = true; s.unixTime += 3600;
+  const incoming = [
+    { offlineScan: true, deviceId: 'GATE-01', templateId: 7, confidence: 77, timestamp: originalTime },
+    { fields: { deviceId: { stringValue: 'GATE-01' }, templateId: { integerValue: '7' },
+      confidence: { integerValue: '77' }, timestamp: { timestampValue: originalTime },
+      employeeId: { stringValue: 'stale-or-forged-employee' } } },
+    { sourceEventId: 'event-1', deviceId: 'GATE-01', stationId: 'GATE-01', templateId: 7,
+      confidence: 77, capturedAt: originalTime },
+  ];
+  for (const payload of incoming) {
+    s.convertInput = JSON.stringify(payload); let converted;
+    s.captureConverted = value => { converted = value; };
+    assert.equal(s.run("convertGatewayAttendancePayload('event-1', convertInput, captureConverted)"), true);
+    assert.deepEqual(JSON.parse(converted), { sourceEventId: 'event-1', deviceId: 'GATE-01', stationId: 'GATE-01',
+      templateId: 7, confidence: 77, capturedAt: originalTime });
+  }
+  assert.deepEqual(s.mappingLookups, []);
+});
+
+test('gateway refuses mismatched IDs/device/station, invalid slots and source times without replacing them', () => {
+  const s = fixture();
+  const valid = { sourceEventId: 'event-1', deviceId: 'GATE-01', stationId: 'GATE-01',
+    templateId: 7, confidence: 77, capturedAt: '2026-10-10T02:00:00Z' };
+  for (const changed of [ {sourceEventId:'event-2'}, {deviceId:'OTHER'}, {stationId:'OTHER'},
+    {templateId:0}, {templateId:128}, {confidence:-1}, {confidence:65536},
+    {capturedAt:''}, {capturedAt:'2026-10-10T02:00:00+07:00'} ]) {
+    s.convertInput = JSON.stringify({...valid, ...changed});
+    assert.equal(s.run("convertGatewayAttendancePayload('event-1', convertInput, () => {})"), false);
+  }
+});
+
+test('gateway receipt requires matching event, explicit synced status and attendance ID; HTTP alone never acknowledges', () => {
+  const s = fixture();
+  const receipt = (code, body) => {
+    s.receiptCode = code; s.receiptBody = typeof body === 'string' ? body : JSON.stringify(body);
+    return s.run("parseGatewayAttendanceReceipt('event-1', receiptCode, receiptBody)");
+  };
+  for (const code of [200, 202, 409]) {
+    assert.equal(receipt(code, ''), 'RETRY');
+    assert.equal(receipt(code, '<html>Error</html>'), 'RETRY');
+    assert.equal(receipt(code, {sourceEventId:'other',status:'ACCEPTED_SYNCED',attendanceId:'att-1'}), 'RETRY');
+  }
+  assert.equal(receipt(200,{sourceEventId:'event-1',status:'ACCEPTED_SYNCED'}), 'RETRY');
+  assert.equal(receipt(200,{sourceEventId:'event-1',status:'UNKNOWN',attendanceId:'att-1'}), 'RETRY');
+  for (const status of ['ACCEPTED_SYNCED','DUPLICATE_SYNCED']) {
+    assert.equal(receipt(200,{sourceEventId:'event-1',status,attendanceId:'att-1'}),status);
+  }
+  assert.equal(receipt(202,{sourceEventId:'event-1',status:'QUEUED',attendanceId:null}), 'QUEUED');
+  assert.equal(receipt(403,{sourceEventId:'event-1',status:'REJECTED',attendanceId:null}), 'REJECTED');
+  assert.equal(receipt(409,{sourceEventId:'event-1',status:'REJECTED',attendanceId:null}), 'RETRY');
+  assert.equal(receipt(503,{sourceEventId:'event-1',status:'ACCEPTED_SYNCED',attendanceId:'att-1'}), 'TRANSPORT_UNAVAILABLE');
+});
+
+test('gateway QUEUED or invalid receipt keeps durable head and retries its original ID/payload', () => {
+  const s = fixture(); s.ATTENDANCE_GATEWAY_ENABLED = true; s.online = true;
+  s.run('handleFingerprintScan()'); const saved = [...s.records];
+  for (const status of ['QUEUED','RETRY']) {
+    s.gatewayReceipt = status;
+    assert.equal(s.run('flushAttendanceOutbox()'), 'RETRY');
+    assert.deepEqual(s.records, saved); assert.equal(s.opens, 0);
+  }
+  s.gatewayReceipt = 'ACCEPTED_SYNCED';
+  assert.equal(s.run('flushAttendanceOutbox()'), 'ACKNOWLEDGED');
+  assert.equal(s.records.length, 0); assert.equal(s.opens, 1);
+  assert.equal(new Set(s.gatewayPosted.map(x => x.id)).size, 1);
+  assert.equal(new Set(s.gatewayPosted.map(x => x.payload)).size, 1);
+  assert.equal(s.posted.length, 0);
+});
+
+test('gateway duplicate completes retry and reports already checked without opening door or success buzzer', () => {
+  const s = fixture(); s.ATTENDANCE_GATEWAY_ENABLED = true; s.online = true;
+  s.run('handleFingerprintScan()'); s.gatewayReceipt = 'DUPLICATE_SYNCED';
+  assert.equal(s.run('flushAttendanceOutbox()'), 'ACKNOWLEDGED');
+  assert.equal(s.records.length, 0); assert.equal(s.opens, 0); assert.deepEqual(s.signals, []);
+  assert.equal(s.foregroundAttendanceDelivery, 'DUPLICATE');
+  assert.deepEqual(s.displays.at(-1), ['DA CHAM CONG','KHONG GHI TRUNG']);
+});
+
+test('gateway transport failure preserves offline AS608 access once; sync after restart never opens again', () => {
+  const s = fixture(); s.ATTENDANCE_GATEWAY_ENABLED = true; s.online = true;
+  s.run('handleFingerprintScan()'); s.gatewayReceipt = 'TRANSPORT_UNAVAILABLE';
+  assert.equal(s.run('flushAttendanceOutbox()'), 'RETRY'); assert.equal(s.opens, 1);
+  assert.equal(s.run('flushAttendanceOutbox()'), 'RETRY'); assert.equal(s.opens, 1);
+  const restored = fixture(); restored.ATTENDANCE_GATEWAY_ENABLED = true;
+  restored.online = true; restored.records = [...s.records];
+  assert.equal(restored.run('flushAttendanceOutbox()'), 'ACKNOWLEDGED');
+  assert.equal(restored.opens, 0); assert.equal(restored.posted.length, 0);
+});
+
+test('gateway local rewrite failure cannot turn a duplicate receipt into a door authorization', () => {
+  const s = fixture(); s.ATTENDANCE_GATEWAY_ENABLED = true; s.online = true;
+  s.run('handleFingerprintScan()'); const saved = [...s.records];
+  s.gatewayReceipt = 'DUPLICATE_SYNCED'; s.removeAttendanceOutboxHead = () => false;
+  assert.equal(s.run('flushAttendanceOutbox()'), 'STORAGE_ERROR');
+  assert.equal(s.run('flushAttendanceOutbox()'), 'STORAGE_ERROR');
+  assert.deepEqual(s.records, saved); assert.equal(s.opens, 0); assert.deepEqual(s.signals, []);
+});
+
+test('gateway event-specific rejection terminates retry without opening', () => {
+  const s = fixture(); s.ATTENDANCE_GATEWAY_ENABLED = true; s.online = true;
+  s.run('handleFingerprintScan()'); s.gatewayReceipt = 'REJECTED';
+  assert.equal(s.run('flushAttendanceOutbox()'), 'REJECTED');
+  assert.equal(s.records.length, 0); assert.equal(s.opens, 0); assert.deepEqual(s.signals, [false]);
+  assert.equal(s.lastFingerprintAuthorizationDenied, true);
+});
+
+test('gateway is default OFF and its enabled path cannot call the legacy attendance writer', () => {
+  assert.match(read('esp8266_fingerprint.ino'), /#ifndef ATTENDANCE_GATEWAY_MODE\s+#define ATTENDANCE_GATEWAY_MODE 0/);
+  assert.match(functionSource('30_attendance_storage.ino','postAttendanceEvent'), /if \(ATTENDANCE_GATEWAY_ENABLED\) return -1;/);
+  const gateway = read('35_attendance_gateway.ino');
+  assert.doesNotMatch(gateway, /firebaseSignIn\(|FIRESTORE_URL|postAttendanceEvent\(/);
+  assert.match(read('90_main.ino'), /ATTENDANCE_GATEWAY_ENABLED \|\| !httpsRetryCooldownActive\(\)/);
 });

@@ -9,16 +9,24 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import vn.chamcong.iot.domain.canRollbackNewEmployeeProvisioning
 import vn.chamcong.iot.domain.employeeAccountProfile
 import vn.chamcong.iot.domain.validateEmployeeAccountInput
 import vn.chamcong.iot.domain.validateAuditLog
+import vn.chamcong.iot.domain.requireEmployeeAccountAdmin
+import vn.chamcong.iot.domain.requireEmployeeAccountProvisioningCurrent
+import vn.chamcong.iot.domain.nextEmployeeAccountVersion
 import vn.chamcong.iot.model.*
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 
 private const val EMPLOYEE_ACCOUNT_APP_NAME = "employee-account-creator"
+private val employeeAccountCreationMutex = Mutex()
 
 suspend fun FirebaseRepository.saveEmployee(employee: Employee, account: EmployeeAccountInput? = null): String {
     account?.let(::validateEmployeeAccountInput)
@@ -50,8 +58,46 @@ suspend fun FirebaseRepository.saveAndRequestFingerprint(
     return result.code
 }
 
+private suspend fun FirebaseRepository.requireAccountAdmin(): UserProfile {
+    val user = auth.currentUser ?: error("Chưa đăng nhập")
+    val profile = db.collection("users").document(user.uid).get(Source.SERVER).await()
+        .toObject(UserProfile::class.java)?.copy(uid = user.uid)
+    requireEmployeeAccountAdmin(profile, user.uid, user.isAnonymous)
+    require(currentUserId == user.uid) { "Phiên đăng nhập đã thay đổi" }
+    return requireNotNull(profile)
+}
+
+/** Admin reads only the accounts linked to the selected employee. */
+fun FirebaseRepository.observeEmployeeAccounts(employeeId: String): Flow<List<UserProfile>> = callbackFlow {
+    require(employeeId.isNotBlank() && '/' !in employeeId) { "Mã nhân viên không hợp lệ" }
+    val actor = requireAccountAdmin()
+    val listener = db.collection("users").whereEqualTo("employeeId", employeeId)
+        .addSnapshotListener { snapshot, error ->
+            if (currentUserId != actor.uid) close(IllegalStateException("Phiên đăng nhập đã thay đổi"))
+            else if (error != null) close(error)
+            else runCatching { snapshot?.documents.orEmpty().mapNotNull { document ->
+                document.toObject(UserProfile::class.java)?.copy(uid = document.id)
+            }.sortedBy { it.email } }.onSuccess { trySend(it) }.onFailure { close(it) }
+        }
+    awaitClose { listener.remove() }
+}
+
 private suspend fun FirebaseRepository.createEmployeeAccount(employeeId: String, input: EmployeeAccountInput) {
+    provisionEmployeeAccount(employeeId, input)
+}
+
+/** Creates credentials on secondary Auth and atomically links them to a still-active employee. */
+suspend fun FirebaseRepository.provisionEmployeeAccount(employeeId: String, input: EmployeeAccountInput): String = employeeAccountCreationMutex.withLock {
     validateEmployeeAccountInput(input)
+    require(employeeId.isNotBlank() && '/' !in employeeId) { "Mã nhân viên không hợp lệ" }
+    val actor = requireAccountAdmin()
+    val employeeRef = db.collection("employees").document(employeeId)
+    val baseline = employeeRef.get(Source.SERVER).await()
+    val baselineVersion = baseline.getLong("accountVersion") ?: 0L
+    val linked = db.collection("users").whereEqualTo("employeeId", employeeId).get(Source.SERVER).await()
+    requireEmployeeAccountProvisioningCurrent(baseline.exists(), baseline.getBoolean("active") == true,
+        baselineVersion, baselineVersion, !linked.isEmpty)
+    require(currentUserId == actor.uid) { "Phiên đăng nhập đã thay đổi" }
     val primaryApp = FirebaseApp.getInstance()
     val accountApp = runCatching { FirebaseApp.getInstance(EMPLOYEE_ACCOUNT_APP_NAME) }
         .getOrElse {
@@ -66,21 +112,41 @@ private suspend fun FirebaseRepository.createEmployeeAccount(employeeId: String,
             ?: error("Firebase không trả về tài khoản mới")
         createdUid = user.uid
         val profile = employeeAccountProfile(user.uid, employeeId, input)
-        val audit = AuditLog(
-            actorId = currentUserId,
-            actorName = currentUserName,
-            action = AuditAction.ACCOUNT_CREATE.name,
-            targetType = "user",
-            targetId = user.uid,
-            details = "Tạo tài khoản EMPLOYEE cho nhân viên $employeeId"
-        )
-        validateAuditLog(audit)
-        db.runBatch { batch ->
-            batch.set(db.collection("users").document(user.uid), profile)
-            batch.set(db.collection("audit_logs").document(), audit.toFirestoreData())
+        val profileRef = db.collection("users").document(user.uid)
+        val auditRef = db.collection("audit_logs").document()
+        db.runTransaction { tx ->
+            require(currentUserId == actor.uid) { "Phiên đăng nhập đã thay đổi" }
+            val currentActor = tx.get(db.collection("users").document(actor.uid))
+                .toObject(UserProfile::class.java)?.copy(uid = actor.uid)
+            val employee = tx.get(employeeRef)
+            val existing = tx.get(profileRef)
+            requireEmployeeAccountAdmin(currentActor, actor.uid, auth.currentUser?.isAnonymous != false)
+            val version = employee.getLong("accountVersion") ?: 0L
+            requireEmployeeAccountProvisioningCurrent(employee.exists(), employee.getBoolean("active") == true,
+                baselineVersion, version, existing.exists())
+            val audit = AuditLog(actorId = actor.uid,
+                actorName = currentActor?.displayName?.takeIf(String::isNotBlank) ?: actor.email,
+                action = AuditAction.ACCOUNT_CREATE.name, targetType = "user", targetId = user.uid,
+                details = "Tạo tài khoản EMPLOYEE cho nhân viên $employeeId")
+            validateAuditLog(audit)
+            tx.update(employeeRef, "accountVersion", nextEmployeeAccountVersion(version))
+            tx.set(profileRef, mapOf("uid" to profile.uid, "email" to profile.email,
+                "displayName" to profile.displayName, "role" to profile.role, "active" to true,
+                "employeeId" to employeeId, "updatedAt" to FieldValue.serverTimestamp()))
+            tx.set(auditRef, audit.toFirestoreData())
         }.await()
+        user.uid
     } catch (error: Exception) {
-        if (createdUid != null) runCatching { accountAuth.currentUser?.delete()?.await() }
+        if (createdUid != null) {
+            val cleaned = withContext(NonCancellable) {
+                runCatching {
+                    val created = accountAuth.currentUser ?: error("Không tìm thấy tài khoản vừa tạo để dọn")
+                    require(created.uid == createdUid) { "Tài khoản Auth phụ đã thay đổi" }
+                    created.delete().await()
+                }.isSuccess
+            }
+            if (!cleaned) throw IllegalStateException("Chưa lưu được hồ sơ và chưa dọn được tài khoản Auth vừa tạo. Kiểm tra email này trong Firebase Console trước khi thử lại.", error)
+        }
         throw error
     } finally {
         accountAuth.signOut()
@@ -196,9 +262,9 @@ private suspend fun FirebaseRepository.saveEmployeeInternal(input: Employee, dev
         if (old == null) {
             tx.set(ref, employee)
             tx.set(counter, mapOf("lastNumber" to employee.code.removePrefix("NV").toLong()))
-        } else {
-            tx.set(ref, employee)
-        }
+        } else tx.update(ref, mapOf("fullName" to employee.fullName, "email" to employee.email,
+            "phone" to employee.phone, "address" to employee.address, "departmentId" to employee.departmentId,
+            "department" to employee.department, "position" to employee.position, "hireDate" to employee.hireDate))
         if (slot != null && commandRef != null) {
             tx.update(ref, mapOf("pendingTemplateId" to slot, "fingerprintDeviceId" to deviceId))
             tx.set(db.collection("fingerprintMappings").document(slot.toString()), mapOf(
@@ -222,6 +288,7 @@ private suspend fun FirebaseRepository.saveEmployeeInternal(input: Employee, dev
 
 suspend fun FirebaseRepository.removeEmployeeOrFingerprint(employeeId: String, retire: Boolean) {
     val employeeRef = db.collection("employees").document(employeeId)
+    val accountBaselineVersion = if (retire) employeeRef.get(Source.SERVER).await().getLong("accountVersion") ?: 0L else null
     val requestId = UUID.randomUUID().toString()
     val retirementDateToday = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).toString()
     val auditRef = db.collection("audit_logs").document()
@@ -242,7 +309,11 @@ suspend fun FirebaseRepository.removeEmployeeOrFingerprint(employeeId: String, r
         .await()
         .documents else emptyList()
     db.runTransaction { tx ->
-        val e = tx.get(employeeRef).toObject(Employee::class.java) ?: error("Không tìm thấy nhân viên")
+        val employeeSnapshot = tx.get(employeeRef)
+        val e = employeeSnapshot.toObject(Employee::class.java) ?: error("Không tìm thấy nhân viên")
+        if (retire) require((employeeSnapshot.getLong("accountVersion") ?: 0L) == accountBaselineVersion) {
+            "Tài khoản liên kết vừa thay đổi. Tải lại nhân viên trước khi chuyển sang đã nghỉ"
+        }
         val slot = resolveFingerprintTemplateId(e, legacyMappingTemplateIds)
         val commandRef = db.collection("deviceCommands").document(e.fingerprintDeviceId.ifBlank { "GATE-01" })
         val command = tx.get(commandRef)
@@ -256,7 +327,12 @@ suspend fun FirebaseRepository.removeEmployeeOrFingerprint(employeeId: String, r
             "Mẫu vân tay đang liên kết với nhân viên khác"
         }
         if (retire) {
-            accountProfiles.forEach { profile -> tx.get(profile.reference) }
+            accountProfiles.forEach { profile ->
+                val fresh = tx.get(profile.reference)
+                require(fresh.exists() && fresh.getString("employeeId") == employeeId) {
+                    "Tài khoản liên kết vừa thay đổi. Tải lại trước khi chuyển sang đã nghỉ"
+                }
+            }
             val retirementDate = e.terminationDate
                 .takeIf { value -> runCatching { LocalDate.parse(value) }.isSuccess }
                 ?: retirementDateToday
@@ -267,7 +343,12 @@ suspend fun FirebaseRepository.removeEmployeeOrFingerprint(employeeId: String, r
                 "employeeId" to employeeId, "employeeName" to e.fullName,
                 "templateId" to template, "enabled" to false
             ), SetOptions.merge())
-            tx.update(employeeRef, "pendingTemplateId", template)
+            // Persist the fallback device ID for legacy employee documents too;
+            // device completion rules read this stored field, not Kotlin defaults.
+            tx.update(employeeRef, mapOf(
+                "pendingTemplateId" to template,
+                "fingerprintDeviceId" to commandRef.id
+            ))
             tx.set(commandRef, mapOf("requestId" to requestId, "type" to "DELETE_FINGERPRINT",
                 "deviceId" to commandRef.id, "employeeId" to employeeId, "employeeName" to e.fullName,
                 "templateId" to template, "status" to "REQUESTED", "applied" to false,

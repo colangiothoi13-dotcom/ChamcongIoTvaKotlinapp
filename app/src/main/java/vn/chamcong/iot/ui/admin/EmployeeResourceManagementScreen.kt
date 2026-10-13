@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -16,7 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -30,7 +32,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,10 +41,11 @@ import vn.chamcong.iot.domain.validateEmployeeResource
 import vn.chamcong.iot.model.EmployeeResource
 import vn.chamcong.iot.model.EmployeeResourceType
 import vn.chamcong.iot.ui.AppSpacing
+import vn.chamcong.iot.ui.AdminPageHeader
+import vn.chamcong.iot.ui.AdminSectionCard
 import vn.chamcong.iot.ui.MainUiState
 import vn.chamcong.iot.ui.MainViewModel
 import vn.chamcong.iot.ui.employee.EmployeeResourceDetails
-import kotlinx.coroutines.launch
 
 @Composable
 fun EmployeeResourceManagementScreen(
@@ -51,6 +53,8 @@ fun EmployeeResourceManagementScreen(
     vm: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    var editorOpen by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf(EmployeeResource()) }
     var validationError by remember { mutableStateOf<String?>(null) }
     var feedback by remember { mutableStateOf<String?>(null) }
@@ -58,7 +62,6 @@ fun EmployeeResourceManagementScreen(
     var deleteTarget by remember { mutableStateOf<EmployeeResource?>(null) }
     var deleteSubmitted by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     val selectedType = EmployeeResourceType.entries.firstOrNull { it.name == draft.type }
         ?: EmployeeResourceType.MEETING
     val departments = state.departments.filter { it.active }.sortedBy { it.name }
@@ -72,6 +75,7 @@ fun EmployeeResourceManagementScreen(
         else -> "Vui lòng chọn lại người nhận."
     }
     val history = state.employeeResources.sortedByDescending { it.createdAt?.toDate()?.time ?: Long.MIN_VALUE }
+    val visibleHistory = history.filter { "${it.title} ${it.body}".contains(query.trim(), ignoreCase = true) }
 
     fun updateDraft(value: EmployeeResource) {
         draft = value
@@ -87,24 +91,61 @@ fun EmployeeResourceManagementScreen(
         verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
     ) {
         item {
-            Text("Tiện ích nhân viên", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Đăng lịch họp, khen thưởng và tài liệu cho đúng người nhận.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                AdminPageHeader("Tiện ích nhân viên", "Lịch họp, khen thưởng và tài liệu.")
+                Button(onClick = { updateDraft(EmployeeResource()); editorOpen = true }, enabled = !state.saving, shape = MaterialTheme.shapes.small) { Text("Thêm nội dung") }
+            }
         }
         item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(
-                    Modifier.padding(AppSpacing.large),
-                    verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)
-                ) {
+            AdminSectionCard {
+                OutlinedTextField(query, { query = it }, label = { Text("Tìm lịch họp, khen thưởng, tài liệu") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Text("Hiển thị ${visibleHistory.size}/${history.size} nội dung.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                feedback?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+            }
+        }
+        item { Text("Nội dung đã đăng (${history.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        if (state.employeeResourcesLoading) item { CircularProgressIndicator() }
+        state.employeeResourcesError?.let { error ->
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(onClick = { vm.retryEmployeeResources() }) { Text("Thử lại") }
+                }
+            }
+        }
+        if (visibleHistory.isEmpty() && !state.employeeResourcesLoading && state.employeeResourcesError == null) {
+            item { AdminSectionCard { Text(if (history.isEmpty()) "Chưa có nội dung nào được đăng." else "Không có nội dung phù hợp.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        }
+        items(visibleHistory, key = { it.id }) { resource ->
+            AdminSectionCard {
+                    Text(resource.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        if (draft.id.isBlank()) "Tạo nội dung" else "Chỉnh sửa nội dung",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                        EmployeeResourceType.entries.firstOrNull { it.name == resource.type }?.let(::resourceTypeLabel) ?: resource.type,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
                     )
+                    EmployeeResourceDetails(resource)
+                    Text("Người nhận: ${resourceAudienceLabel(resource, state)}", style = MaterialTheme.typography.bodySmall)
+                    if (resource.url.isNotBlank()) Text(resource.url, style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
+                        OutlinedButton(onClick = {
+                            updateDraft(resource)
+                            editorOpen = true
+                        }, enabled = !state.saving, shape = MaterialTheme.shapes.small) { Text("Xem / sửa") }
+                        TextButton(onClick = {
+                            deleteTarget = resource
+                            deleteSubmitted = false
+                        }, enabled = !state.saving) { Text("Xóa", color = MaterialTheme.colorScheme.error) }
+                    }
+            }
+        }
+    }
+    if (editorOpen) {
+        AlertDialog(
+            onDismissRequest = { if (!state.saving) editorOpen = false },
+            title = { Text(if (draft.id.isBlank()) "Thêm tiện ích nhân viên" else "Sửa nội dung") },
+            text = {
+                Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AppSpacing.medium)) {
                     ResourceSelector(
                         label = "Loại nội dung",
                         selectedLabel = resourceTypeLabel(selectedType),
@@ -120,7 +161,7 @@ fun EmployeeResourceManagementScreen(
                     )
                     if (selectedType != EmployeeResourceType.REWARD) {
                         ResourceSelector(
-                            label = "Người nhận",
+                            label = "Đối tượng",
                             selectedLabel = when (audienceMode) {
                                 "DEPARTMENT" -> "Theo phòng ban"
                                 "EMPLOYEE" -> "Một nhân viên"
@@ -226,9 +267,12 @@ fun EmployeeResourceManagementScreen(
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     }
                     feedback?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+                }
+            },
+            confirmButton = {
                     Button(
                         enabled = !state.saving,
-                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
                         onClick = {
                             val normalized = draft.copy(
                                 title = draft.title.trim(), body = draft.body.trim(),
@@ -247,6 +291,7 @@ fun EmployeeResourceManagementScreen(
                                     validationError = null
                                     operationSubmitted = false
                                     feedback = "Đã lưu nội dung cho nhân viên."
+                                    editorOpen = false
                                 }
                             }
                         }
@@ -256,56 +301,11 @@ fun EmployeeResourceManagementScreen(
                             color = MaterialTheme.colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
-                        Text(if (state.saving) "Đang lưu…" else if (draft.id.isBlank()) "Đăng nội dung" else "Lưu thay đổi")
+                        Text(if (state.saving) "Đang lưu…" else "Lưu nội dung")
                     }
-                    if (draft.id.isNotBlank()) {
-                        OutlinedButton(
-                            onClick = { updateDraft(EmployeeResource()) },
-                            enabled = !state.saving,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Hủy chỉnh sửa / Tạo mới") }
-                    }
-                }
-            }
-        }
-        item { Text("Nội dung đã đăng (${history.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
-        if (state.employeeResourcesLoading) item { CircularProgressIndicator() }
-        state.employeeResourcesError?.let { error ->
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                    Text(error, color = MaterialTheme.colorScheme.error)
-                    OutlinedButton(onClick = { vm.retryEmployeeResources() }) { Text("Thử lại") }
-                }
-            }
-        }
-        if (history.isEmpty() && !state.employeeResourcesLoading && state.employeeResourcesError == null) {
-            item { Text("Chưa có nội dung nào được đăng.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        items(history, key = { it.id }) { resource ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(AppSpacing.large), verticalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                    Text(resource.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        EmployeeResourceType.entries.firstOrNull { it.name == resource.type }?.let(::resourceTypeLabel) ?: resource.type,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    EmployeeResourceDetails(resource)
-                    Text("Người nhận: ${resourceAudienceLabel(resource, state)}", style = MaterialTheme.typography.bodySmall)
-                    if (resource.url.isNotBlank()) Text(resource.url, style = MaterialTheme.typography.bodySmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.small)) {
-                        OutlinedButton(onClick = {
-                            updateDraft(resource)
-                            scope.launch { listState.animateScrollToItem(1) }
-                        }, enabled = !state.saving) { Text("Chỉnh sửa") }
-                        TextButton(onClick = {
-                            deleteTarget = resource
-                            deleteSubmitted = false
-                        }, enabled = !state.saving) { Text("Xóa", color = MaterialTheme.colorScheme.error) }
-                    }
-                }
-            }
-        }
+            },
+            dismissButton = { TextButton(onClick = { editorOpen = false }, enabled = !state.saving) { Text("Hủy") } }
+        )
     }
     deleteTarget?.let { resource ->
         AlertDialog(
@@ -349,7 +349,7 @@ private fun ResourceSelector(
     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xSmall)) {
         Text(label, style = MaterialTheme.typography.labelLarge)
         Box {
-            OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = { expanded = true }, enabled = enabled, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(selectedLabel, modifier = Modifier.weight(1f))
                     Icon(Icons.Default.ArrowDropDown, contentDescription = null)
