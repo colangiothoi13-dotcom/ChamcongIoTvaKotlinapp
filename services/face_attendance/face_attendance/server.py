@@ -10,7 +10,7 @@ from .events import Event, InvalidEvent, response
 from .capture_preview import valid_preview_key
 
 
-def make_server(gateway, host, port, admin_token, device_token, *, preview=None):
+def make_server(gateway, host, port, admin_token, device_token, *, preview=None, face_status=None, allow_face_events=True):
     if min(len(admin_token), len(device_token)) < 24 or "REPLACE" in admin_token or "REPLACE" in device_token:
         raise ValueError("Đặt token riêng dài ít nhất 24 ký tự trước khi chạy server")
 
@@ -37,7 +37,15 @@ def make_server(gateway, host, port, admin_token, device_token, *, preview=None)
             return hmac.compare_digest(self.headers.get(name, ""), token)
 
         def do_GET(self):
-            if self.path.startswith("/v1/enrollment-preview/"):
+            if self.path == "/v1/face-status":
+                if not self.authorized(admin=True):
+                    self.send_json(401, {"status": "REJECTED", "reason": "UNAUTHORIZED"})
+                    return
+                if face_status is None:
+                    self.send_json(503, {"status": "UNAVAILABLE", "message": "Chưa chạy station nhận diện khuôn mặt"})
+                    return
+                self.send_json(200, face_status())
+            elif self.path.startswith("/v1/enrollment-preview/"):
                 if not self.authorized(admin=True):
                     self.send_json(401, {"status": "REJECTED", "reason": "UNAUTHORIZED"})
                     return
@@ -88,6 +96,13 @@ def make_server(gateway, host, port, admin_token, device_token, *, preview=None)
                 return
             if not self.authorized(admin=route != "/v1/fingerprint"):
                 self.send_json(401, {"status": "REJECTED", "reason": "UNAUTHORIZED"})
+                return
+            if route == "/v1/face" and not allow_face_events:
+                # Metadata-only requests contain no image to check. The local
+                # camera worker submits directly after the shared guard; this
+                # route must not bypass an enabled accessory policy.
+                self.send_json(422, {"status": "REJECTED", "reason": "ACCESSORY_CHECK_REQUIRED",
+                                     "message": "Chấm bằng mặt cần được camera trên laptop kiểm tra phụ kiện."})
                 return
             try:
                 if route == "/v1/flush":

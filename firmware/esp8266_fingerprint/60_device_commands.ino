@@ -9,10 +9,16 @@ bool refreshCommandVersion() {
   bool parsed = false;
   String requestId;
   String version;
+  String source;
+  String attendanceId;
+  String createdAt;
+  String expiresAt;
   bool applied = false;
   {
     String url = String(FIRESTORE_URL) + "/deviceCommands/" + DEVICE_ID +
-                 "?mask.fieldPaths=requestId&mask.fieldPaths=applied";
+                 "?mask.fieldPaths=requestId&mask.fieldPaths=applied"
+                 "&mask.fieldPaths=source&mask.fieldPaths=attendanceId"
+                 "&mask.fieldPaths=createdAt&mask.fieldPaths=expiresAt";
     BearSSL::WiFiClientSecure client;
     client.setInsecure();
     HTTPClient https;
@@ -31,11 +37,15 @@ bool refreshCommandVersion() {
       }
       code = https.GET();
       if (code == 200) {
-        DynamicJsonDocument current(512);
+        DynamicJsonDocument current(1024);
         if (!deserializeJson(current, https.getStream())) {
           requestId = current["fields"]["requestId"]["stringValue"] | "";
           version = current["updateTime"].as<String>();
           applied = current["fields"]["applied"]["booleanValue"] | false;
+          source = current["fields"]["source"]["stringValue"] | "";
+          attendanceId = current["fields"]["attendanceId"]["stringValue"] | "";
+          createdAt = current["fields"]["createdAt"]["timestampValue"] | "";
+          expiresAt = current["fields"]["expiresAt"]["timestampValue"] | "";
           parsed = true;
         }
       }
@@ -66,6 +76,10 @@ bool refreshCommandVersion() {
   }
   commandVersion = version;
   commandAlreadyApplied = applied;
+  commandSource = source;
+  commandAttendanceId = attendanceId;
+  commandCreatedAt = createdAt;
+  commandExpiresAt = expiresAt;
   return commandVersion.length() > 0;
 }
 
@@ -224,13 +238,14 @@ bool commitFingerprintCompletion() {
   return false;
 }
 
-bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
+bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId, String& employeeName,
                        bool& wasProcessing, bool& wasCompleted) {
   templateId = 0;
   type = "";
   wasProcessing = false;
   wasCompleted = false;
   employeeId = "";
+  employeeName = "";
   if (WiFi.status() != WL_CONNECTED) {
     Serial.printf_P(PSTR("LENH: WiFi chua ket noi, status=%d\n"), WiFi.status());
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
@@ -254,6 +269,11 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
   String responseVersion;
   String responseRequestId;
   String responseEmployeeId;
+  String responseEmployeeName;
+  String responseSource;
+  String responseAttendanceId;
+  String responseCreatedAt;
+  String responseExpiresAt;
   bool responseApplied = false;
   uint16_t responseTemplateId = 0;
   {
@@ -263,7 +283,10 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
                  "&mask.fieldPaths=requestId"
                  "&mask.fieldPaths=templateId"
                  "&mask.fieldPaths=employeeId"
-                 "&mask.fieldPaths=applied";
+                 "&mask.fieldPaths=employeeName"
+                 "&mask.fieldPaths=applied"
+                 "&mask.fieldPaths=source&mask.fieldPaths=attendanceId"
+                 "&mask.fieldPaths=createdAt&mask.fieldPaths=expiresAt";
     BearSSL::WiFiClientSecure client;
     client.setInsecure();
     HTTPClient https;
@@ -282,14 +305,19 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
       }
       code = https.GET();
       if (code == 200) {
-        DynamicJsonDocument response(1536);
+        DynamicJsonDocument response(2048);
         if (!deserializeJson(response, https.getStream())) {
           status = response["fields"]["status"]["stringValue"] | "";
           responseType = response["fields"]["type"]["stringValue"] | "";
           responseVersion = response["updateTime"].as<String>();
           responseRequestId = response["fields"]["requestId"]["stringValue"] | "";
           responseEmployeeId = response["fields"]["employeeId"]["stringValue"] | "";
+          responseEmployeeName = response["fields"]["employeeName"]["stringValue"] | "";
           responseApplied = response["fields"]["applied"]["booleanValue"] | false;
+          responseSource = response["fields"]["source"]["stringValue"] | "";
+          responseAttendanceId = response["fields"]["attendanceId"]["stringValue"] | "";
+          responseCreatedAt = response["fields"]["createdAt"]["timestampValue"] | "";
+          responseExpiresAt = response["fields"]["expiresAt"]["timestampValue"] | "";
           responseTemplateId = response["fields"]["templateId"]["integerValue"].as<uint16_t>();
           if (responseTemplateId == 0) {
             const char* templateText = response["fields"]["templateId"]["integerValue"].as<const char*>();
@@ -329,7 +357,12 @@ bool readDeviceCommand(uint16_t& templateId, String& type, String& employeeId,
     commandId = DEVICE_ID;
     commandVersion = responseVersion;
     commandRequestId = responseRequestId;
+    commandSource = responseSource;
+    commandAttendanceId = responseAttendanceId;
+    commandCreatedAt = responseCreatedAt;
+    commandExpiresAt = responseExpiresAt;
     employeeId = responseEmployeeId;
+    employeeName = responseEmployeeName;
     templateId = responseTemplateId;
     return type.length() > 0 && commandVersion.length() > 0;
   }
@@ -358,7 +391,8 @@ bool finishDeviceCommand() {
   } else if (pendingCommandType == "RESTART_DEVICE") {
     message = pendingCommandSuccess ? "Restarting device" : "Device restart failed";
   } else if (pendingCommandType == "OPEN_DOOR") {
-    message = pendingCommandSuccess ? "Door opened" : "Door opening failed";
+    message = pendingCommandSuccess ? "Door opened" :
+        (pendingCommandFailureMessage.length() > 0 ? pendingCommandFailureMessage : String("Door opening failed"));
   } else if (pendingCommandType == "CLOSE_DOOR") {
     message = pendingCommandSuccess ? "Door closed" : "Door closing failed";
   } else {
@@ -423,6 +457,25 @@ bool isSupportedDeviceCommand(const String& type) {
          type == "CLOSE_DOOR";
 }
 
+bool currentFaceDoorCommandCanOpen() {
+  struct timeval clock;
+  if (gettimeofday(&clock, nullptr) != 0) return false;
+  const int64_t now = static_cast<int64_t>(clock.tv_sec) * 1000 + clock.tv_usec / 1000;
+  return faceDoorCommandCanOpen(pendingCommandType.c_str(), commandSource.c_str(), commandRequestId.c_str(),
+      commandAttendanceId.c_str(), faceTimestampMillis(commandCreatedAt.c_str()),
+      faceTimestampMillis(commandExpiresAt.c_str()), now);
+}
+
+bool rejectFaceDoorCommand() {
+  pendingCommandFailureMessage = F("Face door request expired or invalid; scan again");
+  setLatestError(pendingCommandFailureMessage);
+  pendingCommandSuccess = false;
+  pendingCommandResult = true;
+  pendingCommandExecution = false;
+  pendingCommandRestart = false;
+  return finishDeviceCommand();
+}
+
 void serviceDeviceCommandExecution() {
   if (!pendingCommandExecution) return;
   if (pendingCommandType == "ENROLL_FINGERPRINT") return;
@@ -457,9 +510,10 @@ bool checkDeviceCommand() {
   uint16_t templateId = 0;
   String type;
   String employeeId;
+  String employeeName;
   bool wasProcessing = false;
   bool wasCompleted = false;
-  if (!readDeviceCommand(templateId, type, employeeId, wasProcessing, wasCompleted)) return false;
+  if (!readDeviceCommand(templateId, type, employeeId, employeeName, wasProcessing, wasCompleted)) return false;
   if (!hasValidClock()) {
     Serial.println(F("LENH: chua dong bo NTP, tam hoan cap nhat"));
     commandPollIntervalMs = COMMAND_RETRY_INTERVAL_MS;
@@ -470,7 +524,9 @@ bool checkDeviceCommand() {
   pendingCommandType = type;
   pendingCommandTemplateId = templateId;
   pendingCommandEmployeeId = employeeId;
+  commandEmployeeName = employeeName;
   pendingCommandRestart = type == "RESTART_DEVICE";
+  pendingCommandFailureMessage = "";
 
   // A reset after the sensor stored a template can leave a COMPLETED command
   // awaiting its Firestore commit. Resume that commit without touching the sensor.
@@ -496,6 +552,10 @@ bool checkDeviceCommand() {
     pendingCommandRestart = false;
     return finishDeviceCommand();
   }
+
+  const bool faceDoorCommand = faceDoorCommandMarked(commandSource.c_str(), commandRequestId.c_str(),
+      commandAttendanceId.c_str());
+  if (faceDoorCommand && !currentFaceDoorCommandCanOpen()) return rejectFaceDoorCommand();
 
   bool deleting = type == "DELETE_FINGERPRINT";
   bool enrolling = type == "ENROLL_FINGERPRINT";
@@ -555,7 +615,12 @@ bool checkDeviceCommand() {
     showLcd(F("DANG KHOI DONG"), F("VUI LONG DOI"));
     success = true;
   } else if (type == "OPEN_DOOR") {
-    showLcd(F("DANG MO CUA"), F("VUI LONG DOI"));
+    if (faceDoorCommand) showAttendanceDoorNotice(commandEmployeeName);
+    else showLcd(F("DANG MO CUA"), F("VUI LONG DOI"));
+    // PROCESSING needs a refresh GET and a conditional HTTPS PATCH. Time may
+    // have expired during either request; never start the servo on a stale grant.
+    if ((faceDoorCommand || faceDoorCommandMarked(commandSource.c_str(), commandRequestId.c_str(),
+        commandAttendanceId.c_str())) && !currentFaceDoorCommandCanOpen()) return rejectFaceDoorCommand();
     openDoor();
     pendingCommandExecution = true;
     return true;

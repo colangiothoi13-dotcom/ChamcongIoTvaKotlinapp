@@ -125,6 +125,27 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual([value["status"] for value in events], ["CAPTURE_SOURCE_ERROR", "CAPTURE_SAVED"])
         self.assertEqual(len(result.files), 1)
 
+    def test_exact_attempt_and_progress_include_raw_sharpness_for_reject_and_save(self):
+        self.source.read.side_effect = [FRAME, FRAME]
+        self.face.inspect_quality.side_effect = [
+            RecognitionResult(face_count=1, reason="low_quality", quality_issue="blurry",
+                              sharpness_score=0, sharpness_required=50, sharpness_metric="FACE_MAX128_LAPLACIAN_V1"),
+            RecognitionResult(face_count=1, reason="quality_ok", sharpness_score=80.5, sharpness_required=50,
+                              sharpness_metric="FACE_MAX128_LAPLACIAN_V1"),
+        ]
+        progress, previews = [], []
+        with patch("face_attendance.capture._encode_jpeg", return_value=JPEG) as encoder:
+            result = capture_samples(self.source, self.face, self.path, "NV001", count=1, interval=0,
+                                     max_attempts=2, progress=progress.append,
+                                     on_attempt=lambda image, value: previews.append(value))
+        self.assertEqual(len(result.files), 1)
+        encoder.assert_called_once()
+        for events in (progress, previews):
+            self.assertEqual([event["sharpnessScore"] for event in events], [0, 80.5])
+            self.assertEqual([event["sharpnessRequired"] for event in events], [50, 50])
+            self.assertEqual([event["sharpnessMetric"] for event in events], ["FACE_MAX128_LAPLACIAN_V1"] * 2)
+            self.assertEqual([event["saved"] for event in events], [0, 1])
+
     def test_control_c_returns_saved_paths_and_closes_source(self):
         self.source.read.side_effect = [FRAME, KeyboardInterrupt()]
         self.face.inspect_quality.return_value = QUALITY_OK

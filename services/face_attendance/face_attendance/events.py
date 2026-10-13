@@ -73,12 +73,14 @@ class Event:
         return json.dumps(self.payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def response(event, status, attendance_id=None, reason=None):
+def response(event, status, attendance_id=None, reason=None, employee_name=None):
     result = {"sourceEventId": event.payload["sourceEventId"], "status": status}
     if attendance_id:
         result["attendanceId"] = attendance_id
     if reason:
         result["reason"] = reason
+    if isinstance(employee_name, str) and employee_name.strip():
+        result["employeeName"] = employee_name.strip()[:120]
     return result
 
 

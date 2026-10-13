@@ -111,6 +111,29 @@ def run_checks(config, include_camera=False):
             models_ok = False
             add(field, "ERROR", "Mô hình thiếu hoặc sai; chạy download_models.py")
 
+    accessories_ok = True
+    try:
+        from .accessory_setup import create_accessory_guard
+        guard = create_accessory_guard(config)
+        if guard is None:
+            add("accessories", "WARN", "Chặn khẩu trang và kính đang tắt; đặt accessories.enabled: true để bật")
+        else:
+            guard.check_runtime()
+            add("accessories", "OK", "Mô hình phụ kiện đúng SHA256 và chạy được; kiểm tra khẩu trang/kính" +
+                (" và mũ" if guard.block_hat else "; kiểm tra mũ đã tắt"))
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, ImportError):
+        accessories_ok = False
+        add("accessories", "ERROR", "Bộ chặn phụ kiện chưa sẵn sàng; chạy download_models.py và kiểm tra accessories trong config.json")
+
+    try:
+        from .backend import validate_face_door
+        door = validate_face_door(config.get("faceDoor"))
+        add("face_door", "OK" if door["enabled"] else "WARN",
+            "Đã bật lệnh mở cửa sau lượt mặt mới; cần ESP8266 hỗ trợ hạn lệnh và đang online" if door["enabled"] else
+            "Chấm công bằng mặt chưa bật lệnh mở cửa")
+    except (ValueError, TypeError):
+        add("face_door", "ERROR", "Kiểm tra faceDoor và phiên bản firmware cửa hỗ trợ hạn lệnh")
+
     gallery_ok = False
     if models_ok:
         try:
@@ -121,7 +144,8 @@ def run_checks(config, include_camera=False):
                                   threshold=recognition["threshold"],
                                   ambiguity_margin=recognition["ambiguityMargin"],
                                   min_face_size=recognition["minFaceSize"],
-                                  min_sharpness=recognition.get("minSharpness", 50))
+                                  min_sharpness=recognition.get("minSharpness", 50),
+                                  sharpness_max_size=recognition.get("sharpnessMaxSize"))
             gallery_ok = bool(face.profiles)
             add("gallery", "OK" if gallery_ok else "WARN",
                 f"Có {len(face.profiles)} hồ sơ local" if gallery_ok else "Chưa có hồ sơ; chụp ảnh rồi chạy enroll")
@@ -175,5 +199,5 @@ def run_checks(config, include_camera=False):
 
     return {"ok": not any(check["status"] == "ERROR" for check in checks),
             "mode": config.get("mode"), "checks": checks,
-            "readyForRecognition": models_ok and dependencies_ok and gallery_ok,
+            "readyForRecognition": models_ok and dependencies_ok and gallery_ok and accessories_ok,
             "cameraReady": camera_ready}

@@ -1,6 +1,18 @@
 # Kiểm chứng firmware ESP8266 và camera
 
-Ngày cập nhật: 11/10/2026. Firmware hiện tại là `spark-anonymous-v16-tls-memory`, giữ sửa kết quả lệnh của v14, heartbeat của v15 và hành vi ngoại tuyến của v12. Phép đo cửa trực tiếp ngày 04/10 thuộc bản v9; log người dùng cung cấp sau đó thuộc v10, v11, v14 và v15. Người dùng đã xác nhận cửa hoạt động trở lại; chưa coi một chu kỳ cửa là nghiệm thu toàn bộ thiết bị hoặc luồng mạng.
+Ngày cập nhật: 13/10/2026. Firmware trên ESP8266 khi bắt đầu bổ sung mở cửa bằng mặt là `spark-anonymous-v16-tls-memory`, giữ sửa kết quả lệnh của v14, heartbeat của v15 và hành vi ngoại tuyến của v12. Phép đo cửa trực tiếp ngày 04/10 thuộc bản v9; log người dùng cung cấp sau đó thuộc v10, v11, v14 và v15. Người dùng đã xác nhận cửa hoạt động trở lại; chưa coi một chu kỳ cửa là nghiệm thu toàn bộ thiết bị hoặc luồng mạng.
+
+## Mở cửa sau lượt chấm công khuôn mặt — 13/10/2026
+
+Đã thêm `FaceDoorPolicy.h` và luồng lệnh `FACE_ATTENDANCE` vào firmware ESP8266. Backend chỉ đặt `OPEN_DOOR` cùng giao dịch với một lượt FACE mới được chấp nhận; không phát lệnh cho vân tay, bản trùng, phát lại receipt, sự kiện quá 15 giây, thiết bị cũ/offline hoặc khi slot lệnh đang bận. Lệnh có `requestId` và `attendanceId` ràng buộc nhau, hết hạn tối đa sau 15 giây; firmware kiểm tra NTP, payload và hạn sau HTTPS, rồi kiểm tra lại ngay trước `openDoor()`. Lệnh `PROCESSING` còn lại sau reset không được chạy lại. Lệnh được bỏ qua không xóa lượt chấm công đã ghi. Không cần thay đổi Firestore Rules.
+
+Phiên bản mới là `spark-anonymous-v17-face-door-ttl` ở chế độ Firestore trực tiếp và `spark-gateway-v18-face-door-ttl` ở chế độ laptop Gateway. Poll thiết bị khi rảnh là 3 giây (khoảng 28.800 lần đọc/ngày). Các bài kiểm thử firmware đạt **125/125**; đã biên dịch thật với secrets hiện có, ESP8266 core **3.1.2**, FQBN `esp8266:esp8266:nodemcuv2:eesz=4M2M,wipe=none`: RAM 35.224/80.192 byte (43%), IRAM 64.103/65.536 (97%), flash 467.204/1.048.576 (44%). Cảnh báo LiquidCrystal_I2C tương thích kiến trúc vẫn xuất hiện như trước. Bản Gateway đã biên dịch bằng token đã cấu hình riêng trên laptop. Không xóa LittleFS; firmware mẫu mặc định vẫn để Gateway OFF.
+
+Sau khi người dùng tự nạp, Firebase báo `GATE-01` online với firmware `spark-anonymous-v17-face-door-ttl`, khả năng `door` và không có lượt đang chờ. Đây là xác nhận phiên bản/heartbeat, chưa phải thử một lượt khuôn mặt thật mở servo. Lần kiểm tra hiện tại laptop xác nhận cấu hình mở cửa đã bật và station Firebase đang chạy, nhưng ESP32-S3 chưa trả ảnh; do đó chưa xác nhận camera, nhận diện hoặc cửa bằng mặt trên thiết bị thật.
+
+Để gộp vân tay và mặt trong một lượt, cấu hình cá nhân laptop đã chuyển sang `host=192.168.0.104`, `deviceToken` mới và giữ `faceDoor.enabled=true`. `secrets.h` trên laptop đã cấu hình `ATTENDANCE_GATEWAY_MODE=1`, cùng IP, token và station `GATE-01`; token không ghi trong tài liệu. Trước chuyển đổi, Firebase xác nhận hàng đợi bằng 0 và không có lượt trực tiếp nào trong cửa sổ 180 giây. Build Gateway thật đạt RAM 35.224/80.192 byte (43%), IRAM 64.103/65.536 (97%), flash 467.204/1.048.576 (44%).
+
+ESP8266 đã được rút khỏi COM3 trước khi nạp; lệnh upload trả `FileNotFoundError` trước khi ghi flash. Mạng laptop là Public và không có rule inbound phù hợp; Windows từ chối `New-NetFirewallRule` do quyền tài khoản. Dịch vụ hiện chỉ bind vào IP Wi-Fi cụ thể, không phải mọi giao diện. Đã tạo script cấu hình firewall với phạm vi `LocalSubnet` và script build/nạp dưới `services/face_attendance/`; cần người dùng chạy firewall script bằng PowerShell Administrator và cắm lại ESP8266 để hoàn tất nạp, sau đó xác nhận heartbeat Gateway. Chưa tuyên bố gộp phương thức đã hoạt động trên phần cứng.
 
 ## Chuyển camera sang ESP32-S3 N16R8 — 11/10/2026
 
@@ -192,3 +204,9 @@ Thư viện sử dụng: ESP8266WiFi 1.0, ESP8266HTTPClient 1.2, Adafruit Finger
 Firmware camera đã **biên dịch thành công** với FQBN `esp32:esp32:esp32cam`: cấu hình AI Thinker của core bật PSRAM, flash 4 MB, phân vùng ứng dụng 3 MB. Flash **1.050.554 / 3.145.728 byte (33%)**, RAM tĩnh **60.284 / 327.680 byte (18%)**. Bản sao sketch tại `.gradle/esp32-camera-validation/esp32_cam` dùng Wi-Fi/token giả từ `secrets.h.example`; output ở `.gradle/esp32-camera-build`, không dùng để nạp trực tiếp. Không đọc/sửa `secrets.h` thật, không truy cập COM hay nạp board.
 
 **Chưa thử trên phần cứng camera.** Kết quả biên dịch và 5 bài kiểm thử host của camera chưa xác nhận OV2640, PSRAM, nguồn, chất lượng ảnh hoặc Wi-Fi thực tế. Khi có camera, giữ bản firmware vân tay đã chạy, cấu hình camera và kiểm tra camera/nguồn/LAN/đăng ký 3–4 người theo hướng dẫn `firmware/esp32_cam/README.md` và dịch vụ laptop.
+
+## Hiện kết quả chấm khuôn mặt — 13/10/2026
+
+Station dùng ba khung hình trống để sẵn sàng cho lượt mới và ba khung liên tiếp cùng nhận diện một nhân viên. Khi camera/laptop hoạt động bình thường, hướng mặt vào camera và giữ yên khoảng 5 giây là mục tiêu; thời gian xử lý/mạng có thể làm chậm hơn. Trang Camera hiện tên và kết quả gần nhất sau xác nhận Gateway/Firestore; ESP8266 Gateway v19 (hoặc direct v18) đọc `employeeName` trong lệnh cửa và hiện tên LCD. Khi cửa chỉ mở theo quyền vân tay ngoại tuyến mà chưa ghi công, LCD vẫn báo `CHUA LUU CONG`.
+
+Kiểm tra ngày này: Web **293 đạt / 20 bỏ qua trên 313**, build thành công; firmware host **125/125 đạt**; dịch vụ laptop **186 đạt / 59 bỏ qua trên 245**, đã loại bài OpenCV camera integration vì môi trường Python kiểm thử không có `cv2`. Không nạp firmware hoặc thử camera thật trong lượt này. Biên dịch firmware ESP8266 mới không chạy được: Arduino CLI bị hệ điều hành từ chối truy cập thư mục package/cache `C:\Users\DELL\AppData\Local\Arduino15`; do đó test host không thay cho biên dịch hoặc thử thực tế trên board.

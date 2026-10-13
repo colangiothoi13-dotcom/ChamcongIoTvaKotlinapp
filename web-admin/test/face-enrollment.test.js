@@ -87,6 +87,12 @@ test('cancel rechecks current status and permission instead of trusting stale UI
   await assert.rejects(cancelFaceEnrollment(context(),'invalid/id'));
 });
 
+test('a session change during cancellation reads prevents the transaction from writing',async()=>{
+  const ctx=context({faceEnrollmentCommands:[{id:'command',status:'PENDING',cancelRequested:false}]}),original=ctx.store.transaction;
+  ctx.store.transaction=callback=>original(tx=>callback({...tx,get:async(collection,id)=>{const row=await tx.get(collection,id);if(collection==='faceEnrollmentCommands')ctx.user=null;return row;}}));
+  await assert.rejects(cancelFaceEnrollment(ctx,'command',{allowFinished:true}),/Phiên đăng nhập/);assert.equal(ctx.events.filter(row=>row[0]!=='get').length,0);assert.equal((await ctx.store.get('faceEnrollmentCommands','command')).cancelRequested,false);
+});
+
 test('employee controls use saved profile metadata; completed command alone cannot mark registration',()=>{
   const ctx=context({faceEnrollmentCommands:[{id:'command',employeeId:'emp-1',action:'ENROLL',status:'COMPLETED'}]}),employee=ctx.data.employees[0];
   assert.match(renderFaceEmployeeControls(employee,ctx),/Chưa đăng ký/);assert.match(renderFaceEmployeeControls(employee,ctx),/>Đăng ký khuôn mặt</);
@@ -97,13 +103,14 @@ test('employee controls use saved profile metadata; completed command alone cann
 });
 
 function trackerFixture(){
-  const ctx=context(),watchers=new Map();let target=null;const queuedClose=[];
+  const ctx=context(),watchers=new Map(),toasts=[];let target=null;const queuedClose=[];
+  ctx.ui.toast=(...args)=>toasts.push(args);
   const modal={open:false,handlers:new Set(),addEventListener(type,handler){if(type==='close')this.handlers.add(handler);},removeEventListener(type,handler){if(type==='close')this.handlers.delete(handler);}};
   ctx.ui.dialog=options=>{if(modal.open)queuedClose.push(()=>[...modal.handlers].forEach(handler=>handler()));modal.open=true;ctx.dialog=options;const requestId=options.body.match(/data-request-id="([^"]+)"/)?.[1];target=requestId?{dataset:{requestId},innerHTML:''}:null;};
   ctx.store.listenDoc=(name,id,success,error)=>{const entry={success,error,stopped:false};watchers.set(`${name}/${id}`,entry);return()=>entry.stopped=true;};
   const documentImpl={querySelector(selector){return selector==='#modal'?modal:selector==='#face-enrollment-progress'?target:null;}};
   const controller=createFaceEnrollmentActions(ctx,{documentImpl,now:()=>NOW});
-  return {ctx,controller,watchers,modal,get target(){return target;},flushClose(){queuedClose.splice(0).forEach(run=>run());},publish(name,id,value){watchers.get(`${name}/${id}`).success(value);}};
+  return {ctx,controller,watchers,modal,toasts,get target(){return target;},flushClose(){queuedClose.splice(0).forEach(run=>run());},publish(name,id,value){watchers.get(`${name}/${id}`).success(value);}};
 }
 
 test('picker confirms physical identity, reserves request and opens live progress without fake success',async()=>{
@@ -123,6 +130,39 @@ test('progress waits for the matching saved profile and prevents cancellation du
   f.publish('faceProfiles','emp-1',{enabled:true,version:1});f.publish('faceEnrollmentCommands',id,{status:'COMPLETED',action:'ENROLL',profileVersion:2,samplesCaptured:10});assert.match(f.target.innerHTML,/đang chờ xác nhận hồ sơ/);
   f.publish('faceProfiles','emp-1',{enabled:true,version:2});assert.match(f.target.innerHTML,/Đã đăng ký khuôn mặt/);
   f.controller.dispose();const html=f.target.innerHTML;f.publish('faceEnrollmentCommands',id,{status:'FAILED',message:'late'});assert.equal(f.target.innerHTML,html);
+});
+
+test('six-picture completion hides capture controls and saving copy only after the profile is confirmed',async()=>{
+  const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});
+  const id=f.target.dataset.requestId,command={...await f.ctx.store.get('faceEnrollmentCommands',id),samplesCaptured:6,captureRequestSeq:6,captureConsumedSeq:6,profileVersion:2};
+  f.ctx.events.length=0;
+  f.publish('faceEnrollmentCommands',id,{...command,status:'CAPTURING'});
+  assert.match(f.target.innerHTML,/Đã thu đủ ảnh; chờ laptop lưu mẫu/);assert.doesNotMatch(f.target.innerHTML,/data-action="face-capture"|Chỉnh mặt trong hình rồi bấm/);
+  f.publish('faceEnrollmentCommands',id,{...command,status:'FINALIZING'});
+  assert.match(f.target.innerHTML,/Laptop đang lưu mẫu/);assert.doesNotMatch(f.target.innerHTML,/data-action="face-capture"|Đã đăng ký khuôn mặt|Đã lưu mẫu khuôn mặt/);
+  f.publish('faceProfiles','emp-1',{enabled:true,version:1});
+  f.publish('faceEnrollmentCommands',id,{...command,status:'COMPLETED'});
+  assert.match(f.target.innerHTML,/đang chờ xác nhận hồ sơ/);assert.doesNotMatch(f.target.innerHTML,/Đã đăng ký khuôn mặt|Đã lưu mẫu khuôn mặt|[Đđ]ang lưu mẫu|data-action="face-capture"/);
+  f.publish('faceProfiles','emp-1',{enabled:true,version:2});
+  assert.match(f.target.innerHTML,/Đã đăng ký khuôn mặt/);assert.match(f.target.innerHTML,/Đã lưu mẫu khuôn mặt/);
+  assert.doesNotMatch(f.target.innerHTML,/đang chờ|[Đđ]ang lưu|Chụp ảnh|data-action="face-command-cancel"|aria-current/);
+  assert.equal((f.target.innerHTML.match(/2\/2 ảnh đạt/g)||[]).length,3);
+  assert.deepEqual(f.ctx.events,[],'completion snapshots do not write attendance, capture or cancellation');
+  assert.equal(await f.ctx.dialog.onBeforeClose(),true);assert.deepEqual(f.ctx.events,[]);f.controller.dispose();
+});
+
+test('terminal six-picture requests show their result and cannot submit a future capture',async()=>{
+  for(const status of ['COMPLETED','CANCELLED','FAILED']){
+    const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});
+    const id=f.target.dataset.requestId;
+    await f.ctx.store.update('faceEnrollmentCommands',id,{status,samplesCaptured:3,message:'Kiểm tra camera.',cancelRequested:status==='CANCELLED'});
+    f.publish('faceEnrollmentCommands',id,await f.ctx.store.get('faceEnrollmentCommands',id));
+    f.ctx.events.length=0;
+    assert.doesNotMatch(f.target.innerHTML,/data-action="face-capture"|Chỉnh mặt trong hình|Bước 2\/3|aria-current|Đã gửi yêu cầu hủy; chờ laptop xác nhận/);
+    await assert.rejects(f.controller.onAction('face-capture',{dataset:{requestId:id}}));
+    assert.equal(f.ctx.events.filter(row=>row[0]!=='get').length,0,'even a stale delegated capture click cannot modify a terminal request');
+    f.controller.dispose();
+  }
 });
 
 test('reopening a request tracks the chosen employee and confirms deletion through profile metadata',async()=>{
@@ -158,6 +198,65 @@ test('closing progress detaches listeners; later callbacks cannot reopen dialogs
   const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});f.controller.refresh();
   const id=f.target.dataset.requestId,html=f.target.innerHTML;f.modal.open=false;[...f.modal.handlers].forEach(handler=>handler());
   assert.ok([...f.watchers.values()].every(w=>w.stopped));f.publish('faceEnrollmentCommands',id,{status:'COMPLETED',action:'ENROLL'});assert.equal(f.target.innerHTML,html);
+});
+
+test('user closing progress requests cancellation once and leaves status and locks for worker confirmation',async()=>{
+  const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});const id=f.target.dataset.requestId;
+  assert.match(f.ctx.dialog.body,/Bấm X hoặc Đóng/);assert.doesNotMatch(f.ctx.dialog.body,/Đóng cửa sổ này không hủy/);
+  f.ctx.events.length=0;assert.equal(await f.ctx.dialog.onBeforeClose(),true);
+  const command=await f.ctx.store.get('faceEnrollmentCommands',id);assert.equal(command.cancelRequested,true);assert.equal(command.status,'PENDING');assert.equal((await f.ctx.store.get('faceStations','GATE-01')).pendingCommandId,id);assert.equal((await f.ctx.store.get('faceEnrollmentLocks','emp-1')).commandId,id);
+  assert.equal(f.ctx.events.filter(row=>row[0]==='update').length,1);assert.match(f.target.innerHTML,/Đang hủy; chờ laptop xác nhận/);assert.doesNotMatch(f.target.innerHTML,/Đã hủy yêu cầu/);
+  assert.equal(await f.ctx.dialog.onBeforeClose(),true);assert.equal(f.ctx.events.filter(row=>row[0]==='update').length,1);
+  f.ctx.dialog.onClose();assert.ok([...f.watchers.values()].every(w=>w.stopped));
+});
+
+test('cancellation button and simultaneous dismissal share one in-flight cancellation transaction',async()=>{
+  const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});const id=f.target.dataset.requestId;
+  const original=f.ctx.store.transaction;let release,calls=0;f.ctx.store.transaction=async callback=>{calls++;await new Promise(resolve=>release=resolve);return original(callback);};
+  const clicked=f.controller.onAction('face-command-cancel',{dataset:{requestId:id}}),closing=f.ctx.dialog.onBeforeClose(),closingAgain=f.ctx.dialog.onBeforeClose();assert.equal(calls,1);assert.match(f.target.innerHTML,/Đang gửi yêu cầu hủy/);
+  release();await clicked;assert.equal(await closing,true);assert.equal(await closingAgain,true);assert.equal(calls,1);f.controller.dispose();
+});
+
+test('close failure keeps progress tracked and provides a retry without pretending cancellation succeeded',async()=>{
+  for(const failure of [Object.assign(new Error('permission'),{code:'permission-denied'}),new Error('Mất kết nối')]){
+    const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});const id=f.target.dataset.requestId,original=f.ctx.store.transaction;
+    f.ctx.store.transaction=async()=>{throw failure;};assert.equal(await f.ctx.dialog.onBeforeClose(),false);assert.equal(f.modal.open,true);assert.ok([...f.watchers.values()].every(w=>!w.stopped));assert.equal((await f.ctx.store.get('faceEnrollmentCommands',id)).cancelRequested,false);assert.match(f.target.innerHTML,/Không đủ quyền|Mất kết nối/);
+    f.ctx.store.transaction=original;assert.equal(await f.ctx.dialog.onBeforeClose(),true);assert.equal((await f.ctx.store.get('faceEnrollmentCommands',id)).cancelRequested,true);f.controller.dispose();
+  }
+});
+
+test('closing terminal or finalizing progress never sends a cancellation and explains saving continues',async()=>{
+  for(const status of ['COMPLETED','FAILED','CANCELLED','FINALIZING']){
+    const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});const id=f.target.dataset.requestId;
+    f.publish('faceEnrollmentCommands',id,{status,action:'ENROLL',cancelRequested:false});f.ctx.events.length=0;
+    assert.equal(await f.ctx.dialog.onBeforeClose(),true);assert.deepEqual(f.ctx.events,[]);if(status==='FINALIZING')assert.match(f.toasts.at(-1)[0],/đang lưu mẫu; không thể hủy/);f.controller.dispose();
+  }
+});
+
+test('fresh worker finalizing and already-cancelled races permit dismissal without illegal writes',async()=>{
+  for(const extra of [{status:'FINALIZING'},{status:'COMPLETED'},{status:'CAPTURING',cancelRequested:true}]){
+    const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});const id=f.target.dataset.requestId;
+    await f.ctx.store.update('faceEnrollmentCommands',id,extra);f.ctx.events.length=0;
+    assert.equal(await f.ctx.dialog.onBeforeClose(),true);assert.equal(f.ctx.events.filter(row=>row[0]!=='get').length,0);if(extra.status==='FINALIZING')assert.match(f.toasts.at(-1)[0],/không thể hủy/);f.controller.dispose();
+  }
+});
+
+test('cleanup and stale progress callbacks never cancel requests in a replaced or signed-out session',async()=>{
+  for(const change of ['dispose','replacement','session']){
+    const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});const id=f.target.dataset.requestId,old=f.ctx.dialog;
+    if(change==='session')f.ctx.user={uid:'other-admin'};else if(change==='replacement'){f.ctx.data.faceEnrollmentCommands.push({id:'other-command',employeeId:'emp-1',status:'COMPLETED',action:'ENROLL'});await f.controller.onAction('face-progress',{dataset:{id:'emp-1',requestId:'other-command'}});}else f.controller.dispose();
+    f.ctx.events.length=0;assert.equal(await old.onBeforeClose(),false);old.onClose();assert.deepEqual(f.ctx.events,[]);assert.equal((await f.ctx.store.get('faceEnrollmentCommands',id)).cancelRequested,false);f.controller.dispose();
+  }
+});
+
+test('session ending before a queued cancellation transaction prevents the write',async()=>{
+  const f=trackerFixture();await f.controller.onAction('face-enroll',{dataset:{id:'emp-1'}});await f.ctx.dialog.onSubmit({stationId:'GATE-01',personConfirmed:'yes'});const id=f.target.dataset.requestId;
+  // A capture request must settle first; a session invalidation during that wait
+  // stops the deferred cancellation before its transaction begins.
+  await f.ctx.store.update('faceEnrollmentCommands',id,{status:'CAPTURING'});f.publish('faceEnrollmentCommands',id,await f.ctx.store.get('faceEnrollmentCommands',id));
+  let release,transactions=0;const original=f.ctx.store.transaction;f.ctx.store.transaction=async callback=>{transactions++;await new Promise(resolve=>release=resolve);return original(callback);};
+  const capture=f.controller.onAction('face-capture',{dataset:{requestId:id}}),closing=f.ctx.dialog.onBeforeClose();
+  f.controller.dispose();f.ctx.user=null;release();await capture;assert.equal(await closing,false);assert.equal(transactions,1);assert.equal((await f.ctx.store.get('faceEnrollmentCommands',id)).cancelRequested,false);
 });
 
 test('session changes during an outstanding transaction cannot open a progress dialog in another session',async()=>{

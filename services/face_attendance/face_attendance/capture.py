@@ -11,7 +11,7 @@ from typing import Callable
 import uuid
 
 from .events import identifier
-from .recognition import FaceRecognitionError
+from .recognition import FaceRecognitionError, sharpness_diagnostics
 from .source import FrameSourceError
 
 
@@ -109,7 +109,8 @@ def capture_samples(
         if on_attempt:
             try:
                 on_attempt(image, {key: value[key] for key in
-                                  ("status", "saved", "requested", "reason", "qualityIssue") if key in value})
+                                  ("status", "saved", "requested", "reason", "qualityIssue",
+                                   "sharpnessScore", "sharpnessRequired", "sharpnessMetric") if key in value})
             except Exception:
                 pass
         if progress:
@@ -148,18 +149,23 @@ def capture_samples(
                 frame = source.read()
                 attempt_image = frame.image
                 quality = recognizer.inspect_quality(frame.image)
+                diagnostics = sharpness_diagnostics(getattr(quality, "sharpness_score", None),
+                                                    getattr(quality, "sharpness_required", None),
+                                                    getattr(quality, "sharpness_metric", None))
                 if quality.face_count == 1 and quality.reason == "quality_ok":
                     if stop_requested and stop_requested():
                         stopped = True
                         break
                     path = _write_exclusive_jpeg(directory, _encode_jpeg(frame.image))
                     files.append(str(path))
-                    report(frame.image, {"status": "CAPTURE_SAVED", "saved": len(files), "requested": count, "path": str(path)})
+                    report(frame.image, {"status": "CAPTURE_SAVED", "saved": len(files), "requested": count,
+                                         "path": str(path), **diagnostics})
                 else:
                     event = {"status": "CAPTURE_SKIP", "reason": quality.reason, "attempt": attempts,
                              "saved": len(files), "requested": count}
                     if quality.quality_issue is not None:
                         event["qualityIssue"] = quality.quality_issue
+                    event.update(diagnostics)
                     report(frame.image, event)
             except (FrameSourceError, FaceRecognitionError) as exc:
                 report(attempt_image, {"status": "CAPTURE_SOURCE_ERROR", "message": str(exc), "attempt": attempts,

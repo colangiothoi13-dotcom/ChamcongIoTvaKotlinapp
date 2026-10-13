@@ -25,7 +25,7 @@ export function faceCommandStatus(command){
   if(command.status==='CAPTURING'){
     const total=faceSampleCount(command),count=Math.max(0,Math.min(total,Number(command.samplesCaptured)||0));
     if(command.action==='DELETE')return 'Đang xóa mẫu';
-    if(command.captureMode==='MANUAL')return command.captureRequestSeq>command.captureConsumedSeq?`Đang chụp ảnh: ${count}/${total}`:`Chờ bạn bấm Chụp ảnh: ${count}/${total}`;
+    if(command.captureMode==='MANUAL')return count>=total?'Đã thu đủ ảnh; chờ laptop lưu mẫu':command.captureRequestSeq>command.captureConsumedSeq?`Đang chụp ảnh: ${count}/${total}`:`Chờ bạn bấm Chụp ảnh: ${count}/${total}`;
     return `Đang thu ảnh: ${count}/${total}`;
   }
   if(command.status==='FINALIZING')return 'Đang lưu mẫu; vui lòng chờ';
@@ -95,15 +95,22 @@ export async function requestFaceCapture(ctx,requestId,{now=Date.now()}={}){
   });
 }
 
-export async function cancelFaceEnrollment(ctx,requestId){
+export async function cancelFaceEnrollment(ctx,requestId,{allowFinished=false}={}){
   requireRealSession(ctx);requireValue(validId(requestId),'Yêu cầu không hợp lệ');
   const store=ctx.store,uid=ctx.user.uid;
-  await store.transaction(async tx=>{
+  const sameSession=()=>ctx.store===store&&ctx.user?.uid===uid&&!ctx.demo;
+  return store.transaction(async tx=>{
+    requireValue(sameSession(),'Phiên đăng nhập đã thay đổi.');
     const user=await tx.get('users',uid);
     requireValue(user?.role==='ADMIN'&&user.active===true,'Chỉ Admin đang hoạt động được hủy yêu cầu');
     const command=await tx.get('faceEnrollmentCommands',requestId);
+    requireValue(sameSession(),'Phiên đăng nhập đã thay đổi.');
+    // Closing can race with a worker finishing or accepting an earlier cancel.
+    // Return the fresh state without trying to change an irreversible phase.
+    if(allowFinished&&command&&(TERMINAL.has(command.status)||command.status==='FINALIZING'||(ACTIVE.has(command.status)&&command.cancelRequested===true)))return command;
     requireValue(canCancel(command),'Yêu cầu đã kết thúc, đang lưu mẫu hoặc đang chờ xác nhận hủy');
     tx.update('faceEnrollmentCommands',requestId,{cancelRequested:true,cancelRequestedAt:store.stamp()});
+    return {...command,cancelRequested:true};
   });
 }
 
@@ -127,14 +134,16 @@ function completionConfirmed(command,profile){
 
 function progressBody(state){
   const command=state.command;
-  const status=command?.status==='COMPLETED'&&!completionConfirmed(command,state.profile)?'Laptop đã hoàn tất yêu cầu; đang chờ xác nhận hồ sơ.':command?faceCommandStatus(command):'Đang tải trạng thái yêu cầu từ Firebase…';
+  const confirmed=completionConfirmed(command,state.profile);
+  const status=command?.status==='COMPLETED'&&!confirmed?'Laptop đã hoàn tất yêu cầu; đang chờ xác nhận hồ sơ.':command?faceCommandStatus(command):'Đang tải trạng thái yêu cầu từ Firebase…';
   const total=faceSampleCount(command),captured=Math.max(0,Math.min(total,Number(command?.samplesCaptured)||0));
   const errors=[state.error,...Object.values(state.listenerErrors||{})].filter(Boolean);
   const manual=command?.action==='ENROLL'&&command.captureMode==='MANUAL';
+  const takingSamples=['PENDING','CAPTURING'].includes(command?.status)&&command.cancelRequested!==true&&captured<total;
   const shotPending=command?.captureRequestSeq>command?.captureConsumedSeq;
-  const canShoot=validManualCapturePlan(command)&&command.status==='CAPTURING'&&command.cancelRequested===false&&captured<total&&Number.isSafeInteger(command.captureRequestSeq)&&command.captureRequestSeq>=0&&command.captureRequestSeq<100&&command.captureRequestSeq===command.captureConsumedSeq&&!state.capturing&&!Object.keys(state.listenerErrors||{}).length;
-  const shot=manual?`${button(state.capturing||shotPending?'Đang chụp…':`Chụp ảnh (${Math.min(total,captured+1)}/${total})`,'face-capture',`data-request-id="${e(state.requestId)}" class="primary"${canShoot?'':' disabled'}`)}<p class="hint">Chỉnh mặt trong hình rồi bấm Chụp ảnh. Xem ảnh của từng lần bấm ở phần Ảnh vừa chụp. Chỉ ảnh đạt yêu cầu mới tăng tiến độ; đủ ${total} ảnh hệ thống sẽ lưu mẫu.</p>${command.message&&command.status==='CAPTURING'?`<p class="notice capture-outcome" role="status">${e(String(command.message).slice(0,300))}</p>`:''}`:'';
-  return `<p><strong>${e(state.employeeName)}</strong></p><p role="status" aria-live="polite">${e(status)}</p>${total?`<progress max="${total}" value="${captured}" aria-label="Số ảnh khuôn mặt đã thu">${captured}/${total}</progress><p class="hint">${captured}/${total} ảnh · Chỉ đứng một người trước camera.</p>`:''}${renderCapturePoseGuide(command)}${shot}${errors.length?`<div class="notice error" role="alert">${errors.map(e).join('<br>')}</div>`:''}${Object.keys(state.listenerErrors||{}).length?button('Thử theo dõi lại','face-progress-retry',`data-request-id="${e(state.requestId)}"`):''}${canCancel(command)?button(state.canceling?'Đang gửi yêu cầu hủy…':'Hủy yêu cầu','face-command-cancel',`data-request-id="${e(state.requestId)}"${state.canceling?' disabled':''}`):''}${command?.status==='FINALIZING'?'<p class="hint">Laptop đang lưu mẫu. Không thể hủy ở bước này.</p>':''}<p class="hint">Đóng cửa sổ này không hủy yêu cầu. Có thể mở lại từ hồ sơ nhân viên.</p>`;
+  const canShoot=validManualCapturePlan(command)&&command.status==='CAPTURING'&&command.cancelRequested===false&&captured<total&&Number.isSafeInteger(command.captureRequestSeq)&&command.captureRequestSeq>=0&&command.captureRequestSeq<100&&command.captureRequestSeq===command.captureConsumedSeq&&!state.capturing&&!state.closing&&!state.canceling&&!Object.keys(state.listenerErrors||{}).length;
+  const shot=manual&&takingSamples?`${button(state.capturing||shotPending?'Đang chụp…':`Chụp ảnh (${Math.min(total,captured+1)}/${total})`,'face-capture',`data-request-id="${e(state.requestId)}" class="primary"${canShoot?'':' disabled'}`)}<p class="hint">Chỉnh mặt trong hình rồi bấm Chụp ảnh. Xem ảnh của từng lần bấm ở phần Ảnh vừa chụp. Chỉ ảnh đạt yêu cầu mới tăng tiến độ; đủ ${total} ảnh hệ thống sẽ lưu mẫu.</p>${command.message&&command.status==='CAPTURING'?`<p class="notice capture-outcome" role="status">${e(String(command.message).slice(0,300))}</p>`:''}`:'';
+  return `<p><strong>${e(state.employeeName)}</strong></p><p role="status" aria-live="polite">${e(status)}</p>${total?`<progress max="${total}" value="${captured}" aria-label="Số ảnh khuôn mặt đã thu">${captured}/${total}</progress><p class="hint">${captured}/${total} ảnh đã thu${takingSamples?' · Chỉ đứng một người trước camera.':'.'}</p>`:''}${renderCapturePoseGuide(command,{completionConfirmed:confirmed})}${shot}${errors.length?`<div class="notice error" role="alert">${errors.map(e).join('<br>')}</div>`:''}${Object.keys(state.listenerErrors||{}).length?button('Thử theo dõi lại','face-progress-retry',`data-request-id="${e(state.requestId)}"`):''}${canCancel(command)?button(state.canceling?'Đang gửi yêu cầu hủy…':'Hủy yêu cầu','face-command-cancel',`data-request-id="${e(state.requestId)}"${state.canceling||state.closing?' disabled':''}`):''}${command?.status==='FINALIZING'?'<p class="hint">Laptop đang lưu mẫu. Không thể hủy ở bước này.</p>':''}${canCancel(command)?'<p class="hint">Bấm X hoặc Đóng sẽ gửi yêu cầu hủy và dừng lấy mẫu.</p>':ACTIVE.has(command?.status)&&command?.cancelRequested?'<p class="hint">Đã gửi yêu cầu hủy; chờ laptop xác nhận.</p>':''}`;
 }
 
 export function createFaceEnrollmentActions(ctx,{documentImpl=globalThis.document,now=()=>Date.now(),previewFactory=createEnrollmentCameraPreview,beforePreviewStart=()=>{}}={}){
@@ -161,12 +170,50 @@ export function createFaceEnrollmentActions(ctx,{documentImpl=globalThis.documen
     const html=progressBody(state);if(html!==lastHTML){target.innerHTML=html;lastHTML=html;}
     refreshCamera();
   }
+  function requestCancellation(actionCtx=ctx){
+    const tracked=state,current=generation,store=ctx.store,uid=ctx.user?.uid;
+    requireValue(tracked,'Cửa sổ đăng ký đã thay đổi. Mở lại đúng yêu cầu.');
+    if(tracked.cancelPromise)return tracked.cancelPromise;
+    tracked.canceling=true;tracked.error='';refresh();
+    const valid=()=>generation===current&&state===tracked&&ctx.store===store&&ctx.user?.uid===uid&&!ctx.demo;
+    const task=(async()=>{
+      // A click that is already being submitted finishes before cancellation;
+      // closing immediately disables any subsequent capture clicks.
+      if(tracked.capturePromise)try{await tracked.capturePromise;}catch{}
+      requireValue(valid(),'Phiên đăng nhập hoặc cửa sổ đăng ký đã thay đổi.');
+      const command=await cancelFaceEnrollment(actionCtx,tracked.requestId,{allowFinished:true});
+      if(valid()){
+        const ended=TERMINAL.has(tracked.command?.status)||tracked.command?.status==='FINALIZING';
+        if(!ended||TERMINAL.has(command.status)||command.status==='FINALIZING')tracked.command=command;
+      }
+      return valid()?tracked.command:command;
+    })();
+    tracked.cancelPromise=task;
+    void task.catch(error=>{if(valid())tracked.error=errorMessage(error);}).finally(()=>{if(valid()){tracked.canceling=false;tracked.cancelPromise=null;refresh();}});
+    return task;
+  }
   function track(requestId,employee,actionCtx,initialCommand=null){
     dispose();const current=generation,store=ctx.store,uid=ctx.user?.uid;
-    state={requestId,employeeId:employee.id,employeeName:employee.fullName||employee.id,command:initialCommand,profile:null,error:'',listenerErrors:{},canceling:false,capturing:false};
+    state={requestId,employeeId:employee.id,employeeName:employee.fullName||employee.id,command:initialCommand,profile:null,error:'',listenerErrors:{},canceling:false,capturing:false,closing:false,cancelPromise:null,capturePromise:null};
     const valid=()=>generation===current&&ctx.store===store&&ctx.user?.uid===uid&&!ctx.demo;
     const enrollment=initialCommand?.action==='ENROLL';
-    actionCtx.ui.dialog({title:'Yêu cầu khuôn mặt',submitLabel:null,wide:enrollment,body:`<div class="${enrollment?'face-enrollment-layout':''}">${enrollment?`<section id="face-enrollment-camera" data-request-id="${e(requestId)}">${renderEnrollmentCameraPreview()}</section>`:''}<div id="face-enrollment-progress" data-request-id="${e(requestId)}">${progressBody(state)}</div></div>`,onClose:()=>{if(generation===current)dispose();}});
+    actionCtx.ui.dialog({title:'Yêu cầu khuôn mặt',submitLabel:null,wide:enrollment,body:`<div class="${enrollment?'face-enrollment-layout':''}">${enrollment?`<section id="face-enrollment-camera" data-request-id="${e(requestId)}">${renderEnrollmentCameraPreview()}</section>`:''}<div id="face-enrollment-progress" data-request-id="${e(requestId)}">${progressBody(state)}</div></div>`,onBeforeClose:async()=>{
+      if(!valid())return false;
+      const tracked=state;
+      if(!tracked.cancelPromise&&(TERMINAL.has(tracked.command?.status)||tracked.command?.status==='FINALIZING'||(ACTIVE.has(tracked.command?.status)&&tracked.command?.cancelRequested===true))){
+        if(tracked.command.status==='FINALIZING')ctx.ui.toast('Laptop đang lưu mẫu; không thể hủy ở bước này. Việc lưu mẫu sẽ tiếp tục.');
+        return true;
+      }
+      tracked.closing=true;refresh();
+      try{
+        const command=await requestCancellation(ctx);
+        if(!valid()||state!==tracked)return false;
+        if(command.status==='FINALIZING')ctx.ui.toast('Laptop đang lưu mẫu; không thể hủy ở bước này. Việc lưu mẫu sẽ tiếp tục.');
+        else if(command.cancelRequested&&ACTIVE.has(command.status))ctx.ui.toast('Đã gửi yêu cầu hủy; chờ laptop xác nhận.');
+        return true;
+      }catch{return false;}
+      finally{if(valid()&&state===tracked){tracked.closing=false;refresh();}}
+    },onClose:()=>{if(generation===current)dispose();}});
     if(documentImpl&&documentImpl.querySelector('#face-enrollment-progress')?.dataset?.requestId!==requestId){dispose();return;}
     closeTarget=documentImpl?.querySelector('#modal');
     // close() queues an event. The previous picker can emit it after the new
@@ -185,13 +232,14 @@ export function createFaceEnrollmentActions(ctx,{documentImpl=globalThis.documen
     if(action==='face-capture'){
       const requestId=element.dataset.requestId,current=generation;
       requireValue(state?.requestId===requestId,'Cửa sổ đăng ký đã thay đổi. Mở lại đúng yêu cầu.');
-      if(state.capturing)return true;
+      if(state.capturing||state.closing||state.canceling)return true;
       state.capturing=true;state.error='';refresh();
       try{
-        const next=await requestFaceCapture(actionCtx,requestId,{now:now()});
+        const pending=requestFaceCapture(actionCtx,requestId,{now:now()});state.capturePromise=pending;
+        const next=await pending;
         if(generation===current&&state?.requestId===requestId&&state.command?.status==='CAPTURING'&&state.command.captureRequestSeq<next)state.command={...state.command,captureRequestSeq:next};
       }catch(error){if(generation===current&&state?.requestId===requestId)state.error=errorMessage(error);throw error;}
-      finally{if(generation===current&&state?.requestId===requestId){state.capturing=false;refresh();}}
+      finally{if(generation===current&&state?.requestId===requestId){state.capturing=false;state.capturePromise=null;refresh();}}
       return true;
     }
     if(action==='face-progress-retry'){
@@ -199,11 +247,8 @@ export function createFaceEnrollmentActions(ctx,{documentImpl=globalThis.documen
       const current=state;track(current.requestId,{id:current.employeeId,fullName:current.employeeName},actionCtx,current.command);return true;
     }
     if(action==='face-command-cancel'){
-      const requestId=element.dataset.requestId,current=generation;
-      if(state?.requestId===requestId){state.canceling=true;state.error='';refresh();}
-      try{await cancelFaceEnrollment(actionCtx,requestId);if(current===generation&&state?.requestId===requestId&&canCancel(state.command))state.command={...state.command,cancelRequested:true};}
-      catch(error){if(current===generation&&state?.requestId===requestId)state.error=errorMessage(error);throw error;}
-      finally{if(current===generation&&state){state.canceling=false;refresh();}}
+      requireValue(state?.requestId===element.dataset.requestId,'Cửa sổ đăng ký đã thay đổi. Mở lại đúng yêu cầu.');
+      await requestCancellation(actionCtx);
       return true;
     }
     const employeeId=element.dataset.id,lookupGeneration=generation,lookupStore=ctx.store,lookupUid=ctx.user?.uid;

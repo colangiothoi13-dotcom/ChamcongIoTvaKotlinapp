@@ -94,6 +94,53 @@ class StationTests(unittest.TestCase):
         preview.close.assert_called_once()
         store.close.assert_called_once()
 
+    def test_confirmed_face_result_is_available_to_camera_status_with_employee_name(self):
+        frame = SimpleNamespace(image=object(), captured_at="2026-10-13T00:00:00+00:00")
+        source = Mock()
+        source.read.side_effect = [frame, frame, KeyboardInterrupt()]
+        face = Mock()
+        face.recognize.side_effect = [RecognitionResult(reason="no_face"), RecognitionResult(
+            employee_id="employee-a", profile_version=2, similarity=0.9, face_count=1, reason="matched")]
+        gateway = Mock()
+        result = {"status": "ACCEPTED_DEMO", "employeeName": "Nguyễn Văn A"}
+        gateway.submit.side_effect = lambda event: (gateway.result_listener(event, result), result)[1]
+        server = Mock(server_port=8765)
+        with (patch("face_attendance.station.UrlFrameSource", return_value=source),
+              patch("face_attendance.station.make_server", return_value=server) as create_server):
+            run_station(self.config("demo"), gateway, face, ".", lambda _: None)
+        provider = create_server.call_args.kwargs["face_status"]
+        snapshot = provider()
+        self.assertEqual(snapshot["attendance"]["status"], "ACCEPTED")
+        self.assertEqual(snapshot["attendance"]["employeeName"], "Nguyễn Văn A")
+        self.assertEqual(snapshot["scan"]["status"], "ACCEPTED")
+
+    def test_accessory_blocks_do_not_submit_attendance_or_release_an_occupied_visit(self):
+        config = self.config("demo")
+        config["accessories"] = {"enabled": True}
+        frame = SimpleNamespace(image=object(), captured_at="2026-10-13T00:00:00+00:00")
+        empty = RecognitionResult(reason="no_face")
+        mask = RecognitionResult(face_count=1, reason="low_quality", quality_issue="mask")
+        glasses = RecognitionResult(face_count=1, reason="low_quality", quality_issue="glasses")
+        matched = RecognitionResult(employee_id="employee-a", face_count=1, profile_version=2,
+                                    similarity=0.9, reason="matched")
+        results = [empty, mask, mask, glasses, matched, mask, matched, empty, matched]
+        face, source, gateway = Mock(), Mock(), Mock()
+        face.recognize.side_effect = results
+        source.read.side_effect = [frame] * len(results) + [KeyboardInterrupt()]
+        messages = []
+        with (
+            patch("face_attendance.station.UrlFrameSource", return_value=source),
+            patch("face_attendance.station.make_server", return_value=Mock(server_port=8765)) as create_server,
+        ):
+            run_station(config, gateway, face, ".", messages.append)
+        self.assertEqual(gateway.submit.call_count, 2)
+        blocked = [message for message in messages if message.get("status") == "FACE_BLOCKED"]
+        self.assertEqual([message["qualityIssue"] for message in blocked], ["mask", "glasses", "mask"])
+        self.assertEqual(len([message for message in messages if message.get("status") == "FACE_READY"]), 2)
+        provider = create_server.call_args.kwargs["face_status"]
+        self.assertEqual(provider()["status"], "STOPPED")
+        self.assertTrue(provider()["accessoryGateEnabled"])
+
 
 if __name__ == "__main__":
     unittest.main()

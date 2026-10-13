@@ -1,5 +1,21 @@
 # Chấm công khuôn mặt và vân tay qua laptop
 
+## Chặn khẩu trang và kính
+
+Khi `accessories.enabled: true`, laptop kiểm tra **cả lúc thu ảnh/đăng ký lại lẫn trước mỗi lần nhận diện để chấm công**. Bộ kiểm tra dùng FaceAttribNet cho khẩu trang, kính cận/kính trong và kính râm. Theo cấu hình hiện tại `accessories.blockHat: false`, kiểm tra mũ được bỏ hoàn toàn: không nạp/chạy mô hình đầu hoặc mũ, không dùng bộ kiểm tra mũ để từ chối tóc và không yêu cầu phải thấy đỉnh đầu để kiểm tra mũ. Mặt vẫn cần nằm trọn trong ảnh. Không gửi ảnh cho dịch vụ AI bên ngoài. Vân tay tiếp tục hoạt động độc lập.
+
+Trong bản này, `config.example.json` bật sẵn kiểm tra khẩu trang/kính và tắt kiểm tra mũ. File cấu hình cũ chưa có mục `accessories` giữ chế độ cũ; thêm nguyên mục từ file mẫu để bật. Chạy `download_models.py` bằng Python của dịch vụ để tải các mô hình đã ghim SHA256, rồi chạy `doctor` và mở lại `mo-tram-khuon-mat.cmd`. Không nạp lại ESP32-S3/ESP8266 hoặc đổi Firestore Rules cho bộ kiểm tra này. Cấu hình trên laptop đang dùng đã được cập nhật.
+
+Ảnh có phụ kiện bị từ chối, không tăng số ảnh đã lưu. Thông báo nêu món cần tháo; kính cận cũng cần tháo. Khi chấm bằng mặt, ảnh bị chặn không tạo sự kiện chấm công. Trên web, phần **Camera & khuôn mặt → Kiểm tra khi chấm công** hiển thị phản hồi từ station đang chạy; màn hình xem ảnh riêng không tự kiểm tra khi station đã dừng. Android hiển thị lý do từ laptop khi đang đăng ký trong APK mới.
+
+Khi bật chính sách, endpoint `POST /v1/face` từ chối sự kiện chỉ chứa metadata vì không có ảnh để kiểm tra. `station` và `poll` ghi sự kiện sau khi kiểm tra ảnh cục bộ. Đồng bộ các sự kiện đã được nhận trước đó và API vân tay vẫn hoạt động.
+
+Giữ trọn khuôn mặt, rõ trán và cằm. Với ngưỡng mặc định `threshold: 0.5`, `uncertaintyMargin: 0.1`, điểm khẩu trang/kính từ 0.6 được báo là có phụ kiện; vùng 0.4–0.6 chưa chắc chắn cũng bị chặn. Chỉ tiếp tục khi các kiểm tra đang bật đều dưới 0.4. Đây là điểm phân loại của mô hình, không phải xác suất nhân viên đúng danh tính. Mô hình đang dùng thiếu, sai hash, lỗi suy luận hoặc đầu ra không hợp lệ sẽ chặn luồng mặt; dịch vụ không bỏ qua bước này để ghi công. `blockHat` thiếu cũng mặc định tắt trong bộ tạo recognizer từ cấu hình.
+
+Cần kiểm tra thực tế trên OV5640 với đủ trường hợp: không phụ kiện, khẩu trang, kính cận, kính râm; thử cả đứng gần và xa. Mô hình có thể nhận nhầm trong bóng tối, góc nghiêng hoặc phụ kiện nhỏ. Kiểm thử ảnh công khai xác nhận các mô hình chạy được và chặn các ví dụ rõ; chưa đo độ chính xác trên nhóm nhân viên này. Không coi chức năng này là xác thực sống hay khả năng chống ảnh/video giả như ngân hàng. Khung bầu dục/hướng dẫn góc chụp vẫn chỉ hỗ trợ đặt mặt.
+
+Nguồn và giấy phép: [FaceAttribNet của Qualcomm](https://github.com/quic/ai-hub-models/tree/main/qai_hub_models/models/face_attrib_net), [bản ONNX Face Attribute](https://github.com/yakhyo/face-attribute), [HHC](https://github.com/PINTO0309/HHC), [YOLO MIT Wholebody](https://github.com/PINTO0309/YOLO). Thông báo bản quyền đầy đủ nằm trong `licenses/`; mô hình nằm ở `data/models/` được Git bỏ qua. SHA256/kích thước trong `download_models.py` ngăn thay đổi trọng số ngoài ý muốn. Gallery YuNet/SFace hiện có giữ nguyên; không cần đăng ký lại chỉ vì bật bộ chặn phụ kiện.
+
 Dịch vụ dành cho một điểm chấm công và 3–4 người demo. Camera ESP32-S3-WROOM-1 N16R8 hiện có (hoặc AI Thinker ESP32-CAM cũ) cung cấp ảnh JPEG; laptop dùng YuNet và SFace nhận diện, đồng thời nhận kết quả vân tay từ ESP8266. Hai nguồn đi qua một bước chống trùng trước khi tạo lượt `SCAN/PENDING`; Android tính vào/ra theo lịch và ca hiện có. Thay board camera không đổi giao thức ảnh JPEG. Bản tích hợp mới có lệnh `station` để nhận yêu cầu đăng ký khuôn mặt từ app Admin.
 
 **Chưa có camera vẫn chạy được phần mô phỏng chống trùng.** Nhận diện ảnh thật cần cài phụ thuộc, tải mô hình và đăng ký ảnh mẫu. Mô phỏng không có kết quả nhận diện thật và không ghi Firebase.
@@ -26,15 +42,39 @@ Yêu cầu mới từ web dùng `captureMode: MANUAL`: Admin bấm **Chụp ản
 
 Yêu cầu đăng ký mới từ web dùng `captureMode: MANUAL`, `sampleCount: 6`, `capturePlan: FRONT_LEFT_RIGHT_V1`: 2 ảnh nhìn thẳng, 2 quay nhẹ sang trái của nhân viên và 2 quay nhẹ sang phải. Chỉ ảnh đạt mới tăng tiến độ và đổi hướng; ảnh lỗi ở bước nào thì chụp lại bước đó. Đây là hướng dẫn để Admin xác nhận góc mặt trên hình trực tiếp, chưa phải phép đo góc tự động. Worker dùng tổng trên lệnh cho ACK, tiến độ, hoàn tất và metadata hồ sơ; ngưỡng chất lượng/đối chiếu giữ nguyên. Các lệnh cũ không có kế hoạch sáu ảnh vẫn dùng 10 ảnh, kể cả luồng tạo yêu cầu từ Android hiện tại.
 
+Trong form **Yêu cầu khuôn mặt**, bấm **X**, **Đóng**, Esc hoặc ngoài form sẽ gửi `cancelRequested` nếu đang chờ/đang chụp, rồi đóng sau khi Firebase nhận yêu cầu. Laptop xác nhận `CANCELLED` và dừng lấy mẫu. Mất mạng hoặc thiếu quyền thì form giữ mở và hiện lỗi để tránh hiểu nhầm đã hủy. Khi đã `FINALIZING`, việc lưu tiếp tục và web thông báo không thể hủy ở bước này. Đăng xuất/thay form không tự gửi thao tác hủy.
+
 Để sửa ảnh lộn đầu mà không nạp lại firmware, cấu hình `camera.rotation: 180` rồi mở lại dịch vụ. Chỉ chấp nhận số nguyên `0`, `90`, `180`, `270`; thiếu trường dùng `0`. `station`, `poll` và `capture` cùng xoay pixel trước kiểm tra mặt, lưu JPEG và nhận diện. Proxy web trả cùng chiều ảnh bằng metadata; nút xoay trên trình duyệt chỉ đổi góc xem thêm, không sửa ảnh mẫu.
 
 Web có phần **Ảnh vừa chụp**: đúng khung ảnh của lần bấm được giữ tạm trong `CapturePreviewStore` trên RAM, một ảnh JPEG tối đa 5 MB và tự hết hạn sau 300 giây. `GET /v1/enrollment-preview/{requestId}/{sequence}` yêu cầu token Admin và chỉ trả đúng yêu cầu/lượt đang giữ. Node localhost gọi endpoint này bằng token riêng trên máy chủ; trình duyệt không nhận token. Ảnh này đã xoay trước kiểm tra, nên web không xoay lại. Lỗi camera, hủy/đăng ký thất bại hoặc dừng trạm xóa ảnh tạm; không cung cấp API duyệt thư mục ảnh hoặc vector, không ghi ảnh xem vào Firestore.
 
 `low_quality` vẫn giữ tương thích, nhưng metadata `captureLastQualityIssue` phân biệt mặt bị cắt, mặt quá nhỏ, ảnh mờ và độ rõ chưa đạt. Mặt bị cắt được hướng dẫn **lùi lại và đưa toàn bộ mặt vào giữa ảnh**. Các ngưỡng kiểm tra chất lượng và đối chiếu khuôn mặt giữ nguyên.
 
+Vào oval chưa xác nhận ảnh đạt: laptop còn kiểm tra độ nét và phụ kiện. Với `recognition.sharpnessMaxSize: 128`, điểm nét được đo trên vùng mặt thu nhỏ theo đúng tỉ lệ, cạnh dài tối đa 128 pixel (`FACE_MAX128_LAPLACIAN_V1`); vùng nhỏ không được phóng lớn. Cách này giảm việc cùng nội dung bị đánh điểm khác nhau chỉ vì kích thước mặt. Ảnh gốc, ảnh xem và đầu vào kiểm tra phụ kiện/SFace giữ nguyên; không làm nét nhân tạo. `minSharpness` vẫn là 50. File cấu hình cũ thiếu `sharpnessMaxSize` giữ phép đo cũ (`FACE_LAPLACIAN_RAW_V1`). Thông báo ảnh mờ nêu điểm đo và mức cần đạt; điểm này không phải phần trăm hay bảo đảm nhận đúng người. Metadata `captureLastSharpness`, `captureSharpnessRequired`, `captureSharpnessMetric` thuộc worker, không được dùng để client tự tăng tiến độ.
+
+Nếu đầu và mặt đã vừa khung thì giữ vị trí, không cần lùi thêm. Đủ sáng phía trước, giữ yên lúc bấm và kiểm tra ống kính nếu ảnh gốc vẫn mềm/mờ. Việc chuẩn hóa được kiểm thử với ảnh pixel ở nhiều kích thước và ảnh làm mờ; cần thử thêm với camera thật để đánh giá điều kiện ánh sáng và ống kính.
+
 Nếu đã quản lý khóa ở vị trí riêng, có thể đặt `GOOGLE_APPLICATION_CREDENTIALS` thay cho thư mục `private`. Biến chỉ đặt trong một cửa sổ PowerShell thì phải mở station **từ chính cửa sổ đó** bằng lệnh trên; nhấp đúp trong Explorer không nhận biến của cửa sổ PowerShell. Có khóa không tự chuyển `mode` sang Firebase: vẫn cần thực hiện bước 1.
 
 App có thể yêu cầu hủy trong lúc chờ/chụp; worker xác nhận `CANCELLED`. Khi đã **Đang lưu** (`FINALIZING`), việc lưu phải hoàn tất trước thao tác tiếp theo. Đăng ký lại tự tăng version lớn hơn cả bản local và Firebase. **Xóa mẫu mặt** loại bỏ vector local và vô hiệu `faceProfiles`; ảnh mẫu local được giữ trong `data/photos/<employeeId>/` để Admin tự quản lý.
+
+## Chấm công tự động sau khi đăng ký
+
+Khi form báo **Đã đăng ký khuôn mặt**, mẫu local đã lưu và hồ sơ Firebase đã được xác nhận. Chỉ đủ 6/6 nhưng còn **Đang lưu** hoặc **Đang chờ xác nhận hồ sơ** thì chờ trạng thái hoàn tất. Nút Chụp ảnh chỉ dùng để đăng ký; sau khi đủ ảnh hoặc yêu cầu đã kết thúc, web không còn hiển thị nút này.
+
+Giữ camera có nguồn, laptop cùng Wi-Fi với camera và `mo-tram-khuon-mat.cmd` đang chạy ở chế độ Firebase. Sau đăng ký, rời khung hình vài giây rồi quay lại, nhìn thẳng và giữ yên. Station tự đọc ảnh, kiểm tra độ rõ/khẩu trang/kính, nhận diện nhân viên và gửi lượt chấm công. Không cần Admin bấm Chụp ảnh, không cần mở trang Camera hoặc app để kích hoạt lượt quét, và không cần khởi động lại station sau đăng ký thành công. Nhận diện phải ổn định qua 3 khung liên tiếp; trước lượt mới cần 3 khung trống thật. Thời gian thực tế còn phụ thuộc camera, Wi-Fi và tốc độ laptop.
+
+Xem kết quả ở **Chấm công**, phương thức **Khuôn mặt/FACE**. Trạng thái **Đạt kiểm tra phụ kiện** trên trang camera chưa phải xác nhận đã ghi công. Lượt quét mới được gửi ban đầu là `SCAN/PENDING`, rồi web/app xử lý vào/ra theo lịch.
+
+### Mở cửa servo sau khi chấm công bằng mặt
+
+ESP8266 phải báo firmware hỗ trợ TTL và đang online, có khả năng `door`. Bản mới `spark-anonymous-v18-face-name-door-ttl` hoặc `spark-gateway-v19-face-name-door-ttl` còn hiển thị tên nhân viên trên LCD khi mở cửa bằng mặt. `config.json` phải bật `faceDoor`; dịch vụ station Firebase và camera cũng phải chạy. Sau một lần nhận diện mặt mới được Firestore chấp nhận, laptop ghi lệnh `OPEN_DOOR` trong cùng giao dịch với lượt chấm. ESP8266 lấy lệnh qua Wi-Fi và tự mở servo; không cần Admin chụp ảnh hoặc bấm nút mở cửa. Servo giữ cửa mở 5 giây sau khi chạy hết hành trình rồi tự đóng.
+
+Camera nhận diện liên tục, cần ba khung hình trống để bắt đầu lượt mới và ba khung hình liên tiếp cùng khớp hồ sơ trước khi ghi công. Với camera đang chạy ổn, hướng mặt vào camera và giữ yên khoảng 5 giây là mục tiêu; tốc độ mạng/laptop có thể làm lâu hơn. Khi Firestore xác nhận, web hiện tên và kết quả gần nhất trong 60 giây. Nếu mặt và vân tay của cùng nhân viên cùng điểm chấm đến trong 180 giây, kết quả sau sẽ được báo là đã gộp và không tạo lượt thứ hai.
+
+Lệnh mở cửa chỉ sống tối đa 15 giây và firmware kiểm tra thời hạn lần nữa ngay trước khi mở. Lượt trùng, lượt gửi lại, ảnh đăng ký, camera offline, thiết bị offline hoặc một lệnh khác đang chạy không mở cửa. Lượt chấm công hợp lệ vẫn được ghi nếu mở cửa bị bỏ qua; xem `doorCommandStatus` trong bản ghi để biết lý do. Cắm camera vào nguồn, để ESP32-S3 và laptop cùng Wi-Fi, và giữ ESP8266 kết nối Internet/Firebase.
+
+Chống trùng giữa mặt và vân tay hoạt động khi cả hai lượt được gửi qua laptop `Gateway` với cùng `stationId`. Nếu `ATTENDANCE_GATEWAY_MODE` vẫn là `0`, vân tay ghi thẳng lên Firestore và không thể được gộp với lượt mặt. Khi chuyển từ chế độ trực tiếp sang Gateway, trước hết đồng bộ hết hàng đợi cũ và chờ hơn 180 giây sau lượt cuối; không đổi chế độ hoặc xóa LittleFS giữa lúc lượt cũ còn đang gửi.
 
 Mẫu luôn gắn với ID hồ sơ nhân viên hiện có; không tạo hồ sơ `demo-01` trên Firebase. Mỗi nhân viên và mỗi station chỉ có một yêu cầu đang xử lý. Laptop ngừng chạy thì app báo offline; station chỉ nhận yêu cầu thuộc đúng phiên đang chạy, tối đa năm phút kể từ khi gửi. Yêu cầu đang chụp/lưu bị gián đoạn không tự tiếp tục chụp khi mở lại laptop; Admin phải yêu cầu lại đúng người.
 
@@ -178,6 +218,18 @@ Gateway mặc định **OFF**, để firmware vân tay đang dùng tiếp tục 
 Trước khi bật: dừng nhánh mặt, đồng bộ hết outbox cũ qua đường trực tiếp và xác nhận không còn lượt đang gửi, sau đó chờ hơn 180 giây kể từ lượt cuối. Không xóa LittleFS. Lượt cũ đã ghi trực tiếp nhưng mất ACK chưa có biên nhận gateway; chuyển ngay có thể tạo hai lượt gốc. Giữ toàn bộ điểm chấm ở một chế độ trong lúc thử.
 
 Điền cấu hình mẫu tại [secrets.h.example](../../firmware/esp8266_fingerprint/secrets.h.example): bật gateway, URL `http://IP_LAPTOP:8765/v1/fingerprint`, token khớp `deviceToken`, điểm chấm khớp `stationId`. Tham khảo các tên macro đúng trong file mẫu. Khi gateway ON, board giữ hàng đợi nếu không kết nối được laptop và không tự gửi trực tiếp Firestore.
+
+Để chống trùng giữa khuôn mặt và vân tay, cả hai phải đi qua Gateway với cùng `stationId`. Bản firmware `spark-gateway-v19-face-name-door-ttl` giữ nguyên ID và giờ quét trong LittleFS rồi gửi sự kiện vân tay tới `POST /v1/fingerprint`; laptop dùng cùng `attendanceGates` cho cả hai phương thức. Hai lượt cùng nhân viên trong 180 giây thành một lượt. Nếu vân tay được chấp nhận trước, khuôn mặt sau đó sẽ là lượt trùng; nếu khuôn mặt được chấp nhận trước, cửa mở theo lệnh khuôn mặt và vân tay sau đó bị gộp. Trang Camera & khuôn mặt hiện tên và kết quả lượt gần nhất sau khi hệ thống xác nhận; LCD ESP8266 cũng hiện tên nếu đã nạp bản mới. Hồ sơ `fingerprintMappings/{templateId}` cần trỏ đúng nhân viên đang hoạt động.
+
+Đặt `config.json.host` thành địa chỉ Wi-Fi cụ thể của laptop (ví dụ `192.168.0.104`), và đặt `ATTENDANCE_GATEWAY_URL` trong `secrets.h` thành đúng địa chỉ đó cùng cổng `8765`. Không dùng `127.0.0.1` cho URL firmware. Giữ token khớp chính xác giữa `deviceToken` và `ATTENDANCE_DEVICE_TOKEN`; script nạp bên dưới tự kiểm tra mà không in token. Laptop, ESP8266 và camera cần cùng mạng Wi-Fi. Nếu DHCP đổi IP laptop, sửa cả hai cấu hình và khởi động lại station.
+
+Windows cần một rule inbound chỉ cho chương trình Python của dịch vụ, TCP 8765 và `RemoteAddress LocalSubnet`. Mạng Public ở nhà vẫn có thể dùng với phạm vi LocalSubnet này. Mở PowerShell bằng **Run as administrator** rồi chạy `services/face_attendance/mo-cong-firewall-gateway.ps1`. Không mở cổng tới mọi địa chỉ Internet. Khi đã cập nhật `secrets.h`, đóng Serial Monitor/Plotter, cắm ESP8266 bằng USB rồi chạy từ thư mục gốc:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File services/face_attendance/cap-nhat-esp8266-gateway.ps1 -Port COM3
+```
+
+Script kiểm tra token/URL/điểm chấm có khớp trước khi nạp, biên dịch đúng NodeMCU và dùng `wipe=none` để giữ nguyên LittleFS. Cần thấy `Hash of data verified.`; sau khởi động, thiết bị phải báo firmware Gateway mới trên Firebase. Dịch vụ laptop cần chạy trong suốt thời gian chấm công. Khi đường Gateway lỗi, bản quét mới được giữ ở ESP8266 để thử lại, không ghi trực tiếp Firestore qua đường cũ.
 
 ## Giao thức và chống trùng
 

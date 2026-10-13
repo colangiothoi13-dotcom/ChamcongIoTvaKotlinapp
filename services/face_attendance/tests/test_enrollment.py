@@ -320,6 +320,106 @@ class StoreTests(unittest.TestCase):
         self.command.update(captureRequestSeq=10, captureConsumedSeq=10, samplesCaptured=10)
         self.assertEqual(self.store.begin_finalizing("req-1", 2), 6)
 
+    def test_manual_blur_ack_reports_detected_face_score_and_never_advances_progress(self):
+        self.command.update(sampleCount=6, capturePlan="FRONT_LEFT_RIGHT_V1", captureMode="MANUAL",
+                            captureRequestSeq=0, captureConsumedSeq=0, samplesCaptured=0)
+        self.store.claim("req-1")
+        self.command["captureRequestSeq"] = 1
+        self.store.acknowledge_capture("req-1", 1, 0, "low_quality", "blurry",
+                                       sharpness_score=12.25, sharpness_required=50,
+                                       sharpness_metric="FACE_MAX128_LAPLACIAN_V1")
+        self.assertEqual((self.command["captureConsumedSeq"], self.command["samplesCaptured"]), (1, 0))
+        self.assertEqual((self.command["captureLastSharpness"], self.command["captureSharpnessRequired"]), (12.25, 50))
+        self.assertEqual(self.command["captureSharpnessMetric"], "FACE_MAX128_LAPLACIAN_V1")
+        self.assertIn("Đã thấy mặt", self.command["message"])
+        self.assertIn("12.2", self.command["message"])
+        self.assertIn("mức 50.0", self.command["message"])
+        self.assertNotIn("%", self.command["message"])
+        self.assertIn("Bước 1/3", self.command["message"])
+        self.assertLessEqual(len(self.command["message"]), 300)
+        self.command["captureRequestSeq"] = 2
+        self.store.acknowledge_capture("req-1", 2, 1, "quality_ok",
+                                       sharpness_score=70, sharpness_required=50)
+        self.assertEqual(self.command["captureLastSharpness"], 70)
+        self.assertIsNone(self.command["captureLastQualityIssue"])
+        self.assertEqual(self.command["samplesCaptured"], 1)
+        self.command["captureRequestSeq"] = 3
+        self.store.acknowledge_capture("req-1", 3, 1, "no_face")
+        self.assertIsNone(self.command["captureLastSharpness"])
+        self.assertIsNone(self.command["captureSharpnessRequired"])
+        self.assertIsNone(self.command["captureSharpnessMetric"])
+
+    def test_manual_invalid_diagnostics_are_rejected_before_any_ack_or_progress_write(self):
+        self.command.update(captureMode="MANUAL", captureRequestSeq=0, captureConsumedSeq=0, samplesCaptured=0)
+        self.store.claim("req-1")
+        self.command["captureRequestSeq"] = 1
+        before = deepcopy(self.command)
+        for score, required in ((float("nan"), 50), (12, None), (True, 50), (-1, 50), (12, 0)):
+            with self.subTest(score=score, required=required):
+                with self.assertRaisesRegex(CommandRejected, "INVALID_SHARPNESS_DIAGNOSTICS"):
+                    self.store.acknowledge_capture("req-1", 1, 0, "low_quality", "blurry",
+                                                   sharpness_score=score, sharpness_required=required)
+                self.assertEqual(self.command, before)
+
+    def test_auto_blur_feedback_contains_score_and_clears_it_after_legacy_saved_frame(self):
+        self.store.claim("req-1")
+        self.store.reject_capture("req-1", 0, "blurry", sharpness_score=0, sharpness_required=50)
+        self.assertEqual(self.command["captureLastSharpness"], 0)
+        self.assertEqual(self.command["samplesCaptured"], 0)
+        self.assertIn("Đã thấy mặt", self.command["message"])
+        self.assertIn("mức 50.0", self.command["message"])
+        self.assertNotIn("Bấm Chụp ảnh", self.command["message"])
+        self.store.progress("req-1", 1)
+        self.assertIsNone(self.command["captureLastSharpness"])
+        self.assertIsNone(self.command["captureSharpnessRequired"])
+
+    def test_auto_accessory_rejection_updates_feedback_without_photo_or_profile_progress(self):
+        self.store.claim("req-1")
+        profile = deepcopy(self.db.data["faceProfiles/employee-a"])
+        for issue, word in (("mask", "khẩu trang"), ("hat", "mũ"), ("glasses", "kính")):
+            with self.subTest(issue=issue):
+                self.store.reject_capture("req-1", 0, issue)
+                self.assertEqual(self.command["samplesCaptured"], 0)
+                self.assertEqual(self.command["status"], "CAPTURING")
+                self.assertEqual(self.command["captureLastQualityIssue"], issue)
+                self.assertIn(word, self.command["message"])
+                self.assertNotIn("Bấm Chụp ảnh", self.command["message"])
+                self.assertEqual(self.db.data["faceProfiles/employee-a"], profile)
+        self.store.progress("req-1", 1)
+        self.assertIsNone(self.command["captureLastQualityIssue"])
+        self.assertEqual(self.command["captureLastReason"], "quality_ok")
+
+    def test_auto_rejection_cannot_ignore_cancellation_session_or_shared_locks(self):
+        cases = [
+            ("faceEnrollmentCommands/req-1", "cancelRequested", True, "CANCELLED"),
+            ("faceStations/GATE-01", "sessionId", "replaced", "STATION_SESSION_CHANGED"),
+            ("faceEnrollmentLocks/employee-a", "commandId", "other", "COMMAND_LOCK_CHANGED"),
+            ("users/admin", "active", False, "REQUESTER_NOT_ADMIN"),
+        ]
+        for path, key, value, code in cases:
+            with self.subTest(path=path):
+                self.setUp()
+                self.store.claim("req-1")
+                self.db.data[path][key] = value
+                with self.assertRaisesRegex(CommandRejected, code):
+                    self.store.reject_capture("req-1", 0, "mask")
+                self.assertNotIn("captureLastQualityIssue", self.command)
+                self.assertEqual(self.command["samplesCaptured"], 0)
+
+    def test_auto_rejection_rejects_manual_command_forged_count_or_unrecognized_issue(self):
+        self.store.claim("req-1")
+        for saved in (1, True, -1):
+            with self.subTest(saved=saved):
+                with self.assertRaisesRegex(CommandRejected, "INVALID_CAPTURE_SEQUENCE"):
+                    self.store.reject_capture("req-1", saved, "mask")
+        with self.assertRaisesRegex(CommandRejected, "INVALID_QUALITY_ISSUE"):
+            self.store.reject_capture("req-1", 0, "untrusted_text")
+        self.setUp()
+        self.command.update(captureMode="MANUAL", captureRequestSeq=0, captureConsumedSeq=0, samplesCaptured=0)
+        self.store.claim("req-1")
+        with self.assertRaisesRegex(CommandRejected, "COMMAND_CHANGED"):
+            self.store.reject_capture("req-1", 0, "mask")
+
     def test_guided_six_plan_requires_exact_manual_schema_and_rejects_legacy_plan_fields(self):
         cases = [
             {"sampleCount": 6},
@@ -457,6 +557,48 @@ class WorkerTests(unittest.TestCase):
         self.assertIsNone(self.face.inputs)
         self.assertEqual(self.face.profiles["employee-a"]["profileVersion"], 2)
         self.assertEqual(self.store.command["errorCode"], "CAPTURE_INCOMPLETE")
+
+    def test_auto_accessory_feedback_deduplicates_and_throttles_rejected_attempts(self):
+        self.store.reject_capture = Mock()
+        partial = CaptureSummary("employee-a", 10, (), 100, False)
+
+        def capture(*args, **kwargs):
+            for issue in ("mask", "mask", "glasses", "glasses", "glasses", "hat"):
+                kwargs["progress"]({"status": "CAPTURE_SKIP", "saved": 0, "requested": 10,
+                                    "reason": "low_quality", "qualityIssue": issue})
+            kwargs["progress"]({"status": "CAPTURE_SKIP", "saved": 0, "requested": 10,
+                                "reason": "low_quality", "qualityIssue": "blurry"})
+            return partial
+
+        with (
+            patch("face_attendance.enrollment.capture_samples", side_effect=capture),
+            patch("face_attendance.enrollment.time.monotonic", side_effect=[0, 1, 2, 5, 6, 10, 15]),
+        ):
+            self.worker.run_one("req-1")
+        self.assertEqual([call.args for call in self.store.reject_capture.call_args_list], [
+            ("req-1", 0, "mask"), ("req-1", 0, "glasses"), ("req-1", 0, "hat"),
+            ("req-1", 0, "blurry")])
+        self.assertEqual(self.store.progresses, [])
+        self.assertIsNone(self.face.inputs)
+        self.assertEqual(self.face.profiles["employee-a"]["profileVersion"], 2)
+
+    def test_auto_blur_feedback_refreshes_changed_score_at_most_once_per_five_seconds(self):
+        self.store.reject_capture = Mock()
+        partial = CaptureSummary("employee-a", 10, (), 5, False)
+
+        def capture(*args, **kwargs):
+            for score in (12, 12, 13, 14, 15):
+                kwargs["progress"]({"status": "CAPTURE_SKIP", "saved": 0, "requested": 10,
+                                    "reason": "low_quality", "qualityIssue": "blurry",
+                                    "sharpnessScore": score, "sharpnessRequired": 50})
+            return partial
+
+        with (patch("face_attendance.enrollment.capture_samples", side_effect=capture),
+              patch("face_attendance.enrollment.time.monotonic", side_effect=[0, 1, 2, 5, 6])):
+            self.worker.run_one("req-1")
+        self.assertEqual(len(self.store.reject_capture.call_args_list), 2)
+        self.assertEqual([call.kwargs["sharpness_score"] for call in self.store.reject_capture.call_args_list], [12, 14])
+        self.assertEqual(self.store.progresses, [])
 
     def test_cancel_during_capture_prevents_gallery_and_completes_cancelled(self):
         def capture(*args, **kwargs):

@@ -17,6 +17,7 @@ function js(source) {
       `function ${name}(${params.replace(/\b(?:const\s+)?(?:String\s*&|char\s*\*|bool|uint32_t|int|unsigned long|AttendanceDelivery|AttendanceSyncResult)\s*/g, '')}) {`)
     .replace(/\bconst\s+(?:unsigned long|uint8_t|uint32_t|size_t|bool|int|wl_status_t|AttendanceDelivery|AttendanceSyncResult)\s+/g, 'const ')
     .replace(/\b(?:unsigned long|uint8_t|uint16_t|bool|int|String|File)\s+(\w+)(?=\s*[=;])/g, 'let $1')
+    .replace(/\bconst\s+let\b/g, 'const')
     .replace(/DynamicJsonDocument (\w+)\((\d+)\);/g, 'const $1 = {};')
     .replace(/(record\["\w+"\]) \| ""/g, "($1 ?? '')")
     .replace(/line.trim\(\);/g, 'line = line.trim();')
@@ -62,6 +63,14 @@ function fixture() {
     doorServo: { write(angle) { state.servoWrites.push([state.now, angle]); }, attach() {} },
     showLcd(...lines) { state.displays.push(lines); }, renderLcd() {}, showReadyScreen() {},
     showFingerprintResultNotice(...lines) { state.displays.push(lines); },
+    showAttendanceDoorNotice(name, offline = false) {
+      const displayName = name || 'DA CHAM CONG';
+      state.displays.push([displayName, 'DANG MO CUA']);
+      state.doorAttendanceEmployeeName = displayName;
+      state.fingerprintDoorNoticeActive = true;
+      state.fingerprintDoorNoticeOffline = offline;
+      state.fingerprintDoorNoticeAttendanceSaved = true;
+    },
     signalResult(ok) { state.signals.push(ok); }, setLatestError(message) { state.error = message; },
     queueBytes: 0, attendanceOutboxBytes() { return state.queueBytes; },
     littleFsReady: true, attendanceOutboxIsEmpty() { return state.littleFsReady && state.queueBytes === 0; },
@@ -678,7 +687,7 @@ test('selected offline policy opens a matched current scan only after it was sav
   assert.equal(saved.attendancePendingSync, true); assert.equal(saved.fingerprintDoorNoticeOffline, true);
   assert.deepEqual(saved.displays.at(-1), ['VAN TAY #1', 'DANG MO CUA']); assert.deepEqual(saved.signals, [true]);
   for (let i = 0; i < 180; i++) saved.tick(10);
-  assert.deepEqual(saved.displays.at(-1), ['SE DONG SAU 5S', 'OFFLINE: DA LUU']);
+  assert.deepEqual(saved.displays.at(-1), ['VAN TAY #1', 'OFFLINE: DA LUU']);
 });
 
 test('matched cold boot without a clock opens access only, creates no pending attendance and closes after 5s', () => {

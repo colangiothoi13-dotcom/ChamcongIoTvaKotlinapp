@@ -68,6 +68,10 @@ internal fun EmployeeFaceEnrollmentControls(
             color = if (it.status == "FAILED") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         if (it.active) {
+            if (it.status == "CAPTURING" && !it.cancelRequested && it.message.isNotBlank()) Text(
+                it.message.take(300), style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
             if (it.action == "ENROLL" && it.sampleCount > 0) LinearProgressIndicator(
                 progress = { (it.samplesCaptured.toFloat() / it.sampleCount).coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth()
@@ -121,13 +125,16 @@ internal fun FaceEnrollmentDialog(
                         progress = { (submitted.samplesCaptured.toFloat() / submitted.sampleCount.coerceAtLeast(1)).coerceIn(0f, 1f) },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (submitted?.status == "CAPTURING" && !submitted.cancelRequested && submitted.message.isNotBlank()) Text(
+                        submitted.message.take(300), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                    )
                     if (submitted?.status in setOf("PENDING", "CAPTURING")) Text("Chỉ một người trước camera. Giữ mặt rõ, nhìn thẳng rồi xoay nhẹ theo hướng dẫn.")
                     if (submitted?.status == "COMPLETED") Text("Laptop đã xác nhận hoàn tất.")
                     if (submitted?.canCancel == true) TextButton({ vm.cancelFaceEnrollment(submitted.requestId) },
                         enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("Hủy yêu cầu") }
                 } else {
                     Text(if (action == FaceEnrollmentAction.ENROLL)
-                        "Thu 10 ảnh từ camera ESP32-S3. Đặt camera ngang tầm mặt, đủ sáng; nhìn thẳng rồi xoay nhẹ."
+                        "Thu 10 ảnh từ camera ESP32-S3. Tháo khẩu trang và kính (kính cận hoặc kính râm). Đặt camera ngang tầm mặt, giữ trọn khuôn mặt, cả trán và cằm trong ảnh và đủ sáng; nhìn thẳng rồi xoay nhẹ."
                     else "Mẫu nhận diện sẽ được xóa trên laptop và hồ sơ khuôn mặt sẽ bị vô hiệu hóa. Ảnh đăng ký trên laptop và lịch sử chấm công vẫn được giữ.")
                     Text("Chọn trạm camera", style = MaterialTheme.typography.labelLarge)
                     if (state.faceStations.isEmpty()) Text("Chưa có trạm. Mở dịch vụ nhận diện trên laptop ở chế độ Firebase.")

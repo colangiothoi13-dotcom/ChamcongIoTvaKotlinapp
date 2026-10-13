@@ -1,5 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {createEnrollmentPreviewProxy} from './enrollment-preview-proxy.mjs';
+import {createFaceStatusProxy} from './face-status-proxy.mjs';
 
 const MAX_FRAME_BYTES=5*1024*1024;
 const MAX_HEALTH_BYTES=16*1024;
@@ -70,8 +71,10 @@ function safeHealth(value){
 export function createCameraProxy({configPath,fetchImpl=fetch,readConfig=readFile,timeoutMs=REQUEST_TIMEOUT_MS,authorizeRequest=isLocalPreviewRequest}={}){
   let busy=false;
   const enrollmentPreview=createEnrollmentPreviewProxy({configPath,fetchImpl,readConfig,timeoutMs,authorizeRequest});
+  const faceStatus=createFaceStatusProxy({configPath,fetchImpl,readConfig,timeoutMs,authorizeRequest});
   return async(req,res,url)=>{
     if(url.pathname.startsWith('/api/camera/enrollment-preview/'))return enrollmentPreview(req,res,url);
+    if(url.pathname==='/api/camera/face-status')return faceStatus(req,res,url);
     if(!['/api/camera/frame','/api/camera/health'].includes(url.pathname))return json(res,404,{error:'NOT_FOUND'});
     if(req.method!=='GET')return json(res,405,{error:'METHOD_NOT_ALLOWED'});
     if(!authorizeRequest(req))return json(res,403,{error:'PREVIEW_FORBIDDEN',message:'Mở camera từ web trên localhost của laptop.'});

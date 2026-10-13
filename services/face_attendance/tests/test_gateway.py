@@ -44,10 +44,21 @@ class GatewayTest(unittest.TestCase):
 
     def test_both_orders_only_one_attendance(self):
         first = self.gateway.submit(event("FACE", "face"))
+        self.assertEqual(first["employeeName"], "A")
         second = self.gateway.submit(event("FINGERPRINT", "finger", 1))
         self.assertEqual(first["attendanceId"], second["attendanceId"])
         self.assertEqual("DUPLICATE_DEMO", second["status"])
         self.assertEqual(1, self.backend.count())
+
+    def test_result_listener_receives_durable_results_for_both_sources(self):
+        seen = []
+        self.gateway.result_listener = lambda source, result: seen.append((source.payload["method"], result["status"], result.get("employeeName")))
+        face = event("FACE", "face-listener")
+        self.gateway.submit(face)
+        self.assertEqual([("FACE", "ACCEPTED_DEMO", "A")], seen)
+        self.gateway.submit(event("FINGERPRINT", "finger-listener", 1))
+        self.assertEqual([("FACE", "ACCEPTED_DEMO", "A"),
+                          ("FINGERPRINT", "DUPLICATE_DEMO", "A")], seen)
 
     def test_concurrent_requests_from_separate_gateways(self):
         # Distinct gateway locks exercise the database transaction rather than a shared Python lock.

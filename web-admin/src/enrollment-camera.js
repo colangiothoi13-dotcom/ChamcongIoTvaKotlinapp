@@ -5,7 +5,7 @@ import {renderFaceFraming,updateFaceFraming} from './face-framing.js';
 
 export function renderEnrollmentCameraPreview(){
   return `<section class="enrollment-camera-preview" aria-labelledby="face-camera-title">
-    <div class="panel-head"><div><h3 id="face-camera-title">Camera đang lấy mẫu</h3><p>Chỉ một người, mặt rõ và đủ sáng.</p></div><span id="face-camera-state" class="badge neutral">Đã tắt</span></div>
+    <div class="panel-head"><div><h3 id="face-camera-title">Camera đăng ký khuôn mặt</h3><p>Chỉ một người, mặt rõ và đủ sáng. Tháo khẩu trang và kính (kính cận hoặc kính râm); giữ trọn khuôn mặt, cả trán và cằm trong ảnh.</p></div><span id="face-camera-state" class="badge neutral">Đã tắt</span></div>
     <div class="camera-controls"><button type="button" class="btn primary" data-action="face-camera-start" id="face-camera-start">${icon('camera')} Bắt đầu xem</button><button type="button" class="btn" data-action="face-camera-stop" id="face-camera-stop" disabled>Dừng xem</button><button type="button" class="btn" data-action="face-camera-rotate" aria-label="Xoay ảnh camera thêm 90 độ">${icon('refresh')} Xoay 90°</button><span id="face-camera-rotation" class="muted">0°</span></div>
     <div class="camera-feedback"><p id="face-camera-message" role="status" aria-live="polite">Đang chuẩn bị hình ảnh từ camera…</p><p id="face-camera-updated" class="hint">Chưa nhận ảnh.</p></div>
     <div id="face-camera-stage" class="camera-stage"><img id="face-camera-image" width="640" height="480" alt="Ảnh trực tiếp từ camera của trạm đăng ký khuôn mặt" hidden>${renderFaceFraming()}<div id="face-camera-placeholder" class="camera-placeholder">${icon('camera')}<strong>Chưa nhận hình từ camera</strong><span>Giữ camera được cấp nguồn và laptop cùng Wi-Fi. Bấm Bắt đầu xem nếu hình đang tắt.</span></div></div>
@@ -18,12 +18,22 @@ export function renderEnrollmentCameraPreview(){
 // This viewer only requests local camera snapshots. Enrollment remains controlled
 // by the existing command tracker, including when the viewer stops or is closed.
 export function createEnrollmentCameraPreview(root,{documentImpl=root.ownerDocument,expectedStationId,controllerFactory=createPreviewController,captureFactory=createCaptureResultController,onStart=()=>{}}={}){
-  let disposed=false,viewer,intent=0,command=null,preview=null;
+  let disposed=false,viewer,intent=0,command=null,preview=null,captureState=null;
   const detached=()=>root.isConnected===false;
   const image=root.querySelector('#face-camera-image');
   const capturedImage=root.querySelector('#face-capture-image');
   const windowImpl=documentImpl?.defaultView;
-  const capture=captureFactory({expectedStationId,isHidden:()=>Boolean(documentImpl?.hidden),onChange:state=>{if(!disposed&&!detached())updateCaptureResult(root,state);}});
+  function refreshCaptureResult(){
+    if(!captureState||disposed||detached())return;
+    let state=captureState;
+    if(['COMPLETED','FAILED','CANCELLED'].includes(command?.status)&&!state.frameUrl){
+      if(state.phase==='idle')state={...state,message:command.status==='COMPLETED'?'Yêu cầu đã hoàn tất. Ảnh cuối sẽ hiện ở đây nếu còn được lưu tạm trên laptop.':'Yêu cầu đã kết thúc. Không chụp thêm ảnh trong yêu cầu này.'};
+      else if(state.phase==='error')state={...state,message:'Chưa xem được ảnh cuối của yêu cầu đã kết thúc. Có thể thử tải lại ảnh.'};
+    }
+    updateCaptureResult(root,state);
+  }
+  const capture=captureFactory({expectedStationId,isHidden:()=>Boolean(documentImpl?.hidden),onChange:state=>{captureState=state;refreshCaptureResult();}});
+  captureState=capture.getState?.()||{phase:'idle',frameUrl:null,message:'Ảnh của lần chụp sẽ hiện ở đây.'};
   viewer=controllerFactory({intervalMs:1000,expectedStationId:expectedStationId??null,isHidden:()=>Boolean(documentImpl?.hidden),onChange:state=>{
     if(disposed)return;
     if(detached()){if(state.running)viewer?.stop();return;}
@@ -76,5 +86,5 @@ export function createEnrollmentCameraPreview(root,{documentImpl=root.ownerDocum
     documentImpl?.removeEventListener('visibilitychange',visibilityChanged);
     windowImpl?.removeEventListener('pagehide',pageHidden);
   }
-  return {start,stop,dispose,visibilityChanged,observeCapture(value,requestId){if(!disposed&&!detached()){command=value;updateFaceFraming(root,command,preview);capture.observe(value,requestId);}}};
+  return {start,stop,dispose,visibilityChanged,observeCapture(value,requestId){if(!disposed&&!detached()){command=value;updateFaceFraming(root,command,preview);capture.observe(value,requestId);refreshCaptureResult();}}};
 }

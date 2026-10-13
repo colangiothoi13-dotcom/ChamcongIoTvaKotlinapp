@@ -9,7 +9,9 @@
 #include <Servo.h>
 #include <LittleFS.h>
 #include <time.h>
+#include <sys/time.h>
 #include "RuntimePolicy.h"
+#include "FaceDoorPolicy.h"
 
 #include "secrets.h"
 
@@ -52,7 +54,7 @@ const char* FIREBASE_API_KEY = FIREBASE_WEB_API_KEY;
 const char* FIRESTORE_URL = FIRESTORE_BASE_URL;
 const char* DEVICE_ID = "GATE-01";
 const char* FIRMWARE_VERSION = ATTENDANCE_GATEWAY_ENABLED
-    ? "spark-gateway-v17-face-ready" : "spark-anonymous-v16-tls-memory";
+    ? "spark-gateway-v19-face-name-door-ttl" : "spark-anonymous-v18-face-name-door-ttl";
 // User-selected policy: AS608 matches can grant access when the server cannot
 // be reached. No employee roster/mapping cache is stored on the ESP8266.
 const bool OFFLINE_AS608_ACCESS_ENABLED = true;
@@ -63,7 +65,8 @@ const unsigned long ATTENDANCE_NEXT_RECORD_INTERVAL_MS = 250;
 const unsigned long FOREGROUND_ATTENDANCE_VALIDITY_MS = 15000;
 const unsigned long SYNC_COMMAND_TIMEOUT_MS = 180000;
 const unsigned long COMMAND_ACTIVE_POLL_INTERVAL_MS = 3000;
-const unsigned long COMMAND_IDLE_POLL_INTERVAL_MS = 15000;
+// About 28,800 idle reads/day, leaving room within Spark's daily read quota.
+const unsigned long COMMAND_IDLE_POLL_INTERVAL_MS = 3000;
 const unsigned long COMMAND_RETRY_INTERVAL_MS = 10000;
 const unsigned long HTTPS_RETRY_COOLDOWN_MS = 30000;
 const uint32_t MIN_HTTPS_FREE_HEAP = 30000;
@@ -104,6 +107,12 @@ bool waitingForFingerRemoval = false;
 String commandId;
 String commandRequestId;
 String commandVersion;
+String commandSource;
+String commandAttendanceId;
+String commandEmployeeName;
+String commandCreatedAt;
+String commandExpiresAt;
+String pendingCommandFailureMessage;
 String pendingCommandEmployeeId;
 bool commandAlreadyApplied = false;
 String pendingCommandType;

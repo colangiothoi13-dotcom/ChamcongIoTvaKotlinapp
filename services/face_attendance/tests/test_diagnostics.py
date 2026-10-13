@@ -17,6 +17,7 @@ class SetupChecksTests(unittest.TestCase):
         self.root = Path(directory.name)
         template = Path(__file__).resolve().parents[1] / "config.example.json"
         self.config = json.loads(template.read_text(encoding="utf-8"))
+        self.config["accessories"]["enabled"] = False
         self.config.update(_base=self.root, adminToken="a" * 32, deviceToken="d" * 32)
         self.config["camera"]["token"] = "c" * 32
         (self.root / self.config["registryFile"]).write_text('{"employees":{}}', encoding="utf-8")
@@ -104,6 +105,21 @@ class SetupChecksTests(unittest.TestCase):
             report = run_checks(self.config, include_camera=True)
         self.assertFalse(report["ok"])
         self.assertNotIn("SECRET", json.dumps(report))
+
+    def test_enabled_accessory_gate_is_checked_and_missing_models_fail_readiness(self):
+        self.config["accessories"]["enabled"] = True
+        report = run_checks(self.config)
+        self.assertFalse(report["ok"])
+        self.assertFalse(report["readyForRecognition"])
+        self.assertEqual(self.check(report, "accessories")["status"], "ERROR")
+
+    def test_successful_accessory_warmup_is_reported_without_real_images(self):
+        self.config["accessories"]["enabled"] = True
+        with patch("face_attendance.accessory_setup.create_accessory_guard") as factory:
+            report = run_checks(self.config)
+        factory.return_value.check_runtime.assert_called_once_with()
+        self.assertTrue(report["ok"])
+        self.assertEqual(self.check(report, "accessories")["status"], "OK")
 
 
 if __name__ == "__main__":

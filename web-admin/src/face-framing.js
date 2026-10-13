@@ -6,8 +6,8 @@ export function faceFramingGuide(command){
   if(!hasSixPosePlan(command)||!['PENDING','CAPTURING'].includes(command.status)||command.cancelRequested===true||!Number.isSafeInteger(command.samplesCaptured)||command.samplesCaptured<0||command.samplesCaptured>=6)return null;
   const pose=capturePoseStep(command.samplesCaptured),near=pose.next===2;
   return {pose:pose.key,poseLabel:pose.label,photo:pose.next,distance:near?'NEAR':'FAR',scale:near?1.35:1,
-    title:`${pose.label} · Ảnh ${pose.next}/2 · ${near?'Tiến lại gần':'Đứng xa hơn'}`,
-    instruction:near?'Tiến lại gần vừa đủ để mặt nằm trong khung oval lớn. Giữ đủ trán và cằm, giữ yên rồi bấm Chụp ảnh.':'Lùi nhẹ để lấy toàn bộ khuôn mặt trong khung oval nhỏ. Giữ đủ trán và cằm, giữ yên rồi bấm Chụp ảnh.'};
+    title:`${pose.label} · Ảnh ${pose.next}/2 · ${near?'Tiến lại gần':'Giữ mặt trọn khung'}`,
+    instruction:near?'Tiến lại gần vừa đủ để mặt nằm trong khung oval lớn. Giữ cả trán và cằm trong ảnh, giữ yên rồi bấm Chụp ảnh.':'Giữ cả trán và cằm trong khung oval nhỏ. Nếu đã vừa khung thì không cần lùi thêm. Giữ yên rồi bấm Chụp ảnh.'};
 }
 
 export function renderFaceFraming(){

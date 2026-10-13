@@ -7,6 +7,7 @@ LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
 bool fingerprintDoorNoticeActive = false;
 bool fingerprintDoorNoticeOffline = false;
 bool fingerprintDoorNoticeAttendanceSaved = true;
+String doorAttendanceEmployeeName;
 const unsigned long FINGERPRINT_RESULT_HOLD_MS = 1000;
 bool fingerprintResultNoticeActive = false;
 unsigned long fingerprintResultNoticeStartedAt = 0;
@@ -104,9 +105,19 @@ void showLcd(const String& firstLine, const String& secondLine) {
   fingerprintDoorNoticeActive = false;
   fingerprintDoorNoticeOffline = false;
   fingerprintDoorNoticeAttendanceSaved = true;
+  doorAttendanceEmployeeName = "";
   fingerprintResultNoticeActive = false;
   lcdIdleMode = false;
   renderLcd(firstLine, secondLine);
+}
+
+void showAttendanceDoorNotice(const String& employeeName, bool offline = false) {
+  const String displayName = employeeName.length() > 0 ? employeeName : String(F("DA CHAM CONG"));
+  showLcd(displayName, F("DANG MO CUA"));
+  doorAttendanceEmployeeName = displayName;
+  fingerprintDoorNoticeActive = true;
+  fingerprintDoorNoticeOffline = offline;
+  fingerprintDoorNoticeAttendanceSaved = true;
 }
 
 bool fingerprintResultHoldActive() {
@@ -167,6 +178,7 @@ void showIdleScreen() {
 
 void showReadyScreen() {
   if (fingerprintResultHoldActive()) return;
+  if (fingerprintDoorNoticeActive && doorNeedsResponsiveLoop()) return;
   fingerprintDoorNoticeActive = false;
   // Removing the finger must not replace the current confirmation screen with
   // the background queue count before this scan is confirmed or times out.

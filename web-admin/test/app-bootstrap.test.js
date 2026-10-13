@@ -8,7 +8,7 @@ test('entry point manages data through dashboard actions, navigates every sectio
   const documentHandlers={},windowHandlers={};
   const node=()=>({innerHTML:'',textContent:'',isConnected:true,disabled:false,handlers:{},attributes:{},style:{},addEventListener(event,callback){this.handlers[event]=callback;},querySelector(){return node();},querySelectorAll(){return[];},getAttribute(name){return this.attributes[name];},setAttribute(name,value){this.attributes[name]=value;},removeAttribute(name){delete this.attributes[name];},classList:{remove(){},toggle(){}},append(){},focus(){},remove(){}});
   let dialogForm,dialogSubmit,dialogCancel,dialogTools=[];
-  const app=node(),dialogError=node(),modal={...node(),open:false,close(){this.open=false;},showModal(){this.open=true;},querySelector(selector){return selector==='form'?dialogForm:dialogError;}};
+  const app=node(),dialogError=node(),modal={...node(),open:false,close(){this.open=false;},showModal(){this.open=true;},getBoundingClientRect(){return {left:100,top:100,right:500,bottom:500};},querySelector(selector){return selector==='form'?dialogForm:dialogError;}};
   const appNodes=new Map();let appHTML='';
   Object.defineProperty(app,'innerHTML',{get(){return appHTML;},set(html){appHTML=html;appNodes.clear();}});
   app.querySelector=selector=>{if(!appNodes.has(selector))appNodes.set(selector,node());return appNodes.get(selector);};
@@ -67,6 +67,13 @@ test('entry point manages data through dashboard actions, navigates every sectio
     await dialogForm.handlers.submit({preventDefault(){},currentTarget:dialogForm});assert.match(app.innerHTML,/Nhân viên đã sửa trên web/);
     assert.equal(modal.open,true);assert.match(modal.innerHTML,/Nhân viên · Nhân viên đã sửa trên web/);
     await click('dialog-close');
+    // Native Escape and a backdrop click use the same guarded user dismissal
+    // route as the X/footer buttons; ordinary dialogs still close immediately.
+    await click('account');let escapePrevented=false;
+    modal.handlers.cancel({preventDefault(){escapePrevented=true;}});assert.equal(escapePrevented,true);assert.equal(modal.open,false);
+    await click('account');let backdropPrevented=false,backdropStopped=false;
+    modal.handlers.click({target:modal,clientX:10,clientY:10,preventDefault(){backdropPrevented=true;},stopPropagation(){backdropStopped=true;}});
+    assert.equal(backdropPrevented,true);assert.equal(backdropStopped,true);assert.equal(modal.open,false);
     location.hash='#camera';windowHandlers.hashchange();assert.match(app.innerHTML,/<h1>Camera & khuôn mặt<\/h1>/);
     assert.equal(previewRequests.length,0);await click('camera-start');await new Promise(resolve=>originals.setTimeout(resolve,10));
     assert.deepEqual(previewRequests.map(row=>row.url),['/api/camera/health','/api/camera/frame']);

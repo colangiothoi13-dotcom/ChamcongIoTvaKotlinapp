@@ -70,6 +70,17 @@ class Gateway:
         self.station_id, self.device_id = station_id, device_id
         self.minimum_face_similarity = minimum_face_similarity
         self.lock = threading.RLock()
+        self.result_listener = None
+
+    def _notify_result(self, event, result):
+        listener = self.result_listener
+        if listener is None:
+            return
+        try:
+            listener(event, result)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Không cập nhật được trạng thái lượt (%s)", type(exc).__name__)
 
     def submit(self, event):
         p = event.payload
@@ -84,7 +95,9 @@ class Gateway:
         with self.lock:
             row = self.outbox.put(event)
             if row["result"]:
-                return json.loads(row["result"])
+                result = json.loads(row["result"])
+                self._notify_result(event, result)
+                return result
             return self._deliver(event, row)
 
     def _deliver(self, event, row):
@@ -97,6 +110,7 @@ class Gateway:
             return response(event, "QUEUED", reason="WAITING_FOR_SYNC")
         if result["status"] != "QUEUED":
             self.outbox.complete(event.key, result)
+            self._notify_result(event, result)
         return result
 
     def flush(self):
@@ -152,16 +166,21 @@ class DemoBackend:
                 result = response(event, "REJECTED", reason=reason)
             else:
                 employee_id, employee = identity
+                employee_name = employee.get("fullName")
+                if not isinstance(employee_name, str) or not employee_name.strip():
+                    employee_name = employee_id
                 stamp, station = event.captured_at.timestamp(), event.payload["stationId"]
                 old = db.execute("""SELECT id FROM demo_attendance WHERE employee=? AND station=?
                     AND captured BETWEEN ? AND ? ORDER BY captured,id LIMIT 1""",
                     (employee_id, station, stamp-self.window, stamp+self.window)).fetchone()
                 if old:
-                    result = response(event, "DUPLICATE_DEMO", old[0])
+                    result = response(event, "DUPLICATE_DEMO", old[0],
+                                      employee_name=employee_name)
                 else:
                     db.execute("INSERT INTO demo_attendance VALUES (?,?,?,?,?)",
                                (event.key, employee_id, station, stamp, event.json))
-                    result = response(event, "ACCEPTED_DEMO", event.key)
+                    result = response(event, "ACCEPTED_DEMO", event.key,
+                                      employee_name=employee_name)
             db.execute("INSERT INTO demo_receipts VALUES (?,?,?)",
                        (event.key, event.digest, json.dumps(result)))
             return result

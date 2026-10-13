@@ -25,6 +25,9 @@ function fixture(fetchImpl,{captureFactory}={}){
     const properties=new Map();
     nodes.set(`#face-frame-${name}`,{hidden:true,textContent:'',dataset:{},style:{setProperty(key,value){properties.set(key,value);},getPropertyValue:key=>properties.get(key)||''}});
   }
+  for(const name of ['image','placeholder','result','preview-retry']){
+    const node=new Events();Object.assign(node,{hidden:true,textContent:'',attributes:{},getAttribute(key){return this.attributes[key];},setAttribute(key,value){this.attributes[key]=value;},removeAttribute(key){delete this.attributes[key];}});nodes.set(`#face-capture-${name}`,node);
+  }
   root.querySelector=selector=>nodes.get(selector)||null;root.contains=node=>node.root===root;
   const viewer=createEnrollmentCameraPreview(root,{documentImpl,expectedStationId:'GATE-01',...(captureFactory?{captureFactory}:{}),onStart:()=>starts.push(calls.length),controllerFactory:received=>{
     options=received;
@@ -38,6 +41,7 @@ test('inline markup has accessible camera controls and describes independent vie
   assert.match(html,/aria-labelledby="face-camera-title"/);assert.match(html,/aria-live="polite"/);assert.match(html,/alt="Ảnh trực tiếp từ camera của trạm đăng ký khuôn mặt"/);
   for(const action of ['start','stop','rotate'])assert.match(html,new RegExp(`type="button"[^>]*data-action="face-camera-${action}"`));
   assert.match(html,/không hủy yêu cầu đăng ký/);assert.match(html,/Xoay ảnh chỉ đổi góc xem/);assert.doesNotMatch(html,/192\.168|X-Camera-Token|firebase-admin/);
+  assert.match(html,/Camera đăng ký khuôn mặt/);assert.doesNotMatch(html,/Camera đang lấy mẫu/,'the shared camera card must not claim an already-completed request is still capturing');
 });
 
 test('inline viewer starts on demand, pins station, polls slowly and handles local controls without root actions',async()=>{
@@ -113,4 +117,28 @@ test('accepted count updates the existing oval without taking photos, reloading 
   f.viewer.observeCapture(command(),'request_1');assert.equal(overlay.hidden,false);f.viewer.stop();assert.equal(overlay.hidden,true);assert.equal(caption.hidden,true);
   assert.ok(f.calls.every(([endpoint,options])=>options.method==='GET'&&['/api/camera/health','/api/camera/frame'].includes(endpoint)));assert.equal(observations.length,6);
   f.viewer.dispose();f.viewer.observeCapture(command({samplesCaptured:1}),'request_1');assert.equal(observations.length,6,'disposed dialog cannot update capture guidance');
+});
+
+test('completed enrollment keeps the exact final picture and removes idle retry prompts to shoot another picture',()=>{
+  let publishCapture;
+  const f=fixture(undefined,{captureFactory:options=>{publishCapture=options.onChange;return {observe(){},dispose(){},visibilityChanged(){},pause(){},retry(){},imageFailed(){}};}});
+  const command={requestId:'request_1',action:'ENROLL',status:'CAPTURING'};
+  const image=f.nodes.get('#face-capture-image'),message=f.nodes.get('#face-capture-result');
+  publishCapture({phase:'ready',frameUrl:'blob:last-accepted',message:'Lần chụp 6: đã lưu ảnh. Tổng 6/6 ảnh đạt yêu cầu.'});
+  f.viewer.observeCapture({...command,status:'COMPLETED'},'request_1');
+  assert.equal(image.attributes.src,'blob:last-accepted');assert.equal(image.hidden,false);assert.match(message.textContent,/6\/6 ảnh đạt/);
+  publishCapture({phase:'idle',frameUrl:null,message:'Bấm Chụp ảnh. Ảnh được laptop kiểm tra sẽ hiện ở đây.'});
+  assert.match(message.textContent,/Yêu cầu đã hoàn tất/);assert.doesNotMatch(message.textContent,/Bấm Chụp ảnh/);
+  publishCapture({phase:'error',frameUrl:null,message:'Ảnh không khớp. Bấm Chụp ảnh để thử lại.'});
+  assert.match(message.textContent,/Có thể thử tải lại ảnh/);assert.doesNotMatch(message.textContent,/Bấm Chụp ảnh/);
+  f.viewer.dispose();
+});
+
+test('cancelled and failed requests never leave the capture caption asking for a new shot',()=>{
+  for(const status of ['CANCELLED','FAILED']){
+    const f=fixture(undefined,{captureFactory:()=>({getState:()=>({phase:'idle',frameUrl:null,message:'Bấm Chụp ảnh.'}),observe(){},dispose(){},visibilityChanged(){},pause(){},retry(){},imageFailed(){}})});
+    f.viewer.observeCapture({requestId:'request_1',action:'ENROLL',status},'request_1');
+    assert.match(f.nodes.get('#face-capture-result').textContent,/Yêu cầu đã kết thúc/);assert.doesNotMatch(f.nodes.get('#face-capture-result').textContent,/Bấm Chụp ảnh/);assert.equal(f.calls.length,0);
+    f.viewer.dispose();
+  }
 });

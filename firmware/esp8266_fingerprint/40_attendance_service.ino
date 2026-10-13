@@ -412,12 +412,9 @@ void handleAttendanceDelivery(const String& eventId, AttendanceDelivery delivery
   foregroundAttendanceDelivery = delivery;
   const bool localAccess = delivery == AttendanceDelivery::LOCAL_ACCEPTED && OFFLINE_AS608_ACCESS_ENABLED;
   if ((delivery == AttendanceDelivery::CONFIRMED || localAccess) && mayOpen) {
-    showLcd(foregroundAttendanceEmployeeName, F("DANG MO CUA"));
+    showAttendanceDoorNotice(foregroundAttendanceEmployeeName, localAccess);
     signalResult(true);
     openDoor();
-    fingerprintDoorNoticeActive = true;
-    fingerprintDoorNoticeOffline = localAccess;
-    fingerprintDoorNoticeAttendanceSaved = true;
     if (localAccess) Serial.printf_P(PSTR("OUTBOX %s: mo cua theo mau AS608; du lieu van cho dong bo\n"), eventId.c_str());
   } else if (delivery == AttendanceDelivery::DUPLICATE) {
     // A receipt from the second recognition method only completes delivery.

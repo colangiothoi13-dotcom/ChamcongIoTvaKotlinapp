@@ -23,3 +23,24 @@ test('left and right instructions refer to the employee, keep both eyes visible 
   assert.match(renderCapturePoseGuide(guided()),/Trái\/phải là phía của nhân viên/);assert.match(renderCapturePoseGuide(guided()),/Admin kiểm tra đúng hướng/);
   assert.equal(renderCapturePoseGuide({action:'ENROLL',captureMode:'MANUAL',sampleCount:10,samplesCaptured:5}), '');
 });
+
+test('six-picture guidance distinguishes saving, unconfirmed completion and a confirmed saved profile',()=>{
+  const finalizing=renderCapturePoseGuide(guided({status:'FINALIZING',samplesCaptured:6}));
+  assert.match(finalizing,/Laptop đang lưu mẫu/);assert.doesNotMatch(finalizing,/Đã lưu mẫu khuôn mặt|aria-current|giữ yên khi bấm chụp/);
+  const completed=guided({status:'COMPLETED',samplesCaptured:6});
+  const waiting=renderCapturePoseGuide(completed);
+  assert.match(waiting,/đang chờ xác nhận hồ sơ/);assert.doesNotMatch(waiting,/Đã lưu mẫu khuôn mặt|[Đđ]ang lưu mẫu|aria-current/);
+  const saved=renderCapturePoseGuide(completed,{completionConfirmed:true});
+  assert.match(saved,/Đã lưu mẫu khuôn mặt/);assert.match(saved,/có thể chấm công bằng khuôn mặt/);
+  assert.doesNotMatch(saved,/đang chờ|[Đđ]ang lưu|bấm chụp|aria-current/);
+  assert.equal((saved.match(/2\/2 ảnh đạt/g)||[]).length,3);
+  assert.doesNotMatch(renderCapturePoseGuide(guided({status:'FINALIZING',samplesCaptured:6}),{completionConfirmed:true}),/Đã lưu mẫu khuôn mặt/,'a profile alone cannot complete a still-finalizing command');
+});
+
+test('cancelled, failed and cancel-pending guidance keeps collected counts without prompting another picture',()=>{
+  for(const [extra,message]of [[{status:'CANCELLED'},/Đã hủy đăng ký/],[{status:'FAILED'},/Đăng ký chưa hoàn tất/],[{status:'CAPTURING',cancelRequested:true},/Đang hủy đăng ký/]]){
+    const html=renderCapturePoseGuide(guided({samplesCaptured:3,...extra}));
+    assert.match(html,message);assert.match(html,/1\/2 ảnh đạt/);
+    assert.doesNotMatch(html,/Bước 2\/3|Ảnh 2\/2|aria-current|giữ yên khi bấm chụp|Đã lưu mẫu/);
+  }
+});

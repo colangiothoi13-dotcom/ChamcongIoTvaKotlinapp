@@ -84,6 +84,24 @@ class EnrollmentFirestoreTests(unittest.TestCase):
         self.assertEqual(profile["version"], 6)
         self.assertEqual(self.command.get().to_dict()["status"], "COMPLETED")
 
+    def test_real_auto_accessory_rejection_preserves_progress_profile_and_locks(self):
+        self.store.claim("request-a")
+        self.store.reject_capture("request-a", 0, "glasses")
+        rejected = self.command.get().to_dict()
+        self.assertEqual(rejected["samplesCaptured"], 0)
+        self.assertEqual(rejected["captureLastQualityIssue"], "glasses")
+        self.assertIn("Tháo kính", rejected["message"])
+        self.assertEqual(rejected["status"], "CAPTURING")
+        self.assertEqual(self.client.collection("faceProfiles").document("employee-a").get().to_dict()["version"], 3)
+        self.assertTrue(self.client.collection("faceEnrollmentLocks").document("employee-a").get().exists)
+        self.assertEqual(list(self.client.collection("attendance").stream()), [])
+        self.store.progress("request-a", 1)
+        self.assertIsNone(self.command.get().to_dict()["captureLastQualityIssue"])
+        self.command.update({"cancelRequested": True})
+        with self.assertRaisesRegex(CommandRejected, "CANCELLED"):
+            self.store.reject_capture("request-a", 1, "mask")
+        self.assertEqual(self.command.get().to_dict()["samplesCaptured"], 1)
+
     def test_real_manual_click_acknowledges_rejected_and_saved_frames_atomically(self):
         self.command.update({"captureMode": "MANUAL", "captureRequestSeq": 0, "captureConsumedSeq": 0})
         self.store.claim("request-a")
@@ -117,6 +135,31 @@ class EnrollmentFirestoreTests(unittest.TestCase):
         with self.assertRaisesRegex(CommandRejected, "STATION_SESSION_CHANGED"):
             self.store.acknowledge_capture("request-a", 3, 2, "quality_ok")
         self.assertEqual(self.command.get().to_dict()["captureConsumedSeq"], 2)
+
+    def test_real_sharpness_feedback_ack_never_advances_rejected_sample_and_clears_stale_metrics(self):
+        self.command.update({"captureMode": "MANUAL", "captureRequestSeq": 0, "captureConsumedSeq": 0})
+        self.store.claim("request-a")
+        self.command.update({"captureRequestSeq": 1})
+        self.store.acknowledge_capture("request-a", 1, 0, "low_quality", "blurry",
+                                       sharpness_score=12, sharpness_required=50,
+                                       sharpness_metric="FACE_MAX128_LAPLACIAN_V1")
+        data = self.command.get().to_dict()
+        self.assertEqual((data["captureConsumedSeq"], data["samplesCaptured"]), (1, 0))
+        self.assertEqual((data["captureLastSharpness"], data["captureSharpnessRequired"]), (12, 50))
+        self.assertEqual(data["captureSharpnessMetric"], "FACE_MAX128_LAPLACIAN_V1")
+        self.assertIn("Đã thấy mặt", data["message"])
+        self.assertEqual(self.client.collection("faceProfiles").document("employee-a").get().to_dict()["version"], 3)
+        self.command.update({"captureRequestSeq": 2})
+        with self.assertRaisesRegex(CommandRejected, "INVALID_SHARPNESS_DIAGNOSTICS"):
+            self.store.acknowledge_capture("request-a", 2, 1, "quality_ok",
+                                           sharpness_score=float("nan"), sharpness_required=50)
+        self.assertEqual(self.command.get().to_dict()["captureConsumedSeq"], 1)
+        self.store.acknowledge_capture("request-a", 2, 1, "quality_ok")
+        data = self.command.get().to_dict()
+        self.assertEqual((data["captureConsumedSeq"], data["samplesCaptured"]), (2, 1))
+        self.assertIsNone(data["captureLastSharpness"])
+        self.assertIsNone(data["captureSharpnessRequired"])
+        self.assertIsNone(data["captureSharpnessMetric"])
 
     def test_real_guided_six_shots_acceptance_and_profile_total_use_command_contract(self):
         self.command.update({"sampleCount": 6, "capturePlan": "FRONT_LEFT_RIGHT_V1",

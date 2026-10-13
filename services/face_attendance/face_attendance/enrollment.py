@@ -17,6 +17,8 @@ import uuid
 
 from .capture import capture_samples, validate_photo_employee_id
 from .events import identifier
+from .feedback import accessory_block_message
+from .recognition import sharpness_diagnostics
 
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
@@ -80,7 +82,33 @@ def _capture_mode(data, *, pending=False):
     return "MANUAL"
 
 
-def _capture_message(saved, reason, quality_issue=None, *, sample_count=10, capture_plan=None):
+def _quality_explanation(issue, sharpness_score=None, sharpness_required=None):
+    if issue == "blurry":
+        metrics = sharpness_diagnostics(sharpness_score, sharpness_required)
+        detected = (f"Đã thấy mặt, nhưng độ nét {metrics['sharpnessScore']:.1f} chưa đạt mức "
+                    f"{metrics['sharpnessRequired']:.1f}." if metrics else
+                    "Đã thấy mặt, nhưng ảnh chưa đủ nét.")
+        return detected + " Giữ yên, tăng sáng và kiểm tra ống kính."
+    return {
+        "face_out_of_frame": "Khuôn mặt bị cắt ở mép ảnh. Lùi lại và đưa toàn bộ mặt vào giữa khung hình.",
+        "face_too_small": "Khuôn mặt còn nhỏ trong ảnh. Đến gần hơn, vẫn giữ toàn bộ mặt trong khung hình.",
+        "low_confidence": "Các nét mặt chưa rõ. Giữ mặt không bị che và tăng ánh sáng.",
+        "invalid_detection": "Chưa xác định rõ khuôn mặt. Đưa toàn bộ mặt vào giữa khung hình rồi thử lại.",
+    }.get(issue, accessory_block_message(issue))
+
+
+def _sharpness_metadata(score=None, required=None, metric=None):
+    try:
+        metrics = sharpness_diagnostics(score, required, metric)
+    except ValueError as exc:
+        raise CommandRejected("INVALID_SHARPNESS_DIAGNOSTICS") from exc
+    return {"captureLastSharpness": metrics.get("sharpnessScore"),
+            "captureSharpnessRequired": metrics.get("sharpnessRequired"),
+            "captureSharpnessMetric": metrics.get("sharpnessMetric")}
+
+
+def _capture_message(saved, reason, quality_issue=None, *, sample_count=10, capture_plan=None,
+                     sharpness_score=None, sharpness_required=None):
     if reason == "quality_ok":
         next_step = ("Đang chuẩn bị lưu mẫu." if saved == sample_count else
                      _pose_guidance(saved) if capture_plan == GUIDED_CAPTURE_PLAN else
@@ -94,13 +122,7 @@ def _capture_message(saved, reason, quality_issue=None, *, sample_count=10, capt
         "camera_error": "Chưa lấy được ảnh camera. Kiểm tra nguồn và Wi-Fi rồi chụp lại.",
     }.get(reason, "Ảnh chưa đạt yêu cầu. Giữ mặt rõ trong khung hình rồi chụp lại.")
     if reason == "low_quality":
-        explanation = {
-            "face_out_of_frame": "Khuôn mặt bị cắt ở mép ảnh. Lùi lại và đưa toàn bộ mặt vào giữa khung hình.",
-            "face_too_small": "Khuôn mặt còn nhỏ trong ảnh. Đến gần hơn, vẫn giữ toàn bộ mặt trong khung hình.",
-            "low_confidence": "Các nét mặt chưa rõ. Giữ mặt không bị che và tăng ánh sáng.",
-            "blurry": "Ảnh mặt bị mờ. Giữ yên khi chụp, tăng ánh sáng và kiểm tra ống kính.",
-            "invalid_detection": "Chưa xác định rõ khuôn mặt. Đưa toàn bộ mặt vào giữa khung hình rồi thử lại.",
-        }.get(quality_issue, explanation)
+        explanation = _quality_explanation(quality_issue, sharpness_score, sharpness_required) or explanation
     guidance = f" {_pose_guidance(saved)}" if capture_plan == GUIDED_CAPTURE_PLAN else ""
     return f"Đã lưu {saved}/{sample_count} ảnh. {explanation} Bấm Chụp ảnh để thử lại.{guidance}"
 
@@ -262,14 +284,50 @@ class FirestoreEnrollmentStore:
             raise CommandRejected("CANCELLED")
         return data
 
-    def progress(self, request_id, count):
+    def progress(self, request_id, count, *, sharpness_score=None, sharpness_required=None, sharpness_metric=None):
+        metrics = _sharpness_metadata(sharpness_score, sharpness_required, sharpness_metric)
         data = self.check_active(request_id)
         total = _sample_count(data)
         if type(count) is not int or not 0 <= count <= total:
             raise CommandRejected("INVALID_CAPTURE_SEQUENCE")
         self.client.collection("faceEnrollmentCommands").document(request_id).update({
             "samplesCaptured": count, "message": f"Đã thu {count}/{total} ảnh rõ mặt",
+            "captureLastReason": "quality_ok", "captureLastQualityIssue": None,
+            **metrics,
         })
+
+    def reject_capture(self, request_id, saved, quality_issue, *, sharpness_score=None, sharpness_required=None,
+                       sharpness_metric=None):
+        """Feedback for an AUTO rejection; never increments photo progress.
+
+        The worker deduplicates/throttles this metadata update. Validate the
+        command and shared locks in the same transaction as the feedback.
+        """
+        metrics = _sharpness_metadata(sharpness_score, sharpness_required, sharpness_metric)
+        explanation = _quality_explanation(quality_issue, sharpness_score, sharpness_required)
+        if explanation is None:
+            raise CommandRejected("INVALID_QUALITY_ISSUE")
+        command = self.client.collection("faceEnrollmentCommands").document(request_id)
+
+        def reject(tx):
+            data = command.get(transaction=tx).to_dict() or {}
+            if data.get("status") != "CAPTURING" or _capture_mode(data) != "AUTO":
+                raise CommandRejected("COMMAND_CHANGED")
+            _, lock_ref, employee_ref, user_ref, _ = self._refs(request_id, data)
+            station = self.station.get(transaction=tx).to_dict() or {}
+            lock = lock_ref.get(transaction=tx).to_dict() or {}
+            employee = employee_ref.get(transaction=tx).to_dict() or {}
+            user = user_ref.get(transaction=tx).to_dict() or {}
+            self._validate(request_id, data, station, lock, employee, user)
+            if type(saved) is not int or saved != data.get("samplesCaptured"):
+                raise CommandRejected("INVALID_CAPTURE_SEQUENCE")
+            tx.update(command, {
+                "captureLastReason": "low_quality", "captureLastQualityIssue": quality_issue,
+                "message": f"Đã lưu {saved}/{data['sampleCount']} ảnh. {explanation} Hệ thống sẽ thử lại khi mặt đạt yêu cầu.",
+                **metrics,
+            })
+
+        self._transaction(reject)
 
     def watch_command(self, request_id, callback):
         """Only active manual work attaches this document watch; no polling."""
@@ -299,8 +357,10 @@ class FirestoreEnrollmentStore:
     def check_manual_request(self, request_id, sequence):
         self._transaction(lambda tx: self._active_manual(tx, request_id, sequence))
 
-    def acknowledge_capture(self, request_id, sequence, saved, reason, quality_issue=None):
+    def acknowledge_capture(self, request_id, sequence, saved, reason, quality_issue=None, *,
+                            sharpness_score=None, sharpness_required=None, sharpness_metric=None):
         """Accept/reject one click atomically; clients never acknowledge it."""
+        metrics = _sharpness_metadata(sharpness_score, sharpness_required, sharpness_metric)
         def acknowledge(tx):
             command, data = self._active_manual(tx, request_id, sequence)
             expected = data["samplesCaptured"] + (1 if reason == "quality_ok" else 0)
@@ -308,9 +368,12 @@ class FirestoreEnrollmentStore:
                 raise CommandRejected("INVALID_CAPTURE_SEQUENCE")
             tx.update(command, {"captureConsumedSeq": sequence, "samplesCaptured": saved,
                                 "captureLastReason": reason, "captureLastQualityIssue": quality_issue,
+                                **metrics,
                                 "message": _capture_message(saved, reason, quality_issue,
                                                             sample_count=data["sampleCount"],
-                                                            capture_plan=data.get("capturePlan"))})
+                                                            capture_plan=data.get("capturePlan"),
+                                                            sharpness_score=sharpness_score,
+                                                            sharpness_required=sharpness_required)})
 
         self._transaction(acknowledge)
 
@@ -506,10 +569,14 @@ class _ManualCapture:
         reason = ("quality_ok" if value["status"] == "CAPTURE_SAVED" else
                   "camera_error" if value["status"] == "CAPTURE_SOURCE_ERROR" else value.get("reason", "invalid_image"))
         issue = value.get("qualityIssue")
+        metrics = ({"sharpness_score": value.get("sharpnessScore"),
+                    "sharpness_required": value.get("sharpnessRequired"),
+                    "sharpness_metric": value.get("sharpnessMetric")}
+                   if any(key in value for key in ("sharpnessScore", "sharpnessRequired", "sharpnessMetric")) else {})
         if issue is None:
-            self.store.acknowledge_capture(self.request_id, self.pending_sequence, value["saved"], reason)
+            self.store.acknowledge_capture(self.request_id, self.pending_sequence, value["saved"], reason, **metrics)
         else:
-            self.store.acknowledge_capture(self.request_id, self.pending_sequence, value["saved"], reason, issue)
+            self.store.acknowledge_capture(self.request_id, self.pending_sequence, value["saved"], reason, issue, **metrics)
         self.pending_sequence = None
 
     def close(self):
@@ -588,6 +655,8 @@ class EnrollmentWorker:
         journal = None
         finalized = False
         manual = None
+        last_auto_issue = None
+        last_auto_feedback = -float("inf")
 
         def cancelled():
             if self.stop.is_set():
@@ -599,11 +668,28 @@ class EnrollmentWorker:
             return False
 
         def progress(value):
+            nonlocal last_auto_issue, last_auto_feedback
+            metrics = ({"sharpness_score": value.get("sharpnessScore"),
+                        "sharpness_required": value.get("sharpnessRequired"),
+                        "sharpness_metric": value.get("sharpnessMetric")}
+                       if any(key in value for key in ("sharpnessScore", "sharpnessRequired", "sharpnessMetric")) else {})
             if manual:
                 manual.acknowledge(value)
             elif value.get("status") == "CAPTURE_SAVED":
-                self.store.progress(request_id, value["saved"])
-            self.emit({key: value[key] for key in ("status", "saved", "requested", "reason", "qualityIssue") if key in value})
+                self.store.progress(request_id, value["saved"], **metrics)
+                last_auto_issue = None
+            elif value.get("status") == "CAPTURE_SKIP" and _quality_explanation(value.get("qualityIssue")):
+                now = time.monotonic()
+                issue = value["qualityIssue"]
+                diagnostic = sharpness_diagnostics(metrics.get("sharpness_score"), metrics.get("sharpness_required"),
+                                                    metrics.get("sharpness_metric"))
+                feedback_key = (issue, round(diagnostic["sharpnessScore"], 1) if diagnostic else None,
+                                diagnostic.get("sharpnessRequired"), diagnostic.get("sharpnessMetric"))
+                if feedback_key != last_auto_issue and now - last_auto_feedback >= 5:
+                    self.store.reject_capture(request_id, value["saved"], issue, **metrics)
+                    last_auto_issue, last_auto_feedback = feedback_key, now
+            self.emit({key: value[key] for key in ("status", "saved", "requested", "reason", "qualityIssue",
+                                                 "sharpnessScore", "sharpnessRequired", "sharpnessMetric") if key in value})
 
         def preview_attempt(image, value):
             reason = ("quality_ok" if value["status"] == "CAPTURE_SAVED" else

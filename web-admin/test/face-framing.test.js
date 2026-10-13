@@ -23,7 +23,7 @@ test('each angle guides one whole-face shot then one closer shot, advancing only
     assert.match(guide.instruction,/bấm Chụp ảnh/);
     assert.deepEqual(input,before,'guidance cannot write enrollment state');
     if(saved%2){assert.ok(guide.scale>faceFramingGuide(command({samplesCaptured:saved-1})).scale);assert.match(guide.title,/Tiến lại gần/);}
-    else assert.match(guide.title,/Đứng xa hơn/);
+    else assert.match(guide.title,/Giữ mặt trọn khung/);
   }
 });
 

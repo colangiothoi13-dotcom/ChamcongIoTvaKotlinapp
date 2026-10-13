@@ -174,6 +174,29 @@ class ManualWorkerTests(unittest.TestCase):
         self.assertEqual(self.worker.preview.publish.call_count, 10)
         self.worker.preview.clear.assert_not_called()
 
+    def test_blur_click_roundtrip_keeps_zero_samples_reports_measurement_and_replaces_it_on_save(self):
+        self.face.inspect_quality.side_effect = [
+            RecognitionResult(face_count=1, reason="low_quality", quality_issue="blurry",
+                              sharpness_score=12, sharpness_required=50, sharpness_metric="FACE_MAX128_LAPLACIAN_V1"),
+            RecognitionResult(face_count=1, reason="quality_ok", sharpness_score=80, sharpness_required=50,
+                              sharpness_metric="FACE_MAX128_LAPLACIAN_V1"),
+        ]
+        self.start_worker()
+        self.click()
+        self.assertEqual((self.command["samplesCaptured"], self.command["captureConsumedSeq"]), (0, 1))
+        self.assertEqual((self.command["captureLastSharpness"], self.command["captureSharpnessRequired"]), (12, 50))
+        self.assertEqual(self.command["captureSharpnessMetric"], "FACE_MAX128_LAPLACIAN_V1")
+        self.assertIn("Đã thấy mặt", self.command["message"])
+        self.assertEqual(list((self.path / "photos" / "employee-a").iterdir()), [])
+        self.click()
+        self.assertEqual((self.command["samplesCaptured"], self.command["captureConsumedSeq"]), (1, 2))
+        self.assertEqual(self.command["captureLastSharpness"], 80)
+        self.assertIsNone(self.command["captureLastQualityIssue"])
+        self.assertEqual(len(list((self.path / "photos" / "employee-a").iterdir())), 1)
+        self.reference.update({"cancelRequested": True})
+        self.assert_finished("CANCELLED")
+        self.assertIsNone(self.face.inputs)
+
     def test_source_error_clears_previous_preview_and_cancel_cleanup_errors_are_isolated(self):
         self.worker.preview = Mock()
         self.worker.preview.clear.side_effect = RuntimeError("preview cleanup unavailable")

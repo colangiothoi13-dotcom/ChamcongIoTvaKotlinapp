@@ -39,7 +39,7 @@ def local_path(config, value):
 def build_gateway(config):
     data = local_path(config, config["dataDir"])
     if config["mode"] == "firebase":
-        backend = FirestoreBackend(create_firestore_client(config["projectId"]))
+        backend = FirestoreBackend(create_firestore_client(config["projectId"]), face_door=config.get("faceDoor"))
     else:
         registry = json.loads(local_path(config, config["registryFile"]).read_text(encoding="utf-8-sig"))
         backend = DemoBackend(data / "demo.sqlite", registry)
@@ -53,11 +53,14 @@ def build_gateway(config):
 
 def recognizer(config, *, quality_only=False):
     from .recognition import FaceRecognizer
+    from .accessory_setup import create_accessory_guard
     r = config["recognition"]
     return FaceRecognizer(local_path(config, r["detectorModel"]), local_path(config, r["recognizerModel"]),
                           None if quality_only else local_path(config, r["gallery"]), threshold=r["threshold"],
                           ambiguity_margin=r["ambiguityMargin"], min_face_size=r["minFaceSize"],
-                          min_sharpness=r.get("minSharpness", 50))
+                          min_sharpness=r.get("minSharpness", 50),
+                          sharpness_max_size=r.get("sharpnessMaxSize"),
+                          accessory_guard=create_accessory_guard(config))
 
 
 def demo():
@@ -112,11 +115,13 @@ def enroll(config, employee_id, images, version):
 
 def poll(config, webcam):
     from .presence import PresenceGate
+    from .feedback import FaceBlockFeedback
     from .source import UrlFrameSource, WebcamFrameSource, FrameSourceError
     from .recognition import FaceRecognitionError
     gateway, face = build_gateway(config), recognizer(config)
     r = config["recognition"]
     presence = PresenceGate(stable_frames=r["stableFrames"], empty_frames=r["emptyFrames"])
+    feedback = FaceBlockFeedback(emit, enabled=config.get("accessories", {}).get("enabled") is True)
     source = WebcamFrameSource(webcam) if webcam is not None else UrlFrameSource(
         config["camera"]["url"], config["camera"]["token"], rotation=config["camera"].get("rotation", 0))
     emit({"mode":config["mode"], "message":"Rời khung hình trước khi bắt đầu; Ctrl+C để dừng"})
@@ -125,6 +130,7 @@ def poll(config, webcam):
             try:
                 frame = source.read()
                 result = face.recognize(frame.image)
+                feedback.observe(result)
                 candidate = presence.observe(result)
                 if candidate:
                     candidate.update(sourceEventId="face-"+uuid.uuid4().hex,
@@ -152,6 +158,7 @@ def poll(config, webcam):
                 gateway.flush()
             except (FrameSourceError, FaceRecognitionError) as exc:
                 presence.reset()
+                feedback.reset(status="UNAVAILABLE", message="Chưa kiểm tra được khuôn mặt; không ghi lượt chấm.")
                 emit({"status":"SOURCE_ERROR", "message":str(exc)})
                 time.sleep(1)
             except (OSError, sqlite3.Error):
@@ -248,8 +255,10 @@ def main():
         emit(build_gateway(config).flush())
     elif args.command == "serve":
         from .server import make_server, run_server
+        from .accessory_setup import accessories_enabled
         gateway = build_gateway(config)
-        server = make_server(gateway, config["host"], config["port"], config["adminToken"], config["deviceToken"])
+        server = make_server(gateway, config["host"], config["port"], config["adminToken"], config["deviceToken"],
+                             allow_face_events=not accessories_enabled(config))
         emit({"message":"Server đang chạy", "mode":config["mode"], "host":config["host"], "port":server.server_port})
         run_server(server, gateway)
     elif args.command == "station":

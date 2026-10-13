@@ -6,7 +6,7 @@ cosine score is a comparison score, not a probability or a liveness check.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import importlib
@@ -22,6 +22,28 @@ class FaceRecognitionError(RuntimeError):
     """Model, gallery or image processing failure (never an empty frame)."""
 
 
+def sharpness_diagnostics(score=None, required=None, metric=None) -> dict[str, Any]:
+    """Validated ROI Laplacian variance, never a confidence percentage."""
+    if score is None and required is None:
+        if metric is not None:
+            raise ValueError("Invalid face sharpness diagnostics")
+        return {}
+    if (type(score) not in (int, float) or type(required) not in (int, float)
+            or not math.isfinite(score) or not math.isfinite(required)
+            or not 0 <= score <= 1_000_000_000 or not 0 < required <= 1_000_000_000):
+        raise ValueError("Invalid face sharpness diagnostics")
+    value = {"sharpnessScore": float(score), "sharpnessRequired": float(required)}
+    if metric is not None:
+        normalized_size = (metric.removeprefix("FACE_MAX").removesuffix("_LAPLACIAN_V1")
+                           if isinstance(metric, str) else "")
+        if (metric != "FACE_LAPLACIAN_RAW_V1" and not (
+                normalized_size.isdigit() and 80 <= int(normalized_size) <= 512
+                and metric == f"FACE_MAX{int(normalized_size)}_LAPLACIAN_V1")):
+            raise ValueError("Invalid face sharpness diagnostics")
+        value["sharpnessMetric"] = metric
+    return value
+
+
 @dataclass(frozen=True)
 class RecognitionResult:
     employee_id: str | None = None
@@ -30,6 +52,12 @@ class RecognitionResult:
     face_count: int = 0
     reason: str = "no_face"
     quality_issue: str | None = None
+    sharpness_score: float | None = None
+    sharpness_required: float | None = None
+    sharpness_metric: str | None = None
+
+    def __post_init__(self):
+        sharpness_diagnostics(self.sharpness_score, self.sharpness_required, self.sharpness_metric)
 
     @property
     def matched(self) -> bool:
@@ -45,6 +73,7 @@ class RecognitionResult:
         }
         if self.quality_issue is not None:
             value["qualityIssue"] = self.quality_issue
+        value.update(sharpness_diagnostics(self.sharpness_score, self.sharpness_required, self.sharpness_metric))
         return value
 
 
@@ -122,6 +151,8 @@ class FaceRecognizer:
         detection_threshold: float = 0.9,
         min_samples: int = 3,
         min_sharpness: float = 50.0,
+        sharpness_max_size: int | None = None,
+        accessory_guard: Any = None,
     ) -> None:
         if not 0 < threshold <= 1 or not 0 <= ambiguity_margin <= 2:
             raise ValueError("Invalid cosine threshold or ambiguity margin")
@@ -129,6 +160,9 @@ class FaceRecognizer:
             raise ValueError("Invalid face size, sample count or detection threshold")
         if not math.isfinite(min_sharpness) or min_sharpness < 0:
             raise ValueError("Invalid minimum face sharpness")
+        if sharpness_max_size is not None and (type(sharpness_max_size) is not int
+                                               or not 80 <= sharpness_max_size <= 512):
+            raise ValueError("Invalid face sharpness normalization size")
         self.detector_model = Path(detector_model)
         self.recognizer_model = Path(recognizer_model)
         # None is a quality-only worker for photo collection. It must neither
@@ -140,6 +174,11 @@ class FaceRecognizer:
         self.detection_threshold = detection_threshold
         self.min_samples = min_samples
         self.min_sharpness = min_sharpness
+        self.sharpness_max_size = sharpness_max_size
+        # The optional guard owns independent attribute/headwear models. It is
+        # deliberately excluded from identity-gallery hashes: updating this
+        # policy does not alter SFace features or require re-enrollment.
+        self.accessory_guard = accessory_guard
         self._cv: Any = None
         self._np: Any = None
         self._detector: Any = None
@@ -250,18 +289,41 @@ class FaceRecognizer:
                 return None, RecognitionResult(face_count=1, reason="low_quality", quality_issue="face_too_small")
             if float(face[-1]) < self.detection_threshold:
                 return None, RecognitionResult(face_count=1, reason="low_quality", quality_issue="low_confidence")
+            metrics = {}
             if self.min_sharpness > 0:
                 face_image = image[int(y):int(y + face_height), int(x):int(x + face_width)]
                 gray = self._cv.cvtColor(face_image, self._cv.COLOR_BGR2GRAY)
+                # Measure the same spatial scale for near and far samples.
+                # Resize only this diagnostic ROI; never alter enrollment,
+                # accessory detection, identity features or the saved JPEG.
+                if self.sharpness_max_size is not None:
+                    gray_height, gray_width = gray.shape[:2]
+                    longest = max(gray_height, gray_width)
+                    if longest > self.sharpness_max_size:
+                        scale = self.sharpness_max_size / longest
+                        gray = self._cv.resize(gray, (max(1, round(gray_width * scale)),
+                                                     max(1, round(gray_height * scale))),
+                                               interpolation=self._cv.INTER_AREA)
                 sharpness = float(self._cv.Laplacian(gray, self._cv.CV_64F).var())
+                if (math.isfinite(sharpness) and 0 <= sharpness <= 1_000_000_000
+                        and self.min_sharpness <= 1_000_000_000):
+                    metrics = {"sharpness_score": sharpness, "sharpness_required": self.min_sharpness,
+                               "sharpness_metric": ("FACE_LAPLACIAN_RAW_V1" if self.sharpness_max_size is None else
+                                                    f"FACE_MAX{self.sharpness_max_size}_LAPLACIAN_V1")}
                 if not math.isfinite(sharpness) or sharpness < self.min_sharpness:
-                    return None, RecognitionResult(face_count=1, reason="low_quality", quality_issue="blurry")
+                    return None, RecognitionResult(face_count=1, reason="low_quality", quality_issue="blurry", **metrics)
+            if self.accessory_guard is not None:
+                issue = self.accessory_guard.inspect(image, (x, y, face_width, face_height))
+                if issue is not None:
+                    # An obstructed head is still an occupied frame. Returning
+                    # no_face here would incorrectly re-arm the presence gate.
+                    return None, RecognitionResult(face_count=1, reason="low_quality", quality_issue=issue, **metrics)
             aligned = self._recognizer.alignCrop(image, face)
             feature = self._recognizer.feature(aligned).reshape(-1).tolist()
             normalized = _normalized(feature)
             if len(normalized) != self.FEATURE_DIMENSION:
                 raise FaceRecognitionError("SFace returned an unexpected feature dimension")
-            return normalized, RecognitionResult(face_count=1, reason="feature_extracted")
+            return normalized, RecognitionResult(face_count=1, reason="feature_extracted", **metrics)
         except FaceRecognitionError:
             raise
         except Exception as exc:
@@ -271,20 +333,22 @@ class FaceRecognizer:
         feature, result = self._extract(image)
         if feature is None:
             return result
-        return match_embedding(
+        return replace(match_embedding(
             feature, self.profiles, threshold=self.threshold, ambiguity_margin=self.ambiguity_margin
+        ), sharpness_score=result.sharpness_score, sharpness_required=result.sharpness_required,
+            sharpness_metric=result.sharpness_metric
         )
 
     def inspect_quality(self, image: Any) -> RecognitionResult:
         """Validate a registration photo without requiring an enrolled identity.
 
-        Reuses the exact detection, face-size and sharpness checks applied before
+        Reuses the detection, sharpness and accessory policy applied before
         recognition. Unknown or ambiguous identities are irrelevant to capture.
         """
         feature, result = self._extract(image)
         if feature is None:
             return result
-        return RecognitionResult(face_count=1, reason="quality_ok")
+        return replace(result, reason="quality_ok")
 
     def recognize_path(self, image_path: str | Path) -> RecognitionResult:
         return self.recognize(self.read_image(image_path))
@@ -307,7 +371,8 @@ class FaceRecognizer:
         for image_path in samples:
             feature, result = self._extract(self.read_image(image_path))
             if feature is None:
-                raise FaceRecognitionError(f"Enrollment image {image_path}: {result.reason}")
+                detail = result.reason if result.quality_issue is None else f"{result.reason} ({result.quality_issue})"
+                raise FaceRecognitionError(f"Enrollment image {image_path}: {detail}")
             features.append(feature)
         centroid = _normalized([
             sum(feature[index] for feature in features) / len(features)

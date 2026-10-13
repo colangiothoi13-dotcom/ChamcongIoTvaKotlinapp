@@ -2,6 +2,7 @@ import json
 import math
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
 
@@ -62,8 +63,8 @@ class GalleryTests(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def make(self):
-        return FaceRecognizer(self.detector, self.recognizer, self.gallery)
+    def make(self, **kwargs):
+        return FaceRecognizer(self.detector, self.recognizer, self.gallery, **kwargs)
 
     def stub_enrollment(self, recognizer, embeddings=None):
         recognizer.read_image = Mock(side_effect=lambda path: str(path))
@@ -169,7 +170,120 @@ class GalleryTests(unittest.TestCase):
         result = recognizer.recognize(image)
         self.assertEqual((result.reason, result.face_count), ("low_quality", 1))
         self.assertEqual(result.quality_issue, "blurry")
+        self.assertEqual(result.to_dict()["sharpnessScore"], 12.0)
+        self.assertEqual(result.to_dict()["sharpnessRequired"], 50.0)
         recognizer._recognizer.feature.assert_not_called()
+
+    def test_sharpness_metrics_accept_zero_reject_nonfinite_and_preserve_legacy_result(self):
+        legacy = RecognitionResult(face_count=1, reason="quality_ok").to_dict()
+        self.assertNotIn("sharpnessScore", legacy)
+        self.assertNotIn("sharpnessRequired", legacy)
+        self.assertEqual(RecognitionResult(sharpness_score=0, sharpness_required=50).to_dict()["sharpnessScore"], 0)
+        for score, required in ((-1, 50), (math.nan, 50), (math.inf, 50), (True, 50),
+                                (12, 0), (12, math.inf), (12, None), (None, 50), (1e10, 50)):
+            with self.subTest(score=score, required=required), self.assertRaises(ValueError):
+                RecognitionResult(sharpness_score=score, sharpness_required=required)
+
+    def test_successful_capture_and_identity_match_preserve_same_sharpness_measurement(self):
+        recognizer = self.make()
+        recognizer.profiles = {"NV001": profile(feature())}
+        recognizer._extract = Mock(return_value=(feature(), RecognitionResult(
+            face_count=1, reason="feature_extracted", sharpness_score=73.25, sharpness_required=50,
+            sharpness_metric="FACE_MAX128_LAPLACIAN_V1")))
+        for result in (recognizer.inspect_quality(object()), recognizer.recognize(object())):
+            self.assertEqual((result.sharpness_score, result.sharpness_required), (73.25, 50))
+            self.assertEqual(result.to_dict()["sharpnessMetric"], "FACE_MAX128_LAPLACIAN_V1")
+        self.assertEqual(recognizer.recognize(object()).employee_id, "NV001")
+
+    def test_nonfinite_measured_sharpness_still_rejects_but_never_publishes_nan(self):
+        recognizer = self.make()
+        recognizer._cv = Mock()
+        recognizer._cv.Laplacian.return_value.var.return_value = math.nan
+        recognizer._detector = Mock()
+        recognizer._recognizer = Mock()
+        recognizer._detector.detect.return_value = (1, [[100, 100, 100, 100] + [150] * 10 + [0.99]])
+        image = Mock()
+        image.shape = (480, 640, 3)
+        image.__getitem__ = Mock(return_value=object())
+        result = recognizer.inspect_quality(image)
+        self.assertEqual((result.reason, result.quality_issue), ("low_quality", "blurry"))
+        self.assertNotIn("sharpnessScore", result.to_dict())
+        recognizer._recognizer.feature.assert_not_called()
+
+    def test_sharpness_normalization_size_and_metric_reject_malformed_configuration(self):
+        for size in (True, 0, 79, 513, 128.0, "128"):
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                self.make(sharpness_max_size=size)
+        for metric in ("FACE_MAX999_LAPLACIAN_V1", "FACE_MAX0128_LAPLACIAN_V1", "raw", True):
+            with self.subTest(metric=metric), self.assertRaises(ValueError):
+                RecognitionResult(sharpness_score=12, sharpness_required=50, sharpness_metric=metric)
+        with self.assertRaises(ValueError):
+            RecognitionResult(sharpness_metric="FACE_MAX128_LAPLACIAN_V1")
+
+    def _pixel_quality_recognizer(self, cv, size, maximum=128):
+        recognizer = self.make(sharpness_max_size=maximum)
+        recognizer._cv = cv
+        recognizer._detector = Mock()
+        recognizer._recognizer = Mock()
+        recognizer._recognizer.feature.return_value.reshape.return_value.tolist.return_value = feature()
+        recognizer._detector.detect.return_value = (1, [[20, 20, size, size] + [size / 2] * 10 + [.99]])
+        return recognizer
+
+    def test_same_clear_face_edges_remain_accepted_near_and_far_but_strong_blur_does_not(self):
+        try:
+            import cv2 as cv
+            import numpy as np
+        except ImportError:
+            self.skipTest("Optional OpenCV/numpy pixel-quality regression")
+        # A synthetic facial-edge pattern is not an identity or real employee
+        # image. Its scaled copies expose raw-variance dependence on ROI size.
+        base = np.full((128, 128), 120, dtype=np.uint8)
+        cv.ellipse(base, (64, 64), (44, 58), 0, 0, 360, 190, -1)
+        cv.ellipse(base, (46, 49), (12, 5), 0, 0, 360, 30, -1)
+        cv.ellipse(base, (82, 49), (12, 5), 0, 0, 360, 30, -1)
+        cv.line(base, (64, 58), (60, 81), 45, 3)
+        cv.ellipse(base, (64, 92), (20, 5), 0, 0, 180, 40, 3)
+        base = cv.GaussianBlur(base, (0, 0), .6)
+        blurred = cv.GaussianBlur(base, (0, 0), 5)
+        for size in (128, 256, 384):
+            for sample, expected in ((base, "quality_ok"), (blurred, "low_quality")):
+                with self.subTest(size=size, expected=expected):
+                    gray = cv.resize(sample, (size, size), interpolation=cv.INTER_CUBIC)
+                    image = np.full((size + 40, size + 40, 3), 120, dtype=np.uint8)
+                    image[20:20 + size, 20:20 + size] = cv.cvtColor(gray, cv.COLOR_GRAY2BGR)
+                    before = image.copy()
+                    recognizer = self._pixel_quality_recognizer(cv, size)
+                    result = recognizer.inspect_quality(image)
+                    self.assertEqual(result.reason, expected)
+                    self.assertEqual(result.sharpness_metric, "FACE_MAX128_LAPLACIAN_V1")
+                    self.assertEqual(result.sharpness_required, 50)
+                    self.assertTrue(np.array_equal(image, before))
+                    if expected == "quality_ok":
+                        self.assertGreaterEqual(result.sharpness_score, 50)
+                        recognizer._recognizer.alignCrop.assert_called_once()
+                    else:
+                        self.assertLess(result.sharpness_score, 50)
+                        recognizer._recognizer.feature.assert_not_called()
+        # The legacy raw metric rejects the large scaled clear image. This is
+        # the near/far inconsistency normalized measurement intentionally fixes.
+        legacy = self._pixel_quality_recognizer(cv, 384, maximum=None)
+        image[20:404, 20:404] = cv.cvtColor(cv.resize(base, (384, 384), interpolation=cv.INTER_CUBIC), cv.COLOR_GRAY2BGR)
+        self.assertEqual(legacy.inspect_quality(image).quality_issue, "blurry")
+
+    def test_small_face_roi_is_never_upscaled_for_sharpness(self):
+        try:
+            import cv2 as cv
+            import numpy as np
+        except ImportError:
+            self.skipTest("Optional OpenCV/numpy pixel-quality regression")
+        proxy = SimpleNamespace(cvtColor=cv.cvtColor, Laplacian=cv.Laplacian, resize=Mock(wraps=cv.resize),
+                                COLOR_BGR2GRAY=cv.COLOR_BGR2GRAY, CV_64F=cv.CV_64F, INTER_AREA=cv.INTER_AREA)
+        for size in (80, 96, 128):
+            recognizer = self._pixel_quality_recognizer(proxy, size)
+            image = np.zeros((size + 40, size + 40, 3), dtype=np.uint8)
+            result = recognizer.inspect_quality(image)
+            self.assertEqual((result.quality_issue, result.sharpness_score), ("blurry", 0))
+        proxy.resize.assert_not_called()
 
     def test_low_quality_diagnostics_keep_reason_and_reject_before_feature_extraction(self):
         recognizer = self.make()
@@ -227,6 +341,62 @@ class GalleryTests(unittest.TestCase):
         with self.assertRaises(FaceRecognitionError):
             recognizer.enroll("a", ["a.jpg", "b.jpg", "c.jpg"], 1)
         self.assertEqual(self.gallery.read_bytes(), b"an existing gallery is intentionally not loaded for capture")
+
+    def _accessory_pipeline(self, issue=None):
+        guard = Mock()
+        guard.inspect.return_value = issue
+        recognizer = self.make(accessory_guard=guard, min_sharpness=0)
+        recognizer._cv = Mock()
+        recognizer._detector = Mock()
+        recognizer._recognizer = Mock()
+        recognizer._recognizer.feature.return_value.reshape.return_value.tolist.return_value = feature()
+        recognizer.profiles = {"NV001": profile(feature())}
+        recognizer._detector.detect.return_value = (1, [[100, 100, 100, 100] + [150] * 10 + [.99]])
+        image = Mock()
+        image.shape = (480, 640, 3)
+        return recognizer, guard, image
+
+    def test_accessory_policy_blocks_registration_and_attendance_before_identity(self):
+        for issue in ("mask", "hat", "glasses", "accessory_uncertain", "accessory_head_out_of_frame"):
+            with self.subTest(issue=issue):
+                recognizer, guard, image = self._accessory_pipeline(issue)
+                for operation in (recognizer.inspect_quality, recognizer.recognize):
+                    result = operation(image)
+                    self.assertEqual((result.reason, result.face_count, result.quality_issue), ("low_quality", 1, issue))
+                    self.assertFalse(result.matched)
+                guard.inspect.assert_called_with(image, (100., 100., 100., 100.))
+                recognizer._recognizer.alignCrop.assert_not_called()
+                recognizer._recognizer.feature.assert_not_called()
+
+    def test_bare_face_with_guard_still_matches_and_gallery_hashes_are_unchanged(self):
+        recognizer, guard, image = self._accessory_pipeline()
+        self.assertEqual(recognizer.inspect_quality(image).reason, "quality_ok")
+        self.assertEqual(recognizer.recognize(image).employee_id, "NV001")
+        self.assertEqual(recognizer.model_hashes, self.make().model_hashes)
+        self.assertEqual(guard.inspect.call_count, 2)
+
+    def test_unavailable_accessory_check_fails_closed_without_reclassifying_frame(self):
+        recognizer, guard, image = self._accessory_pipeline()
+        guard.inspect.side_effect = FaceRecognitionError("Accessory model unavailable")
+        for operation in (recognizer.inspect_quality, recognizer.recognize):
+            with self.assertRaisesRegex(FaceRecognitionError, "Accessory model unavailable"):
+                operation(image)
+        recognizer._recognizer.feature.assert_not_called()
+
+    def test_enrollment_rechecks_accessories_and_does_not_write_blocked_features(self):
+        recognizer, guard, image = self._accessory_pipeline("mask")
+        recognizer.read_image = Mock(return_value=image)
+        with self.assertRaisesRegex(FaceRecognitionError, "low_quality \\(mask\\)"):
+            recognizer.enroll("NV002", ["a.jpg", "b.jpg", "c.jpg"], 1)
+        self.assertFalse(self.gallery.exists())
+        self.assertNotIn("NV002", recognizer.profiles)
+        recognizer._recognizer.feature.assert_not_called()
+
+    def test_disabled_accessory_guard_keeps_legacy_pipeline(self):
+        recognizer, _, image = self._accessory_pipeline("mask")
+        recognizer.accessory_guard = None
+        self.assertEqual(recognizer.inspect_quality(image).reason, "quality_ok")
+        self.assertEqual(recognizer.recognize(image).employee_id, "NV001")
 
 
 if __name__ == "__main__":

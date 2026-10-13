@@ -18,9 +18,27 @@
     "ambiguityMargin": 0.1,
     "minFaceSize": 80,
     "minSharpness": 50.0,
+    "sharpnessMaxSize": 128,
     "stableFrames": 3,
     "emptyFrames": 3,
     "pollSeconds": 0.3
+  },
+  "faceDoor": {
+    "enabled": false,
+    "targetDeviceId": "GATE-01",
+    "requiredFirmware": ["spark-anonymous-v17-face-door-ttl", "spark-gateway-v18-face-door-ttl", "spark-anonymous-v18-face-name-door-ttl", "spark-gateway-v19-face-name-door-ttl"],
+    "maxEventAgeSeconds": 15,
+    "commandTTLSeconds": 15,
+    "heartbeatMaxAgeSeconds": 90
+  },
+  "accessories": {
+    "enabled": true,
+    "blockHat": false,
+    "attributeModel": "data/models/face_attrib_net.onnx",
+    "hatModel": "data/models/hhc_is_l_48x48.onnx",
+    "headModel": "data/models/yolomit_t_wholebody28_1x3x480x640.onnx",
+    "threshold": 0.5,
+    "uncertaintyMargin": 0.1
   },
   "camera": {
     "rotation": 0,

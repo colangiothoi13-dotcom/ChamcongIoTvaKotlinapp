@@ -3,8 +3,8 @@ HỆ THỐNG QUẢN LÝ CÔNG VIỆC KẾT HỢP CHẤM CÔNG IoT BẰNG VÂN TA
 
 Phiên bản tài liệu: 1.2
 Ngày biên soạn: 27/09/2026
-Ngày cập nhật: 09/10/2026
-Ghi chú: Phiên bản 1.2 bổ sung đối tượng Công việc và quy trình giao, thực hiện, gửi kết quả, duyệt hoàn thành. Thay đổi mới có Firestore Rules/index, vì vậy kết quả đối chiếu Firebase online ngày 08/10/2026 chỉ áp dụng cho bản trước. Cần triển khai Rules/index mới và cài APK mới để dùng công việc online. Các mục 2.9 và 3.10 trình bày phạm vi công việc, dữ liệu, Use Case và kiểm thử bổ sung; các kết quả cũ ở mục 3.7 được giữ làm lịch sử. Các vị trí [CẦN BỔ SUNG] cần minh chứng trên phần cứng/điện thoại thật.
+Ngày cập nhật: 13/10/2026
+Ghi chú: Phiên bản 1.2 bổ sung đối tượng Công việc và quy trình giao, thực hiện, gửi kết quả, duyệt hoàn thành. Thay đổi mới có Firestore Rules/index, vì vậy kết quả đối chiếu Firebase online ngày 08/10/2026 chỉ áp dụng cho bản trước. Cần triển khai Rules/index mới và cài APK mới để dùng công việc online. Các mục 2.9 và 3.10 trình bày phạm vi công việc, dữ liệu, Use Case và kiểm thử bổ sung; các kết quả cũ ở mục 3.7 được giữ làm lịch sử. Ngày 13/10/2026, tài liệu bổ sung kiến trúc và phạm vi web quản trị tại mục 2.4.4 và 3.11; số liệu kiểm thử ngày 08/10 và 09/10 không được hiểu là kết quả kiểm thử web. Các vị trí [CẦN BỔ SUNG] cần minh chứng trên phần cứng/điện thoại thật.
 
 
 MỤC LỤC
@@ -24,6 +24,7 @@ CHƯƠNG 2. PHÂN TÍCH VÀ THIẾT KẾ HỆ THỐNG
   2.2. Thiết kế tổng thể hệ thống
   2.3. Thiết kế phần cứng
   2.4. Thiết kế phần mềm
+    2.4.4. Kiến trúc web quản trị (bổ sung ngày 13/10/2026)
   2.5. Thiết kế cơ sở dữ liệu Firestore
   2.6. Mô hình tác nhân và các sơ đồ Use Case
   2.7. Sơ đồ lớp và nguyên tắc tổ chức mã nguồn
@@ -40,6 +41,7 @@ CHƯƠNG 3. TRIỂN KHAI VÀ ĐÁNH GIÁ SẢN PHẨM
   3.8. Đánh giá mức độ hoàn thành
   3.9. Hạn chế và hướng phát triển
   3.10. Use Case và kiểm thử quản lý công việc
+  3.11. Triển khai web quản trị và phạm vi kiểm chứng
 KẾT LUẬN
 TÀI LIỆU THAM KHẢO
 PHỤ LỤC A. DANH SÁCH LINH KIỆN VÀ THÔNG SỐ CẦN BỔ SUNG
@@ -52,6 +54,8 @@ LỜI MỞ ĐẦU
 Trong doanh nghiệp, việc ghi nhận thời gian làm việc là cơ sở để quản lý nhân sự, tính lương, theo dõi tình trạng đi trễ về sớm và đánh giá mức độ tuân thủ lịch làm việc. Cách chấm công thủ công bằng giấy, bảng tính hoặc việc nhập dữ liệu bằng tay thường gây tốn thời gian, dễ sai lệch và khó truy vết khi có khiếu nại.
 
 Đề tài “Hệ thống quản lý công việc kết hợp chấm công IoT bằng vân tay” xây dựng một mô hình giao việc cho nhân viên, theo dõi tiến độ, nhận báo cáo kết quả và quản lý duyệt hoàn thành trên Android/Firebase. ESP8266 và cảm biến vân tay cung cấp dữ liệu có mặt trong ca để hỗ trợ quản lý. Vân tay chứng minh có mặt tại thiết bị; báo cáo kết quả và bước duyệt chứng minh hoàn thành công việc. Hệ thống vẫn giữ quản lý nhân viên, thiết bị, ca làm, đơn từ, tăng ca, bảng công, lương và các tiện ích nhân sự làm chức năng hỗ trợ.
+
+Bên cạnh ứng dụng Android, mã nguồn hiện có giao diện web dành cho Admin trên máy tính. Web dùng HTML, CSS, JavaScript ES modules và Firebase Web SDK để làm việc với cùng dữ liệu Auth/Firestore; máy chủ Node.js cục bộ phục vụ trang và hỗ trợ xem camera. Phần web được mô tả bổ sung trong mục 2.4.4 và 3.11, với phạm vi kiểm chứng riêng.
 
 Điểm được chú trọng trong quá trình xây dựng là tách sự kiện chấm công gốc khỏi kết quả diễn giải. Thiết bị ghi nhận sự kiện trước; ứng dụng dựa trên ca làm, lịch làm và các quy tắc nghiệp vụ để xác định đi đúng giờ, đi trễ, về sớm, tăng ca hoặc cần xem xét. Cách làm này giúp hạn chế việc sửa trực tiếp dữ liệu gốc và hỗ trợ truy vết khi cần kiểm tra.
 
@@ -234,7 +238,7 @@ Các hạn chế cần trung thực nêu trong báo cáo:
 
 Mục tiêu tổng quát:
 
-Xây dựng hệ thống quản lý công việc trên Android/Firebase kết hợp thiết bị ESP8266 và cảm biến vân tay để ghi nhận có mặt theo ca, với quy trình giao việc, thực hiện, báo cáo, duyệt kết quả và đánh giá đúng hạn.
+Xây dựng hệ thống quản lý công việc trên Android/Firebase kết hợp thiết bị ESP8266 và cảm biến vân tay để ghi nhận có mặt theo ca, với quy trình giao việc, thực hiện, báo cáo, duyệt kết quả và đánh giá đúng hạn. Giao diện web quản trị bổ sung cách thực hiện các nghiệp vụ Admin trên máy tính, dùng chung dữ liệu Firebase.
 
 Mục tiêu cụ thể:
 
@@ -256,6 +260,7 @@ Phạm vi thực hiện:
 
 - Một thiết bị ESP8266 và cảm biến vân tay thuộc dòng AS608/R307.
 - Ứng dụng Android viết bằng Kotlin và Jetpack Compose.
+- Giao diện web quản trị viết bằng HTML, CSS và JavaScript ES modules; Node.js phục vụ web trên máy tính cục bộ.
 - Firebase Authentication, Firestore, FCM/WorkManager theo phần đã triển khai.
 - Gói Firebase Spark, không phụ thuộc bắt buộc vào Cloud Functions.
 - Dữ liệu, tài khoản và chức năng ở mức prototype phục vụ đồ án.
@@ -355,6 +360,9 @@ Sơ đồ khối đề xuất để nhóm vẽ thành hình:
                                             | App       |
                                             +-----------+
 
+    Web Admin (trình duyệt) -------> Firebase Auth/Firestore
+    Node.js trên laptop -----------> phục vụ web và proxy camera cục bộ
+
 [HÌNH 2.1 - Sơ đồ khối tổng thể của hệ thống. Nhóm tự vẽ lại, thêm mũi tên dữ liệu và chú thích giao thức.]
 
 Luồng dữ liệu chính:
@@ -364,7 +372,7 @@ Luồng dữ liệu chính:
 3. ESP8266 hiển thị kết quả, điều khiển cửa mô hình nếu phù hợp và tạo sự kiện.
 4. Sự kiện được gửi lên Firestore; nếu mạng lỗi thì lưu vào LittleFS.
 5. Ứng dụng Android đọc sự kiện và áp dụng AttendanceResolutionRules cùng các quy tắc lịch/ca.
-6. Kết quả được hiển thị trong lịch sử chấm công, bảng công, báo cáo hoặc màn hình quản trị.
+6. Kết quả được hiển thị trong lịch sử chấm công, bảng công, báo cáo hoặc màn hình quản trị Android/web; các thao tác quản trị trên web dùng cùng cơ sở dữ liệu và quyền Firestore.
 
 2.3. Thiết kế phần cứng
 
@@ -505,6 +513,19 @@ Mô hình này giúp trả lời ba câu hỏi khi kiểm tra:
 - Đăng ký tuần sau chỉ chọn ca sáng, ca chiều hoặc cả hai trong sáu ngày thứ Hai đến thứ Bảy; tăng ca là luồng riêng.
 - Khen thưởng trong tiện ích là nội dung ghi nhận cá nhân, không tự tạo tiền thưởng hoặc thay đổi bảng lương.
 - Lịch họp và tài liệu được chia sẻ theo toàn bộ nhân viên, phòng ban hoặc cá nhân. Tài liệu dùng liên kết HTTPS bên ngoài; ứng dụng chưa tải tệp lên kho lưu trữ.
+
+2.4.4. Kiến trúc web quản trị (bổ sung ngày 13/10/2026)
+
+Mã nguồn web nằm trong web-admin/. index.html tạo cấu trúc trang, styles.css định dạng giao diện, còn các tệp JavaScript trong src/ dùng ES modules để xử lý điều hướng, biểu mẫu, dữ liệu và quy tắc nghiệp vụ. Web không dùng Kotlin; đây là giao diện chạy trong trình duyệt. Firebase Web SDK được nạp từ CDN, vì vậy trình duyệt cần kết nối mạng khi dùng dữ liệu Firebase.
+
+    Trình duyệt Admin (HTML/CSS/JavaScript)
+        |-- Firebase Auth Email/Password --> kiểm tra users/{uid}: ADMIN, active
+        |-- Firestore Web SDK -----------> cùng collections/Rules với Android
+        +-- yêu cầu xem camera ----------> Node.js local --> camera trên mạng nội bộ
+
+Trình duyệt đọc/ghi Firestore bằng tài khoản Admin và các transaction/batch theo Firestore Rules; Node.js trong web-admin/scripts/server.mjs chỉ phục vụ tệp web đã cho phép và các API trung gian cho camera. Node.js không thay Firestore làm cơ sở dữ liệu nghiệp vụ. Chế độ xem thử dùng dữ liệu mẫu trong phiên trình duyệt, không ghi dữ liệu mẫu lên Firebase.
+
+Các module web tách phần xác thực/kết nối Firebase, quản lý nhân sự, lịch/ca, công việc, chấm công, báo cáo và quy tắc tính toán. Quy tắc công ở web được triển khai tương ứng với nghiệp vụ Android để cùng giải thích sự kiện gốc; kết quả diễn giải trên từng client không phải nguồn sự thật tập trung. Các thao tác ghi quan trọng vẫn phải qua Firestore Rules, không chỉ dựa vào việc ẩn nút trên giao diện.
 
 2.5. Thiết kế cơ sở dữ liệu Firestore
 
@@ -680,10 +701,11 @@ Các lớp luật nghiệp vụ không nên phụ thuộc trực tiếp vào com
 
 2.8. Thiết kế bảo mật và phân quyền
 
-- Authentication dùng Email/Password cho người dùng Android.
+- Authentication dùng Email/Password cho người dùng Android và web quản trị; web chỉ mở dữ liệu quản trị cho tài khoản users/{uid} có role ADMIN và active = true.
 - ESP8266 dùng Firebase Anonymous theo luồng Spark hiện tại.
 - Role được lưu và kiểm tra cho Admin/Employee.
 - Firestore Rules hạn chế document nào được đọc/ghi.
+- Giao diện web dùng Firebase Web SDK và cùng Rules với Android; việc chạy trang trên localhost không tự cấp quyền Admin. Token camera và khóa Firebase Admin của dịch vụ nhận diện nằm ở phía laptop, không đưa vào JavaScript trình duyệt.
 - Dữ liệu gốc attendance cần hạn chế chỉnh sửa sau khi thiết bị gửi lên.
 - Các luồng duyệt, điều chỉnh và đăng ký lịch dùng audit log theo phần đã triển khai; đăng ký lịch tuần ghi yêu cầu và audit trong cùng transaction. Nội dung tiện ích hiện lưu createdBy/createdAt/updatedAt, chưa có audit log riêng cho mọi thao tác sửa/xóa tài nguyên.
 - Employee chỉ đọc tiện ích trong phạm vi của mình; chỉ Admin được tạo, sửa, xóa employeeResources. Đổi audience không mở rộng quyền đọc dữ liệu cá nhân khác.
@@ -743,6 +765,12 @@ Phần Android:
 - Kiến trúc: MVVM kết hợp Repository và Domain Rules.
 - Dịch vụ: Firebase Authentication, Firestore, FCM/Notifications và WorkManager theo phần đã tích hợp.
 - Build: Gradle/Android Gradle Plugin theo cấu hình dự án.
+
+Phần web quản trị:
+
+- Giao diện: HTML, CSS và JavaScript ES modules trong web-admin/.
+- Máy chủ cục bộ: Node.js 20 trở lên; Firebase Web SDK kết nối Auth/Firestore từ trình duyệt.
+- Gói static có thể tạo bằng `npm run build`; API xem camera cần máy chủ Node.js local.
 
 Phần firmware:
 
@@ -863,7 +891,7 @@ Trong shell, back stack nội bộ được duy trì cho các màn hình con. Kh
 
 Luồng triển khai hiện tại không yêu cầu nâng cấp Blaze để chạy phần cốt lõi:
 
-1. Android đăng nhập bằng Email/Password.
+1. Android hoặc web quản trị đăng nhập bằng Email/Password; web chỉ chấp nhận tài khoản Admin đang hoạt động và dùng cùng Firestore Rules.
 2. ESP8266 xác thực Anonymous.
 3. ESP8266 tạo bản ghi attendance có trạng thái chờ xử lý.
 4. Firestore Rules kiểm tra quyền và dữ liệu thiết bị.
@@ -875,6 +903,8 @@ Cloud Functions được coi là phần mở rộng. Nếu sau này nhóm bật 
 Phân biệt các loại thay đổi khi triển khai:
 
 - Thay đổi giao diện hoặc logic Android: build và cài APK mới lên điện thoại; không cần Firebase deploy.
+- Thay đổi HTML/CSS/JavaScript web: tải lại trang từ máy chủ local hoặc tạo lại gói static khi triển khai Hosting; không cần build APK.
+- Thay đổi API xem camera phía Node.js hoặc cấu hình dịch vụ camera trên laptop: khởi động lại máy chủ/dịch vụ liên quan. Gói web tĩnh không chứa các API proxy camera cục bộ.
 - Thay đổi Firestore Rules: cần deploy Rules nếu muốn môi trường Firebase online dùng Rules mới.
 - Thay đổi composite index: cần deploy index và chờ index sẵn sàng trước khi truy vấn mới hoạt động đầy đủ.
 - Thay đổi Cloud Functions: cần deploy Functions và thường phải dùng gói phù hợp; không áp dụng cho luồng Spark cốt lõi hiện tại.
@@ -1431,6 +1461,25 @@ Kết quả tự động ngày 09/10/2026: Android 300/300 kiểm thử trong 48
 
 Triển khai: Rules/index mới cần deploy trước khi dùng online; cập nhật APK cả hai vai trò và nạp firmware queue mới trên ESP8266. Cloud Functions là tùy chọn của cấu hình hiện tại; sửa resolver chỉ có hiệu lực tại nơi triển khai Functions. Kết quả này tách khỏi số liệu lịch sử mục 3.7; xem docs/QUAN_LY_CONG_VIEC.md.
 
+3.11. Triển khai web quản trị và phạm vi kiểm chứng (bổ sung ngày 13/10/2026)
+
+Giao diện web quản trị bổ sung cho Admin dùng máy tính; nhân viên vẫn dùng ứng dụng Android để tự đăng ký lịch, gửi đơn, cập nhật tiến độ và nộp kết quả công việc. Web nằm trong web-admin/, dùng HTML, CSS, JavaScript thuần theo ES modules và Firebase Web SDK. Máy chủ Node.js cục bộ chạy bằng `npm start` trong web-admin/ (yêu cầu Node.js 20 trở lên), phục vụ trang tại http://localhost:4173. Tệp cấu hình Firebase client có thể được tạo từ cấu hình Android hoặc điền theo firebase-config.example.js; không đưa service account, mật khẩu thiết bị hay token camera vào web.
+
+Web dùng cùng Firebase Authentication, các collection Firestore và Firestore Rules với Android. Tài khoản Admin đang hoạt động mới được vào các màn hình quản trị. Trang Xem thử với dữ liệu mẫu giúp xem bố cục và luồng nhập liệu mà không ghi dữ liệu thật. Khi dùng dữ liệu thật, các thay đổi phải được Firestore Rules chấp nhận; kết quả diễn giải chấm công trên trình duyệt cần đối chiếu với dữ liệu gốc, lịch, ca và các bản điều chỉnh.
+
+Các nhóm chức năng Admin hiện có trong mã nguồn web:
+
+- Tổng quan, công việc: theo dõi việc, tạo/giao/sửa, đọc báo cáo và lịch sử, duyệt hoặc yêu cầu làm lại.
+- Nhân viên và phòng ban: hồ sơ, tài khoản, đơn giá giờ, vân tay, khuôn mặt và trạng thái đã nghỉ; tạo/sửa/ngừng phòng ban.
+- Lịch làm việc và ca: xem lịch tuần/tháng, phân ca theo người hoặc nhóm, duyệt đăng ký tuần; quản lý ca chính và ca bổ sung.
+- Đơn từ, chấm công và có mặt: duyệt yêu cầu, lọc lượt quét, xử lý phân loại hoặc điều chỉnh có lý do, xem trạng thái theo ca.
+- Bảng lương, báo cáo/bảng công và hiệu suất: xem chi tiết ngày/ca, lập hoặc tính lại phiếu lương, xem chỉ số công việc và xuất CSV theo phạm vi dữ liệu đã tải.
+- Thiết bị IoT, thông báo, tiện ích nhân viên và nhật ký: theo dõi thiết bị, gửi lệnh phù hợp, quản lý nội dung và tra cứu thao tác.
+
+Mục Camera & khuôn mặt trên web local lấy ảnh từ camera qua API trung gian của Node.js trên laptop. Khi đăng ký khuôn mặt, web gửi yêu cầu qua Firestore; dịch vụ Python riêng trong services/face_attendance/ trên laptop thực hiện thu ảnh và nhận diện. Phần này là mở rộng của mã nguồn hiện tại, cần cấu hình trạm, dịch vụ và Rules phù hợp; việc xem ảnh không tự đăng ký mẫu hay tạo lượt chấm công. Gói static tạo bằng `npm run build` có thể phục vụ trên Firebase Hosting hoặc máy chủ tĩnh cho các màn hình quản trị dùng Firebase, nhưng không chứa máy chủ Node.js và API camera local. Vì vậy chức năng camera local cần mở trang qua localhost cùng máy chủ và dịch vụ phù hợp.
+
+Phạm vi kiểm chứng của web được tách khỏi số liệu Android, Firestore Emulator, Functions và firmware ngày 08/10–09/10 tại mục 3.7 và 3.10. Mã nguồn có bộ kiểm thử Node cho giao diện, nghiệp vụ, máy chủ và giao dịch Firestore trên Emulator; docs/WEB_ADMIN.md ghi các lần đối chiếu riêng. Kiểm thử tự động hoặc duyệt giao diện với dữ liệu mẫu không chứng minh đã đăng nhập Admin thật, ghi dữ liệu Firebase online, hoàn tất đăng ký khuôn mặt cho nhân viên hay nghiệm thu trên điện thoại/phần cứng thật. Trước khi nộp cần chụp các màn hình web chính, đối chiếu một luồng Admin trên web và Android bằng dữ liệu thử, và ghi rõ môi trường/kết quả khi thử camera, cảm biến và dịch vụ thật.
+
 
 KẾT LUẬN
 
@@ -1439,6 +1488,8 @@ KẾT LUẬN
 Điểm đáng chú ý về mặt thiết kế là sự tách biệt giữa attendance event gốc và kết quả phân loại. Nhờ đó, hệ thống có thể giải thích một bản ghi được xử lý ra sao, hỗ trợ điều chỉnh có lý do và lưu audit. Việc có hàng đợi offline cũng giúp mô hình sát hơn với điều kiện sử dụng thực tế, nơi Wi-Fi có thể không ổn định.
 
 Phiên bản 1.2 đã bổ sung đối tượng Công việc, giao việc theo người/ca, cập nhật và báo cáo, duyệt/làm lại, lịch sử và kiểm tra phiên bản khi cập nhật đồng thời. Chấm công hỗ trợ chứng minh có mặt, hiệu suất dựa trên kết quả được quản lý duyệt. Rules/index mới đã qua Emulator, APK và firmware đã biên dịch; cần deploy cấu hình mới, cài APK và nạp firmware để thử online. Kết quả mới nằm ở mục 3.10; số liệu cũ ở mục 3.7 giữ làm lịch sử. Các minh chứng phần cứng và phép đo [CẦN BỔ SUNG] vẫn cần thử thật.
+
+Giao diện web quản trị cho phép Admin thực hiện các nhóm nghiệp vụ trên máy tính bằng HTML, CSS, JavaScript và Firebase dùng chung với Android; Node.js cục bộ phục vụ web và hỗ trợ xem camera. Phần bổ sung tại mục 3.11 nêu rõ phạm vi đã có trong mã nguồn và những bước còn cần kiểm chứng với dữ liệu, tài khoản và thiết bị thật.
 
 Sản phẩm hiện tại nên được trình bày đúng là prototype phục vụ học tập và chứng minh kiến thức hệ thống nhúng, IoT, Android, Firebase và thiết kế phần mềm. Để nâng cấp thành sản phẩm thực tế, nhóm cần tiếp tục hoàn thiện nguồn, bảo mật thiết bị, đo lường độ chính xác, thiết kế cơ khí, khả năng mở rộng và kiểm thử thực địa.
 

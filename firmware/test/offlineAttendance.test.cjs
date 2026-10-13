@@ -59,8 +59,8 @@ function adapt(source) {
       'uploadAttendance(finger.fingerID, finger.confidence, value => { employeeName = value; }, value => { attendanceTime = value; }, value => { attendanceType = value; })')
     .replace(/resolveOfflineAttendancePayload\(payload, resolvedPayload\)/g,
       'resolveOfflineAttendancePayload(payload, value => { resolvedPayload = value; })')
-    .replace(/readDeviceCommand\(templateId, type, employeeId, wasProcessing, wasCompleted\)/g,
-      'readDeviceCommand(value => { templateId = value; }, value => { type = value; }, value => { employeeId = value; }, value => { wasProcessing = value; }, value => { wasCompleted = value; })')
+    .replace(/readDeviceCommand\(templateId, type, employeeId, employeeName, wasProcessing, wasCompleted\)/g,
+      'readDeviceCommand(value => { templateId = value; }, value => { type = value; }, value => { employeeId = value; }, value => { employeeName = value; }, value => { wasProcessing = value; }, value => { wasCompleted = value; })')
     .replace(/(record\["\w+"\]) \| ""/g, "$1.as('String')")
     .replace(/\.as<(bool|int|String)>\(\)/g, ".as('$1')")
     .replace(/\b\w+\.reserve\([^;\n]*\);/g, '')
@@ -119,6 +119,8 @@ function fixture() {
     pendingCommandType: '', pendingCommandSuccess: false, pendingCommandRestart: false,
     pendingCommandStartedAt: 0, pendingCommandTemplateId: 0, pendingCommandEmployeeId: '',
     commandPollIntervalMs: 15000, lastCommandCheck: 0, commandRequestId: 'requested-id',
+    commandSource: '', commandAttendanceId: '', pendingCommandFailureMessage: '',
+    faceDoorCommandMarked: () => false,
     sensorDeletes: 0, sensorEnrollments: 0, statusUpdates: [],
     AttendanceDelivery: Object.fromEntries(['NOT_STORED', 'QUEUED', 'CONFIRMED', 'REJECTED', 'LOCAL_ACCEPTED', 'ACCESS_ONLY', 'DUPLICATE'].map(x => [x, x])),
     AttendanceSyncResult: Object.fromEntries(['EMPTY', 'DEFERRED', 'RETRY', 'ACKNOWLEDGED', 'REJECTED', 'STORAGE_ERROR'].map(x => [x, x])),
@@ -157,6 +159,7 @@ function fixture() {
       deleteModel() { state.sensorDeletes++; return 0; } },
     setLatestError(message) { state.error = message; },
     showLcd(...lines) { state.displays.push(lines); },
+    showAttendanceDoorNotice(name, offline) { state.displays.push([name, 'DANG MO CUA']); state.doorName = name; state.fingerprintDoorNoticeActive = true; state.fingerprintDoorNoticeOffline = offline; state.fingerprintDoorNoticeAttendanceSaved = true; },
     showFingerprintResultNotice(...lines) { state.displays.push(lines); },
     signalResult(success) { state.signals.push(success); },
     openDoor() { state.operations.push('open'); state.opens++; },
@@ -179,8 +182,8 @@ function fixture() {
         readStringUntil() { const end = content.indexOf('\n', offset); const line = content.slice(offset, end); offset = end + 1; return line; } };
     } },
     hasValidClock: () => state.unixTime >= state.MIN_VALID_UNIX_TIME,
-    readDeviceCommand(setTemplate, setType, setEmployee, setProcessing, setCompleted) {
-      setTemplate(7); setType(state.nextCommand); setEmployee('employee-1'); setProcessing(false); setCompleted(false); return true;
+    readDeviceCommand(setTemplate, setType, setEmployee, setEmployeeName, setProcessing, setCompleted) {
+      setTemplate(7); setType(state.nextCommand); setEmployee('employee-1'); setEmployeeName('Nguyen Van A'); setProcessing(false); setCompleted(false); return true;
     },
     updateDeviceCommandStatus(status) { state.statusUpdates.push(status); return true; },
     isSupportedDeviceCommand: () => true,

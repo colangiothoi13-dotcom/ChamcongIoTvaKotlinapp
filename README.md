@@ -1,8 +1,8 @@
 # Quản lý công việc kết hợp chấm công IoT bằng vân tay
 
-**Web admin trên máy tính:** đã bổ sung giao diện quản trị dùng chung Firebase với app trong [`web-admin/`](web-admin/README.md). Nhấp đúp `web-admin/mo-web-admin.cmd`, mở **http://localhost:4173** và đăng nhập bằng tài khoản Admin; có chế độ dữ liệu mẫu để xem thử. Xem [kiến trúc và kiểm chứng web](docs/WEB_ADMIN.md).
+**Web admin trên máy tính:** giao diện trong [`web-admin/`](web-admin/README.md) được viết bằng **HTML, CSS và JavaScript thuần (ES modules)**. Trình duyệt dùng Firebase Web SDK để đăng nhập và đọc/ghi Firestore chung với ứng dụng Android. Máy chủ **Node.js** cục bộ phục vụ trang web và các API hỗ trợ camera; đây không phải mã Kotlin của ứng dụng Android. Nhấp đúp `web-admin/mo-web-admin.cmd`, mở **http://localhost:4173** và đăng nhập bằng tài khoản Admin; có chế độ dữ liệu mẫu để xem thử. Xem [kiến trúc và kiểm chứng web](docs/WEB_ADMIN.md).
 
-**Camera và đăng ký khuôn mặt:** web local có mục **Camera & khuôn mặt → Bắt đầu xem**; cả web Admin và APK **1.2.0 (versionCode 3)** có **Nhân viên → Đăng ký khuôn mặt**, tiến độ lấy 10 ảnh, đăng ký lại, xóa mẫu và hủy yêu cầu. Laptop chạy `services/face_attendance/mo-tram-khuon-mat.cmd` để nhận yêu cầu từ web hoặc app. Cần xác thực Firebase Admin riêng trên laptop, cấu hình chế độ Firebase và triển khai Firestore Rules mới; xem [cách cấu hình và sử dụng](services/face_attendance/README.md). Xem ảnh trên web local không cần khóa Admin.
+**Camera và đăng ký khuôn mặt:** web local có mục **Camera & khuôn mặt → Bắt đầu xem**; cả web Admin và APK **1.2.0 (versionCode 3)** có **Nhân viên → Đăng ký khuôn mặt**, đăng ký lại, xóa mẫu và hủy yêu cầu. Web hiện hướng dẫn chụp thủ công **6 ảnh** theo ba hướng; luồng Android và yêu cầu cũ dùng **10 ảnh**. Laptop chạy `services/face_attendance/mo-tram-khuon-mat.cmd` để nhận yêu cầu từ web hoặc app. Cần xác thực Firebase Admin riêng trên laptop, cấu hình chế độ Firebase và triển khai Firestore Rules mới; xem [cách cấu hình và sử dụng](services/face_attendance/README.md). Xem ảnh trên web local không cần khóa Admin.
 
 Web đã đối chiếu các nhóm chức năng Admin với app: nhân sự, vân tay/khuôn mặt, công việc và tệp lịch sử, lịch/duyệt đơn, công/lương và chi tiết ngày/ca, báo cáo, thiết bị, thông báo, tiện ích và nhật ký. **Thêm/Sửa hồ sơ** gộp tài khoản, vân tay và khuôn mặt; bấm tên mở chi tiết. Lịch có tuần/tháng, phân nhiều nhân viên/từng ngày và hai ca chính như app. Ngày 12/10/2026, **179/179 kiểm thử web đạt** với Firestore Emulator và build thành công. Đây là kiểm chứng local; chưa đăng ký mặt nhân viên hoặc thử nghiệp vụ trên Firebase production. [Hướng dẫn thao tác web](web-admin/README.md).
 
@@ -10,12 +10,13 @@ Board **ESP32-S3-WROOM-1 N16R8, USB Type-C** đã được nạp và trả ảnh
 
 Ứng dụng Android dành cho **Admin** và **nhân viên**, kết hợp ESP8266 với cảm biến AS608/R307 và Firebase. Tài liệu này mô tả đường đi đến từng màn hình, ý nghĩa các nút và điều gì xảy ra sau khi thao tác. Dự án đang vận hành theo **Firebase Spark**: không cần Cloud Functions để đăng ký vân tay hoặc để Android hiển thị công đã phân giải.
 
-Cập nhật tài liệu ngày **09/10/2026** theo mã nguồn hiện tại. [Báo cáo đồ án](BAO_CAO_DO_AN_CHAM_CONG_IOT.txt) trình bày kiến trúc, thiết kế dữ liệu, Use Case và đánh giá sản phẩm.
+Phần Android và quản lý công việc được cập nhật ngày **09/10/2026**; mô tả công nghệ web được bổ sung ngày **13/10/2026**. [Báo cáo đồ án](BAO_CAO_DO_AN_CHAM_CONG_IOT.txt) trình bày kiến trúc, thiết kế dữ liệu, Use Case và đánh giá sản phẩm.
 
 **Trạng thái bản cập nhật 09/10/2026:** đã bổ sung đối tượng Công việc, giao việc theo ca, báo cáo kết quả, duyệt/làm lại, lịch sử phiên bản, cập nhật đồng thời và hiệu suất theo việc. Đã cập nhật Firestore Rules/index và sửa lỗi queue IoT/danh tính lượt chấm. Cần deploy Rules/index mới và cài APK mới trước khi dùng công việc online; đối chiếu Firebase ngày 08/10/2026 thuộc bản trước. Hướng dẫn, sơ đồ dữ liệu, Use Case và kết quả kiểm thử bổ sung nằm ở [Quản lý công việc](docs/QUAN_LY_CONG_VIEC.md).
 
 ## Mục lục
 
+- [Công nghệ và thành phần chính](#công-nghệ-và-thành-phần-chính)
 - [Luồng hoạt động chung](#luồng-hoạt-động-chung)
 - [Đăng nhập và điều hướng](#đăng-nhập-và-điều-hướng)
 - [Công việc và kết quả](#công-việc-và-kết-quả)
@@ -26,6 +27,19 @@ Cập nhật tài liệu ngày **09/10/2026** theo mã nguồn hiện tại. [B�
 - [Cấu trúc mã nguồn](#cấu-trúc-mã-nguồn)
 - [Lưu ý khi vận hành](#lưu-ý-khi-vận-hành)
 - [Kiểm thử hồi quy](#kiểm-thử-hồi-quy)
+
+## Công nghệ và thành phần chính
+
+| Thành phần | Công nghệ | Vai trò |
+| --- | --- | --- |
+| Ứng dụng Android | Kotlin, Jetpack Compose | Giao diện Admin và nhân viên; xử lý quy tắc lịch, ca và chấm công. |
+| Web quản trị | HTML, CSS, JavaScript thuần (ES modules) | Giao diện Admin trên trình duyệt; dùng Firebase Auth và Firestore chung với Android. |
+| Máy chủ web cục bộ | Node.js | Phục vụ web tại `localhost:4173` và làm trung gian xem camera trên máy tính. |
+| Thiết bị chấm công vân tay | ESP8266, firmware Arduino/C++ và AS608/R307 | Nhận diện vân tay, lưu lượt quét và điều khiển cửa mô hình. |
+| Dịch vụ nhận diện khuôn mặt | Python trên laptop | Tiếp nhận yêu cầu đăng ký, xử lý ảnh và đối chiếu khuôn mặt từ camera. |
+| Dữ liệu và phân quyền | Firebase Authentication, Cloud Firestore và Firestore Rules | Xác thực, lưu dữ liệu dùng chung và kiểm tra quyền truy cập. |
+
+Mã nguồn và cách chạy web nằm trong [hướng dẫn web admin](web-admin/README.md). Bản web tĩnh có thể được đóng gói để triển khai lên Firebase Hosting; các API xem camera cần máy chủ Node.js cục bộ và không có trong gói tĩnh.
 
 ## Luồng hoạt động chung
 
@@ -472,6 +486,9 @@ Nếu tắt nguồn/reset rồi bật lại khi chưa có Wi-Fi, ESP chưa biế
 | [`app/src/main/java/vn/chamcong/iot/ui/admin/EmployeeResourceManagementScreen.kt`](app/src/main/java/vn/chamcong/iot/ui/admin/EmployeeResourceManagementScreen.kt), [`EmployeeResourcesScreen.kt`](app/src/main/java/vn/chamcong/iot/ui/employee/EmployeeResourcesScreen.kt), [`EmployeeUtilityScreens.kt`](app/src/main/java/vn/chamcong/iot/ui/employee/EmployeeUtilityScreens.kt) | Màn hình quản lý nội dung của Admin và các tiện ích nhân viên. |
 | [`firebase/firestore.rules`](firebase/firestore.rules), [`firebase/firestore.indexes.json`](firebase/firestore.indexes.json) | Phân quyền và indexes Firestore. |
 | [`firmware/esp8266_fingerprint`](firmware/esp8266_fingerprint) | Sketch, xử lý vân tay, lệnh thiết bị và hàng đợi chấm công. |
+| [`web-admin/index.html`](web-admin/index.html), [`web-admin/styles.css`](web-admin/styles.css), [`web-admin/src`](web-admin/src) | Giao diện web quản trị bằng HTML, CSS và JavaScript. |
+| [`web-admin/scripts`](web-admin/scripts) | Máy chủ Node.js cục bộ, đóng gói web và các API hỗ trợ camera. |
+| [`services/face_attendance`](services/face_attendance) | Dịch vụ Python trên laptop cho đăng ký và nhận diện khuôn mặt. |
 
 ## Lưu ý khi vận hành
 

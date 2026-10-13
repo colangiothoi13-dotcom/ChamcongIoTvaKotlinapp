@@ -59,7 +59,7 @@ test('guided progress uses six and advances front, left and right only from acce
     const data=command({sampleCount:6,capturePlan:SIX_POSE_PLAN,samplesCaptured:saved,captureRequestSeq:saved,captureConsumedSeq:saved});f.publish(data);assert.match(f.target.innerHTML,new RegExp(`Bước ${step}/3.*${label}`));
     f.publish({...data,captureRequestSeq:saved+1,captureConsumedSeq:saved+1,captureLastReason:'low_quality',message:'Ảnh mờ; chụp lại.'});assert.match(f.target.innerHTML,new RegExp(`Bước ${step}/3.*${label}`));assert.match(f.target.innerHTML,/Ảnh 1\/2/);
   }
-  f.publish(command({sampleCount:6,capturePlan:SIX_POSE_PLAN,samplesCaptured:6,captureRequestSeq:6,captureConsumedSeq:6,status:'FINALIZING'}));assert.match(f.target.innerHTML,/Đã đủ 6 ảnh/);assert.match(shotButton(f.target.innerHTML),/disabled/);f.controller.dispose();
+  f.publish(command({sampleCount:6,capturePlan:SIX_POSE_PLAN,samplesCaptured:6,captureRequestSeq:6,captureConsumedSeq:6,status:'FINALIZING'}));assert.match(f.target.innerHTML,/Đã đủ 6 ảnh/);assert.equal(shotButton(f.target.innerHTML),undefined);f.controller.dispose();
 });
 
 test('manual enrollment adds exactly three initialized fields, while omitted/AUTO and DELETE keep the old 13-field schema',async()=>{
@@ -142,7 +142,9 @@ test('capture button locks immediately, deduplicates clicks and remains locked u
 test('progress never enables capture for wrong states, cancelled requests, ten samples, outstanding requests or listener errors',async()=>{
   const f=uiFixture();await open(f);
   for(const extra of [{status:'PENDING'},{status:'FINALIZING'},{status:'FAILED'},{status:'COMPLETED'},{cancelRequested:true},{samplesCaptured:10},{captureRequestSeq:1},{captureRequestSeq:100,captureConsumedSeq:100}]){
-    f.publish(command(extra));assert.match(shotButton(f.target.innerHTML),/ disabled/,JSON.stringify(extra));
+    f.publish(command(extra));
+    if(['FINALIZING','FAILED','COMPLETED'].includes(extra.status)||extra.cancelRequested||extra.samplesCaptured===10)assert.equal(shotButton(f.target.innerHTML),undefined,JSON.stringify(extra));
+    else assert.match(shotButton(f.target.innerHTML),/ disabled/,JSON.stringify(extra));
   }
   f.publish(command());f.watchers.get('faceEnrollmentCommands/request-one').error({code:'permission-denied'});assert.match(shotButton(f.target.innerHTML),/ disabled/);assert.match(f.target.innerHTML,/Không đủ quyền/);
   f.publish(command({message:'<script>bad</script>'}));assert.doesNotMatch(f.target.innerHTML,/<script>/);assert.match(f.target.innerHTML,/&lt;script&gt;/);assert.doesNotMatch(shotButton(f.target.innerHTML),/ disabled/);f.controller.dispose();
@@ -164,6 +166,16 @@ test('a transient capture request failure leaves retry available without faking 
   assert.doesNotMatch(shotButton(f.target.innerHTML),/ disabled/);assert.match(f.target.innerHTML,/Tạm mất kết nối laptop/);assert.equal(f.ctx.data.faceEnrollmentCommands[0].captureRequestSeq,0);assert.equal(f.ctx.data.faceEnrollmentCommands[0].samplesCaptured,0);
   f.ctx.store.transaction=original;
   await f.controller.onAction('face-capture',{dataset:{requestId:'request-one'}});assert.doesNotMatch(f.target.innerHTML,/Tạm mất kết nối laptop/);assert.equal(f.ctx.data.faceEnrollmentCommands[0].captureRequestSeq,1);assert.equal(f.ctx.data.faceEnrollmentCommands[0].samplesCaptured,0);f.controller.dispose();
+});
+
+test('closing while a capture click is submitting waits for it, blocks further clicks and then cancels',async()=>{
+  const f=uiFixture();await open(f);const original=f.ctx.store.transaction;let release,calls=0;
+  f.ctx.store.transaction=async callback=>{calls++;if(calls===1)await new Promise(resolve=>release=resolve);return original(callback);};
+  const capture=f.controller.onAction('face-capture',{dataset:{requestId:'request-one'}}),closing=f.ctx.dialog.onBeforeClose();
+  assert.equal(calls,1);assert.match(shotButton(f.target.innerHTML),/disabled/);assert.equal(await f.controller.onAction('face-capture',{dataset:{requestId:'request-one'}}),true);assert.equal(calls,1);
+  release();await capture;assert.equal(await closing,true);assert.equal(calls,2);
+  const saved=await f.ctx.store.get('faceEnrollmentCommands','request-one');assert.equal(saved.captureRequestSeq,1);assert.equal(saved.cancelRequested,true);assert.equal(saved.status,'CAPTURING');assert.equal(saved.samplesCaptured,0);
+  assert.equal(writes(f.ctx).filter(row=>row[3]?.cancelRequested===true).length,1);f.controller.dispose();
 });
 
 test('manual and legacy status text describe requests without pretending an accepted photo exists',()=>{

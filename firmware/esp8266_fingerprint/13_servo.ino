@@ -71,8 +71,13 @@ void serviceDoor() {
   Serial.printf_P(PSTR("CUA: %s hoan toan; servo di chuyen %lu ms\n"),
                 doorStatus.c_str(), millis() - doorMoveStartedAt);
   if (doorOpen && fingerprintDoorNoticeActive) {
-    renderLcd(F("SE DONG SAU 5S"), !fingerprintDoorNoticeAttendanceSaved ? F("CHUA LUU CONG")
-        : (fingerprintDoorNoticeOffline ? F("OFFLINE: DA LUU") : F("DA XAC NHAN")));
+    const String resultLine = !fingerprintDoorNoticeAttendanceSaved
+        ? String(F("CHUA LUU CONG"))
+        : (fingerprintDoorNoticeOffline ? String(F("OFFLINE: DA LUU")) : String(F("DA XAC NHAN")));
+    const String nameLine = fingerprintDoorNoticeAttendanceSaved
+        ? (doorAttendanceEmployeeName.length() > 0 ? doorAttendanceEmployeeName : String(F("DA CHAM CONG")))
+        : String(F("SE DONG SAU 5S"));
+    renderLcd(nameLine, resultLine);
   }
   if (!doorOpen && fingerprintDoorNoticeActive) showReadyScreen();
 }

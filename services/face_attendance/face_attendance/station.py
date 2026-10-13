@@ -7,9 +7,11 @@ import uuid
 
 from .enrollment import CommandRejected, EnrollmentWorker, FirestoreEnrollmentStore
 from .capture_preview import CapturePreviewStore
+from .attendance_feedback import FaceAttendanceFeedback
 from .events import Event
+from .feedback import FaceBlockFeedback
 from .presence import PresenceGate
-from .recognition import FaceRecognitionError
+from .recognition import FaceRecognitionError, RecognitionResult
 from .server import _sync_loop, make_server
 from .source import FrameSourceError, UrlFrameSource, WebcamFrameSource
 
@@ -26,7 +28,15 @@ def run_station(config, gateway, face, data_dir, emit, *, webcam=None):
     source = WebcamFrameSource(webcam) if webcam is not None else UrlFrameSource(
         config["camera"]["url"], config["camera"]["token"], rotation=config["camera"].get("rotation", 0))
     preview = CapturePreviewStore()
-    server = make_server(gateway, config["host"], config["port"], config["adminToken"], config["deviceToken"], preview=preview)
+    feedback = FaceBlockFeedback(emit, enabled=config.get("accessories", {}).get("enabled") is True)
+    attendance_feedback = FaceAttendanceFeedback()
+    gateway.result_listener = attendance_feedback.record_result
+
+    def status_snapshot():
+        return {**feedback.get(), **attendance_feedback.get()}
+
+    server = make_server(gateway, config["host"], config["port"], config["adminToken"], config["deviceToken"],
+                         preview=preview, face_status=status_snapshot, allow_face_events=not feedback.enabled)
     store = worker = None
     threads = []
     camera_ready = threading.Event()
@@ -70,6 +80,7 @@ def run_station(config, gateway, face, data_dir, emit, *, webcam=None):
             thread.start()
         emit({"status": "STATION_STARTED", "mode": config["mode"], "stationId": config["stationId"],
               "host": config["host"], "port": server.server_port,
+              "accessoryGateEnabled": feedback.enabled,
               "message": "Rời khung hình trước khi chấm; đăng ký khuôn mặt bằng app Admin khi station online"})
         heartbeat_dirty = True
         last_heartbeat_attempt = -float("inf")
@@ -78,12 +89,14 @@ def run_station(config, gateway, face, data_dir, emit, *, webcam=None):
                 request_id = store.next_command()
                 if request_id:
                     presence.reset()
+                    feedback.reset("REGISTERING", "Đang đăng ký khuôn mặt. Xem hướng dẫn trong yêu cầu đăng ký.")
                     try:
                         worker.run_one(request_id)
                     finally:
                         # Registration photos must never count as an attendance
                         # visit. A real empty sequence is required afterward.
                         presence.reset()
+                        feedback.reset()
                     continue
             try:
                 frame = source.read()
@@ -93,17 +106,23 @@ def run_station(config, gateway, face, data_dir, emit, *, webcam=None):
                 result = face.recognize(frame.image)
                 if stop.is_set():
                     break
+                feedback.observe(result)
+                attendance_feedback.observe(result)
                 candidate = presence.observe(result)
                 if candidate:
                     candidate.update(sourceEventId="face-" + uuid.uuid4().hex,
                                      deviceId=config["faceDeviceId"], stationId=config["stationId"],
                                      capturedAt=frame.captured_at)
                     event = Event.parse(candidate, "FACE")
+                    attendance_feedback.begin()
                     # Preserve the same event until a durable local write
                     # succeeds, including while an enrollment is waiting.
                     while not stop.is_set():
                         try:
-                            emit(gateway.submit(event))
+                            result = gateway.submit(event)
+                            if result.get("status") == "QUEUED":
+                                attendance_feedback.record_result(event, result)
+                            emit(result)
                             break
                         except (OSError, sqlite3.Error):
                             emit({"status": "NOT_STORED", "message": "Đang thử lưu lại lượt chấm"})
@@ -117,6 +136,8 @@ def run_station(config, gateway, face, data_dir, emit, *, webcam=None):
                 if camera_ready.is_set():
                     heartbeat_dirty = True
                 camera_ready.clear()
+                feedback.reset("UNAVAILABLE", "Không lấy hoặc xử lý được ảnh camera. Chưa thể kiểm tra phụ kiện.")
+                attendance_feedback.observe(RecognitionResult(reason="unavailable"))
                 emit({"status": "SOURCE_ERROR", "message": "Không lấy hoặc xử lý được ảnh camera"})
                 stop.wait(1)
             if store and heartbeat_dirty and time.monotonic() - last_heartbeat_attempt >= 5:
@@ -141,6 +162,7 @@ def run_station(config, gateway, face, data_dir, emit, *, webcam=None):
         raise
     finally:
         stop.set()
+        feedback.reset("STOPPED", "Dịch vụ camera đã dừng.")
         preview.close()
         # No capture/gallery work lives in a detached daemon: Ctrl+C waits for
         # this main thread's cancellation/rollback before closing endpoints.
